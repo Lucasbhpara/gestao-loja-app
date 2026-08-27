@@ -324,6 +324,7 @@
     <button class="nav-item" data-pagina="ocorrencias" onclick="irPara('ocorrencias')"><span class="dot"></span>Ocorrências</button>
     <button class="nav-item" data-pagina="conferencias" onclick="irPara('conferencias')"><span class="dot"></span>Conferência (FLV)</button>
     <button class="nav-item" data-pagina="pedidos" onclick="irPara('pedidos')"><span class="dot"></span>Pedidos (FLV)</button>
+    <button class="nav-item" data-pagina="estoque-loja" onclick="irPara('estoque-loja')"><span class="dot"></span>Estoque Loja</button>
 
     <div class="sidebar-footer">
       <div class="sidebar-user">
@@ -395,6 +396,9 @@ let estado = {
   pedidoAtual: null,
   pedidoItens: [],
   pedidosAba: 'enviados',
+  buscaEstoqueLoja: '',
+  estoqueLojaResultados: [],
+  estoqueLojaData: null,
   buscaCatalogoPedidos: '',
 };
 
@@ -479,6 +483,7 @@ async function irPara(pagina) {
     else if (pagina === 'ocorrencias') await paginaOcorrencias();
     else if (pagina === 'conferencias') await paginaConferencias();
     else if (pagina === 'pedidos') await paginaPedidos();
+    else if (pagina === 'estoque-loja') await paginaEstoqueLoja();
   } catch (e) {
     el.innerHTML = '<div class="celula-vazio">Não consegui carregar essa página: ' + (e.message || '') + '</div>';
   }
@@ -1255,6 +1260,85 @@ function exportarPedido() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Pedido');
   XLSX.writeFile(wb, 'pedido_' + p.setor + '_' + p.criado_em.slice(0, 10) + '.xlsx');
+}
+
+// =============================================================================
+// Estoque Loja
+// =============================================================================
+async function paginaEstoqueLoja() {
+  estado.buscaEstoqueLoja = '';
+  estado.estoqueLojaResultados = [];
+  const { data } = await sb.from('estoque_loja_itens').select('data_planilha').limit(1).maybeSingle();
+  estado.estoqueLojaData = data ? data.data_planilha : null;
+  renderizarEstoqueLoja();
+}
+let timerBuscaEstoqueLoja = null;
+function renderizarEstoqueLoja() {
+  const dataTexto = estado.estoqueLojaData
+    ? 'Estoque de ' + estado.estoqueLojaData.split('-').reverse().join('/') + ' · atualizado por importação de planilha'
+    : 'Atualizado por importação de planilha';
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Estoque Loja', 'Consulta ao estoque real da loja 327, direto da última planilha importada') +
+    '<p class="sub" style="margin:-6px 0 18px;">' + dataTexto + '</p>' +
+    '<div class="toolbar" style="justify-content:space-between;">' +
+      '<input class="campo-input" id="estoque-loja-busca" style="max-width:360px; margin-bottom:0;" placeholder="Buscar por código ou nome do produto…" />' +
+      '<button class="btn-acao secundario" onclick="exportarEstoqueLojaTudo()">Exportar tudo (Excel)</button>' +
+    '</div>' +
+    '<div id="estoque-loja-tabela" style="margin-top:18px;"></div>';
+
+  const campo = document.getElementById('estoque-loja-busca');
+  campo.value = estado.buscaEstoqueLoja || '';
+  campo.addEventListener('input', (ev) => {
+    estado.buscaEstoqueLoja = ev.target.value;
+    clearTimeout(timerBuscaEstoqueLoja);
+    timerBuscaEstoqueLoja = setTimeout(buscarEstoqueLojaPortal, 300);
+  });
+  renderizarTabelaEstoqueLoja();
+}
+async function buscarEstoqueLojaPortal() {
+  const termo = (estado.buscaEstoqueLoja || '').trim();
+  if (!termo) { estado.estoqueLojaResultados = []; renderizarTabelaEstoqueLoja(); return; }
+  const padrao = '%' + termo + '%';
+  const { data, error } = await sb.from('estoque_loja_itens').select('*')
+    .or('codigo_interno.ilike.' + padrao + ',codigo_barras.ilike.' + padrao + ',produto.ilike.' + padrao)
+    .order('produto').limit(50);
+  if (error) { mostrarToast('Não consegui buscar: ' + error.message, 'erro'); return; }
+  estado.estoqueLojaResultados = data || [];
+  renderizarTabelaEstoqueLoja();
+}
+function renderizarTabelaEstoqueLoja() {
+  const termo = (estado.buscaEstoqueLoja || '').trim();
+  const lista = estado.estoqueLojaResultados;
+  let linhas;
+  if (!termo) {
+    linhas = '<tr><td colspan="3"><div class="celula-vazio">Digite um código ou nome pra consultar o estoque de um produto.</div></td></tr>';
+  } else if (lista.length === 0) {
+    linhas = '<tr><td colspan="3"><div class="celula-vazio">Nenhum produto encontrado com estoque diferente de zero.</div></td></tr>';
+  } else {
+    linhas = lista.map((i) => '<tr>' +
+      '<td>' + i.codigo_interno + '</td>' +
+      '<td class="nome-forte">' + i.produto + '</td>' +
+      '<td>' + Number(i.quantidade).toLocaleString('pt-BR') + '</td>' +
+    '</tr>').join('');
+  }
+  const el = document.getElementById('estoque-loja-tabela');
+  if (el) el.innerHTML = '<div class="tabela-wrap"><table><thead><tr><th>Código</th><th>Produto</th><th>Quantidade</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+}
+async function exportarEstoqueLojaTudo() {
+  mostrarToast('Preparando exportação…', 'sucesso');
+  const { data, error } = await sb.from('estoque_loja_itens').select('*').order('produto');
+  if (error) { mostrarToast('Não consegui exportar: ' + error.message, 'erro'); return; }
+  if (!data || data.length === 0) { mostrarToast('Nada pra exportar ainda.', 'erro'); return; }
+  const linhasPlanilha = data.map((i) => ({
+    Codigo: i.codigo_interno,
+    'Codigo de barras': i.codigo_barras || '',
+    Produto: i.produto,
+    Quantidade: Number(i.quantidade),
+  }));
+  const ws = XLSX.utils.json_to_sheet(linhasPlanilha);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Estoque Loja');
+  XLSX.writeFile(wb, 'estoque_loja_' + new Date().toISOString().slice(0,10) + '.xlsx');
 }
 
 // =============================================================================

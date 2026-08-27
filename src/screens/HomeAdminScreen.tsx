@@ -165,7 +165,7 @@ export default function HomeAdminScreen() {
             { label: 'Estoque Loja', icone: 'archive' as const, onPress: () => setTela('estoqueLoja') },
             { label: 'Mural de Avisos', icone: 'bell' as const, onPress: () => setTela('avisos') },
             { label: 'Ocorrências', icone: 'alert-triangle' as const, onPress: () => setTela('ocorrencias') },
-            { label: 'Conferência (FLV)', icone: 'clipboard' as const, onPress: () => setTela('conferencias') },
+            { label: 'Conferência', icone: 'clipboard' as const, onPress: () => setTela('conferencias') },
             { label: 'Pedidos (FLV)', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') },
             { label: 'Sobre', icone: 'info' as const, onPress: () => setTela('sobre') },
           ].map((acao) => (
