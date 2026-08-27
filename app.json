@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "ULVA",
+    "slug": "gestao-de-loja",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "icon": "./assets/icon.png",
+    "splash": {
+      "backgroundColor": "#FFFFFF",
+      "image": "./assets/icon.png",
+      "resizeMode": "contain"
+    },
+    "assetBundlePatterns": ["**/*"],
+    "android": {
+      "package": "com.lucasalberto.gestaodeloja",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon-foreground.png",
+        "backgroundColor": "#46FCDF"
+      }
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.lucasalberto.gestaodeloja",
+      "icon": "./assets/icon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "b3d3f1f8-eca6-4446-baec-3ae7046db643"
+      }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Precisamos da câmera pra ler o código de barras dos produtos na tela de Validade."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#1B2A6B"
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Precisamos acessar suas fotos pra anexar uma imagem no Mural de Avisos.",
+          "cameraPermission": "Precisamos da câmera pra tirar uma foto pro Mural de Avisos."
+        }
+      ]
+    ]
+  }
+}
