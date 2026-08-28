@@ -9,13 +9,12 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
-  Platform,
 } from 'react-native';
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
-import DateTimePicker, { DateTimePickerEvent } from '@react-native-community/datetimepicker';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { setores, SetorKey } from '../data/employees';
+import SeletorDataValidade from '../components/SeletorDataValidade';
 import {
   Validade,
   buscarProdutoPorCodigoBarras,
@@ -28,6 +27,7 @@ import {
 } from '../data/validadeApi';
 import { diasRestantes, formatarData, statusPrazo } from '../lib/validadeUtils';
 import { exportarContagemXlsx } from '../lib/exportarPlanilha';
+import { camaraDisponivel } from '../lib/plataforma';
 
 // "Todos" não é um setor de colaborador de verdade — é um marcador especial
 // só pra deixar um produto visível em qualquer aba de setor de uma vez (ex.:
@@ -45,20 +45,6 @@ function dataValida(valor: string): boolean {
   const [, ano, mes, dia] = m;
   const d = new Date(Number(ano), Number(mes) - 1, Number(dia));
   return d.getFullYear() === Number(ano) && d.getMonth() === Number(mes) - 1 && d.getDate() === Number(dia);
-}
-
-// Converte 'AAAA-MM-DD' (formato usado no banco) pra um objeto Date, pro
-// calendário nativo entender. E o caminho inverso, pra guardar de volta.
-function textoParaData(iso: string): Date {
-  const [ano, mes, dia] = iso.split('-').map(Number);
-  return new Date(ano, mes - 1, dia);
-}
-
-function dataParaTexto(data: Date): string {
-  const ano = data.getFullYear();
-  const mes = String(data.getMonth() + 1).padStart(2, '0');
-  const dia = String(data.getDate()).padStart(2, '0');
-  return `${ano}-${mes}-${dia}`;
 }
 
 export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
@@ -86,7 +72,6 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
   const [setorEscolhido, setSetorEscolhido] = useState<SetorKey | null>(null);
   const [salvando, setSalvando] = useState(false);
   const [buscandoCatalogo, setBuscandoCatalogo] = useState(false);
-  const [mostrarCalendario, setMostrarCalendario] = useState(false);
   const [editarCatalogo, setEditarCatalogo] = useState(false);
   // Quando não-nulo, "Salvar" corrige esse produto já cadastrado em vez de
   // lançar um novo.
@@ -188,15 +173,6 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
     setEditarCatalogo(false);
     setEditandoId(v.id);
     setModo('confirmar');
-  }
-
-  function aoMudarData(evento: DateTimePickerEvent, data?: Date) {
-    if (Platform.OS === 'android') {
-      setMostrarCalendario(false);
-    }
-    if (evento.type === 'set' && data) {
-      setDataValidadeTexto(dataParaTexto(data));
-    }
   }
 
   function cancelarConfirmacao() {
@@ -405,26 +381,7 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
               <TextInput style={styles.input} placeholder="un, kg, cx…" value={unidade} onChangeText={setUnidade} />
 
               <Text style={styles.formLabel}>Data de validade</Text>
-              <TouchableOpacity style={styles.input} onPress={() => setMostrarCalendario(true)}>
-                <Text style={dataValidadeTexto && dataValida(dataValidadeTexto) ? styles.inputTexto : styles.inputPlaceholder}>
-                  {dataValidadeTexto && dataValida(dataValidadeTexto)
-                    ? formatarData(dataValidadeTexto)
-                    : 'Toque para escolher no calendário'}
-                </Text>
-              </TouchableOpacity>
-              {mostrarCalendario && (
-                <DateTimePicker
-                  value={dataValidadeTexto && dataValida(dataValidadeTexto) ? textoParaData(dataValidadeTexto) : new Date()}
-                  mode="date"
-                  display={Platform.OS === 'ios' ? 'inline' : 'calendar'}
-                  onChange={aoMudarData}
-                />
-              )}
-              {Platform.OS === 'ios' && mostrarCalendario && (
-                <TouchableOpacity style={styles.btnFecharCalendario} onPress={() => setMostrarCalendario(false)}>
-                  <Text style={styles.btnFecharCalendarioTexto}>Concluído</Text>
-                </TouchableOpacity>
-              )}
+              <SeletorDataValidade valor={dataValidadeTexto} onSelecionar={setDataValidadeTexto} />
 
               {podeGerenciarTudo && (
                 <>
@@ -558,7 +515,7 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
         )}
       </ScrollView>
 
-      <TouchableOpacity style={styles.fab} onPress={abrirScanner}>
+      <TouchableOpacity style={styles.fab} onPress={camaraDisponivel ? abrirScanner : abrirEntradaManual}>
         <Text style={styles.fabTexto}>+</Text>
       </TouchableOpacity>
     </View>

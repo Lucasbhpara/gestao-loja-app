@@ -28,6 +28,7 @@ import {
   buscarComparacao,
 } from '../data/inventarioApi';
 import { exportarContagemXlsx } from '../lib/exportarPlanilha';
+import { camaraDisponivel } from '../lib/plataforma';
 
 type Area = 'venda' | 'deposito';
 type Modo = 'pessoa' | 'sortimento' | 'contagem' | 'scanner' | 'comparar';
@@ -512,9 +513,11 @@ export default function InventarioScreen({ onVoltar }: { onVoltar: () => void })
           value={termoBusca}
           onChangeText={setTermoBusca}
         />
-        <TouchableOpacity style={styles.btnScan} onPress={abrirScanner}>
-          <Text style={styles.btnScanTexto}>Escanear</Text>
-        </TouchableOpacity>
+        {camaraDisponivel && (
+          <TouchableOpacity style={styles.btnScan} onPress={abrirScanner}>
+            <Text style={styles.btnScanTexto}>Escanear</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {resultadosBusca.length > 0 && (

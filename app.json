@@ -24,6 +24,11 @@
       "bundleIdentifier": "com.lucasalberto.gestaodeloja",
       "icon": "./assets/icon.png"
     },
+    "web": {
+      "favicon": "./assets/icon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
     "extra": {
       "eas": {
         "projectId": "b3d3f1f8-eca6-4446-baec-3ae7046db643"

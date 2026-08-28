@@ -4,15 +4,20 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { supabase, supabaseConfigurado } from './supabase';
 
-// Faz as notificações aparecerem mesmo com o app aberto (por padrão, o
-// sistema só mostra notificação com o app em segundo plano).
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-  }),
-});
+// Notificação push funciona diferente em navegador (precisa de uma
+// configuração à parte, tipo Web Push) — por enquanto a versão web só não
+// usa essa parte, sem quebrar nada. No app instalado continua normal.
+if (Platform.OS !== 'web') {
+  // Faz as notificações aparecerem mesmo com o app aberto (por padrão, o
+  // sistema só mostra notificação com o app em segundo plano).
+  Notifications.setNotificationHandler({
+    handleNotification: async () => ({
+      shouldShowAlert: true,
+      shouldPlaySound: true,
+      shouldSetBadge: false,
+    }),
+  });
+}
 
 // Pede permissão de notificação (se ainda não tiver) e salva o token desse
 // celular vinculado ao colaborador — é esse token que o banco de dados usa
@@ -23,6 +28,7 @@ Notifications.setNotificationHandler({
 // colaborador negar a permissão, o app continua funcionando normalmente,
 // só sem notificação.
 export async function registrarNotificacoes(colaboradorId: string): Promise<void> {
+  if (Platform.OS === 'web') return;
   if (!supabaseConfigurado) return;
   if (!Device.isDevice) return;
 

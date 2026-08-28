@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Activi
 import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-camera';
 import { colors, radius, spacing } from '../theme/colors';
 import { ItemEstoqueLoja, buscarEstoqueLoja, buscarDataEstoqueLoja } from '../data/estoqueLojaApi';
+import { camaraDisponivel } from '../lib/plataforma';
 
 function formatarQuantidade(q: number): string {
   if (Number.isInteger(q)) return String(q);
@@ -140,9 +141,11 @@ export default function EstoqueLojaScreen({ onVoltar }: { onVoltar: () => void }
           onChangeText={setTermo}
           autoFocus
         />
-        <TouchableOpacity style={styles.btnScan} onPress={abrirScanner}>
-          <Text style={styles.btnScanTexto}>Escanear</Text>
-        </TouchableOpacity>
+        {camaraDisponivel && (
+          <TouchableOpacity style={styles.btnScan} onPress={abrirScanner}>
+            <Text style={styles.btnScanTexto}>Escanear</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       {erro && (
