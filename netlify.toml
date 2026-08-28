@@ -1,0 +1,10 @@
+[build]
+  command = "npx expo export -p web"
+  publish = "dist"
+
+[build.environment]
+  NODE_VERSION = "20"
+
+# Como o app não usa links tipo "/produto/123" (a navegação é toda por
+# estado dentro da mesma tela), não precisa de redirecionamento especial
+# pra rotas — o index.html sozinho já resolve tudo.
