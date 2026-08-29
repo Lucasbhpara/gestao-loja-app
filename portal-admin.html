@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+<script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
   :root {
     --bg: #0A0E27;
@@ -245,6 +246,31 @@
   .form-botoes { display: flex; justify-content: flex-end; gap: 10px; margin-top: 22px; }
   .foto-preview { width: 100%; max-height: 200px; object-fit: cover; border-radius: var(--radius-md); margin-bottom: 10px; }
   input[type="file"] { color: var(--text-secondary); font-size: 12.5px; }
+  .modal-card.largo { max-width: 980px; }
+  .zona-arrastar {
+    border: 2px dashed var(--border); border-radius: var(--radius-lg); padding: 32px 20px;
+    text-align: center; cursor: pointer; transition: border-color .15s, background .15s;
+  }
+  .zona-arrastar.sobre { border-color: var(--accent); background: rgba(99,102,241,0.06); }
+  .zona-arrastar .icone { font-size: 28px; margin-bottom: 8px; }
+  .zona-arrastar .principal { font-weight: 700; font-size: 13.5px; margin-bottom: 4px; }
+  .zona-arrastar .secundario { font-size: 11.5px; color: var(--text-secondary); }
+  .faixa-checagem { border-radius: var(--radius-md); padding: 12px 16px; font-size: 12.5px; font-weight: 700; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .faixa-checagem.ok { background: rgba(34,197,94,0.12); color: #15803d; }
+  .faixa-checagem.erro { background: rgba(239,68,68,0.12); color: #b91c1c; }
+  .faixa-checagem .sub { font-weight: 500; opacity: .85; }
+  .tabela-revisao { max-height: 46vh; overflow-y: auto; border: 1px solid var(--border); border-radius: var(--radius-md); margin-bottom: 16px; }
+  .tabela-revisao table { width: 100%; }
+  .tabela-revisao thead th { position: sticky; top: 0; background: var(--card-bg-2); z-index: 1; }
+  .tabela-revisao input.campo-tabela, .tabela-revisao select.campo-tabela {
+    width: 100%; box-sizing: border-box; border: 1px solid transparent; background: transparent;
+    font-size: 12.5px; color: var(--text-primary); padding: 5px 6px; border-radius: 6px; font-family: inherit;
+  }
+  .tabela-revisao input.campo-tabela:hover, .tabela-revisao select.campo-tabela:hover,
+  .tabela-revisao input.campo-tabela:focus, .tabela-revisao select.campo-tabela:focus { border-color: var(--border); background: var(--card-bg); }
+  .tabela-revisao select.campo-tabela.vazio { border-color: #ef4444; background: rgba(239,68,68,0.07); }
+  .linha-revisar { background: rgba(239,68,68,0.045); }
+  .contagem-revisar { font-size: 11.5px; color: #b91c1c; font-weight: 700; margin-bottom: 10px; }
 
   .comparar-linha { display: flex; justify-content: space-between; padding: 4px 0; font-size: 12.5px; }
   .comparar-linha .p { color: var(--text-secondary); }
@@ -660,6 +686,7 @@ function renderizarAvisos() {
           '<div class="mensagem">' + a.mensagem + '</div>' +
           '<div class="rodape">' + formatarDataHora(a.criado_em) + ' · ' + a.criado_por_nome + ' · ' + nomeSetor(a.setor === null ? null : a.setor) + (a.setor === null ? '' : '') + '</div>' +
           '<div class="acoes">' +
+            (a.foto_url ? '<button class="btn-ver-visu" onclick="baixarFotoAviso(\'' + a.foto_url.replace(/'/g, "\\'") + '\', \'' + a.titulo.replace(/'/g, "\\'") + '\')">Baixar foto</button>' : '') +
             '<button class="btn-ver-visu" onclick="alternarVisualizacoes(\'' + a.id + '\')">' + (Array.isArray(visu) ? 'Ocultar quem visualizou' : 'Ver quem visualizou') + '</button>' +
             '<button class="link-remover" onclick="removerAviso(\'' + a.id + '\', \'' + a.titulo.replace(/'/g, "\\'") + '\')">Remover</button>' +
           '</div>' +
@@ -671,6 +698,20 @@ function renderizarAvisos() {
     cabecalho('Mural de Avisos', 'Publique avisos gerais ou por setor') +
     '<div class="toolbar" style="justify-content:flex-end;"><button class="btn-acao" onclick="abrirModalNovoAviso()">+ Novo aviso</button></div>' +
     '<div class="lista-cards">' + cards + '</div>';
+}
+async function baixarFotoAviso(url, titulo) {
+  try {
+    const resposta = await fetch(url);
+    if (!resposta.ok) throw new Error('falha ao baixar');
+    const blob = await resposta.blob();
+    const ext = (url.split('?')[0].match(/\.([a-zA-Z0-9]{2,5})$/) || [, 'jpg'])[1];
+    const base = titulo.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'aviso';
+    const urlObjeto = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = urlObjeto; link.download = base + '.' + ext;
+    document.body.appendChild(link); link.click(); link.remove();
+    URL.revokeObjectURL(urlObjeto);
+  } catch (e) { mostrarToast('Não consegui baixar a foto.', 'erro'); }
 }
 async function alternarVisualizacoes(avisoId) {
   const atual = estado.visualizacoesAbertas[avisoId];
@@ -738,6 +779,435 @@ async function removerAviso(id, titulo) {
 }
 
 // =============================================================================
+// Importação de PDF (Perdas & Quebras / Conferência via Nota Fiscal)
+// -----------------------------------------------------------------------
+// Lê o PDF direto no navegador (pdf.js), reconstrói as linhas da tabela
+// agrupando os textos por posição Y parecida, e interpreta cada linha com
+// os mesmos formatos que a gente já vinha lendo manualmente. Números
+// (quantidade, valor perdido, etc.) sempre saem certos — só o texto
+// (produto/sortimento) pode falhar em linhas com nome muito comprido (o
+// PDF sobrepõe o texto nessas linhas); quando isso acontece a linha fica
+// marcada "revisar" e pede pra você completar antes de liberar o import.
+// Antes de gravar, sempre confere a soma das linhas lidas contra o total
+// impresso no rodapé do próprio PDF.
+// =============================================================================
+const SETOR_POR_SORTIMENTO_PDF = {
+  'HORTIFRUTI FRUTAS': 'flv',
+  'HORTIFRUTI LEGUMES/FOLHAGEM': 'flv',
+  'PADARIA - FORNECEDOR': 'padaria',
+  'PADARIA - F.PROP.': 'padaria',
+  'LATICINIOS': 'frios',
+  'DEFUMADOS': 'frios',
+  'FRIOS- BATATA CONG.': 'frios',
+  'PERECIVEIS': 'frios',
+  'CARNE SUINA': 'acougue',
+  'CARNE BOV RESFR/CONG': 'acougue',
+  'AVES RESFR/CONG': 'acougue',
+  'PEIXES/FRUTOS MAR': 'acougue',
+  'MATINAIS': 'mercearia',
+  'CONSERVAS': 'mercearia',
+  'LIMPEZA - DPH': 'mercearia',
+  'BEBIDAS': 'mercearia',
+  'BAZAR': 'mercearia',
+  'PERFUMARIA': 'mercearia',
+  'PAPEL HIG/PAPEL TOALHA': 'mercearia',
+  'INSTITUCIONAL': 'mercearia',
+};
+const SORTIMENTOS_PDF_ORDENADOS = Object.keys(SETOR_POR_SORTIMENTO_PDF).sort((a, b) => b.length - a.length);
+
+function numeroBR(s) {
+  if (s == null) return null;
+  const limpo = String(s).trim().replace(/\./g, '').replace(',', '.');
+  const n = Number(limpo);
+  return Number.isNaN(n) ? null : n;
+}
+
+const RE_LINHA_PERDAS = /^(\d{2,8})\s+(.+?)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s+([\d.,]+)\s*%\s*$/;
+
+function parseLinhaPerdas(linha) {
+  const m = linha.match(RE_LINHA_PERDAS);
+  if (!m) return null;
+  const [, cod, meio, custoStr, quantStr, imProprStr, vendaStr, pctStr] = m;
+  const custo = numeroBR(custoStr);
+  const quant = numeroBR(quantStr);
+  const improprios = numeroBR(imProprStr);
+  const venda = numeroBR(vendaStr);
+  const pct = venda === 0 ? null : numeroBR(pctStr);
+
+  let idx = -1, sortimentoAchado = null;
+  for (const nome of SORTIMENTOS_PDF_ORDENADOS) {
+    const i = meio.indexOf(nome);
+    if (i !== -1 && (idx === -1 || i < idx)) { idx = i; sortimentoAchado = nome; }
+  }
+
+  let produto, sortimento, setor, status;
+  if (sortimentoAchado) {
+    let antes = meio.slice(0, idx).replace(/\d{1,2}\s*$/, '').trim();
+    const resto = meio.slice(idx + sortimentoAchado.length).trim();
+    if (resto && /^[A-Z./]{1,4}$/.test(resto)) antes = (antes + ' ' + resto).trim();
+    produto = antes.replace(/\s+/g, ' ');
+    sortimento = sortimentoAchado;
+    setor = SETOR_POR_SORTIMENTO_PDF[sortimento] || null;
+    status = 'ok';
+  } else {
+    produto = meio.trim().replace(/\s+/g, ' ');
+    sortimento = null;
+    setor = null;
+    status = 'revisar';
+  }
+  return { codigo: cod.replace(/^0+(?=\d)/, ''), produto, sortimento, setor, custo, quant, improprios, venda, pct, status };
+}
+
+function parsePerdasPaginas(paginasLinhas) {
+  const itens = [];
+  for (const linhas of paginasLinhas) for (const linha of linhas) {
+    const item = parseLinhaPerdas(linha);
+    if (item) itens.push(item);
+  }
+  const totalQuant = itens.reduce((s, i) => s + (i.quant || 0), 0);
+  const totalImproprios = itens.reduce((s, i) => s + (i.improprios || 0), 0);
+  return { itens, totalQuant, totalImproprios };
+}
+
+function acharTotaisRodapePerdas(paginasLinhas) {
+  let quant = null, improprios = null;
+  for (const linhas of paginasLinhas) for (const linha of linhas) {
+    const mImp = linha.match(/Total Geral Vr\.?Impr[oó]prios[^\d]*([\d.,]+)/i);
+    if (mImp) improprios = numeroBR(mImp[1]);
+    const mQtd = linha.match(/Total Geral Quantita?de[^\d]*([\d.,]+)/i);
+    if (mQtd) quant = numeroBR(mQtd[1]);
+  }
+  return { quant, improprios };
+}
+
+function acharCabecalhoPerdas(paginasLinhas) {
+  let loja = null, inicio = null, fim = null;
+  for (const linha of (paginasLinhas[0] || [])) {
+    const mPeriodo = linha.match(/Periodo\.?:\s*(\d{2})\/(\d{2})\/(\d{4})\s*à\s*(\d{2})\/(\d{2})\/(\d{4})/i);
+    if (mPeriodo) { inicio = `${mPeriodo[3]}-${mPeriodo[2]}-${mPeriodo[1]}`; fim = `${mPeriodo[6]}-${mPeriodo[5]}-${mPeriodo[4]}`; }
+    const mLoja = linha.match(/Loja:\s*(\d+\s*-\s*[A-ZÀ-Ú ]+?)\s+Tipo Estoque/i);
+    if (mLoja) loja = mLoja[1].trim();
+  }
+  return { loja, inicio, fim };
+}
+
+function unidadeParaQuant(q) { return Number.isInteger(q) ? 'un' : 'kg'; }
+
+// ---------- Conferência via Nota Fiscal (DANFE) ----------
+const RE_LINHA_NF = /^(\d{4,14})\s+(.+?)\s+\d{7,8}\s+\d{2,4}\s+\d{3,4}\s+[A-Z]{2}\s+((?:[\d.,]+\s+){8}[\d.,]+)\s*$/;
+
+function normalizarCodigoNF(cod) {
+  if (cod.length === 13 && !/^0/.test(cod)) return cod;
+  return cod.replace(/^0+(?=\d)/, '');
+}
+function parseLinhaNF(linha) {
+  const m = linha.match(RE_LINHA_NF);
+  if (!m) return null;
+  const [, cod, produto, camposStr] = m;
+  const campos = camposStr.trim().split(/\s+/).map(numeroBR);
+  return { codigo: normalizarCodigoNF(cod), produto: produto.trim().replace(/\s+/g, ' '), quantidade: campos[0], valorTotal: campos[3] };
+}
+function parseConferenciaNFPaginas(paginasLinhas) {
+  const itens = [];
+  for (const linhas of paginasLinhas) for (const linha of linhas) {
+    const item = parseLinhaNF(linha);
+    if (item) itens.push(item);
+  }
+  const somaValorTotal = itens.reduce((s, i) => s + (i.valorTotal || 0), 0);
+  return { itens, somaValorTotal };
+}
+function acharValorTotalProdutos(paginasLinhas) {
+  for (const linhas of paginasLinhas) {
+    for (let i = 0; i < linhas.length; i++) {
+      if (/VALOR TOTAL DOS PRODUTOS/i.test(linhas[i])) {
+        for (let j = i + 1; j < Math.min(i + 3, linhas.length); j++) {
+          const nums = linhas[j].match(/[\d.,]+/g);
+          if (nums && nums.length) return numeroBR(nums[nums.length - 1]);
+        }
+      }
+    }
+  }
+  return null;
+}
+function acharInfoNF(paginasLinhas) {
+  let numero = null, dataEmissao = null;
+  for (const linha of (paginasLinhas[0] || [])) {
+    const mNum = linha.match(/N[ºo°]\s*([\d.]{6,})/);
+    if (mNum && !numero) numero = mNum[1].replace(/\./g, '').replace(/^0+(?=\d)/, '');
+    const mData = linha.match(/DATA DE EMISS[ÃA]O:?\s*(\d{2}\/\d{2}\/\d{4})/i);
+    if (mData) dataEmissao = mData[1];
+  }
+  return { numero, dataEmissao };
+}
+
+// ---------- Leitura do PDF no navegador (pdf.js) ----------
+if (window.pdfjsLib) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
+async function extrairLinhasPDF(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const paginas = [];
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const page = await pdf.getPage(n);
+    const conteudo = await page.getTextContent();
+    const grupos = [];
+    for (const item of conteudo.items) {
+      const x = item.transform[4], y = item.transform[5];
+      let g = grupos.find((g) => Math.abs(g.y - y) <= 1.5);
+      if (!g) { g = { y, itens: [] }; grupos.push(g); }
+      g.itens.push({ x, str: item.str });
+    }
+    grupos.sort((a, b) => b.y - a.y); // pdf.js: Y cresce pra cima -> maior Y primeiro
+    const linhas = grupos
+      .map((g) => g.itens.sort((a, b) => a.x - b.x).map((i) => i.str).join(' ').replace(/\s+/g, ' ').trim())
+      .filter(Boolean);
+    paginas.push(linhas);
+  }
+  return paginas;
+}
+
+function normalizarProdutoParaMatch(s) {
+  return (s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\./g, '').replace(/\s+/g, ' ').trim();
+}
+
+// ---------- UI: zona de arrastar/soltar + seletor de arquivo ----------
+function zonaArrastarSoltarHtml(idInput, textoPrincipal) {
+  return '<div class="zona-arrastar" id="zona-' + idInput + '" onclick="document.getElementById(\'' + idInput + '\').click()">' +
+    '<div class="icone">📄</div><div class="principal">' + textoPrincipal + '</div>' +
+    '<div class="secundario" id="zona-' + idInput + '-nome">Clique aqui ou arraste o arquivo PDF</div>' +
+    '</div><input type="file" id="' + idInput + '" accept="application/pdf" style="display:none" />';
+}
+function ligarZonaArrastarSoltar(idInput, aoEscolher) {
+  const input = document.getElementById(idInput);
+  const zona = document.getElementById('zona-' + idInput);
+  const nomeEl = document.getElementById('zona-' + idInput + '-nome');
+  function escolher(file) {
+    if (!file) return;
+    if (file.type !== 'application/pdf' && !file.name.toLowerCase().endsWith('.pdf')) {
+      mostrarToast('Isso não parece ser um PDF.', 'erro'); return;
+    }
+    nomeEl.textContent = file.name;
+    aoEscolher(file);
+  }
+  input.addEventListener('change', (ev) => escolher(ev.target.files[0]));
+  zona.addEventListener('dragover', (ev) => { ev.preventDefault(); zona.classList.add('sobre'); });
+  zona.addEventListener('dragleave', () => zona.classList.remove('sobre'));
+  zona.addEventListener('drop', (ev) => {
+    ev.preventDefault(); zona.classList.remove('sobre');
+    escolher(ev.dataTransfer.files[0]);
+  });
+}
+
+// ---------- Fluxo: importar Perdas & Quebras ----------
+let importPerdas = null; // { itens, totalQuant, totalImproprios, rodape, cabecalho, arquivo }
+
+function abrirImportarPerdas() {
+  abrirModal('Importar PDF de Perdas', '<div id="import-perdas-corpo">' + zonaArrastarSoltarHtml('ip-arquivo', 'Relatório de Estoque (Produtos Impróprios)') + '</div>', 'Ler PDF', () => {});
+  document.getElementById('modal-btn-salvar').style.display = 'none'; // só aparece depois de ler o PDF
+  ligarZonaArrastarSoltar('ip-arquivo', processarArquivoPerdas);
+}
+
+async function processarArquivoPerdas(file) {
+  const corpo = document.getElementById('import-perdas-corpo');
+  corpo.innerHTML += '<div class="carregando" style="margin-top:14px;">Lendo o PDF…</div>';
+  try {
+    const paginas = await extrairLinhasPDF(file);
+    const { itens, totalQuant, totalImproprios } = parsePerdasPaginas(paginas);
+    if (itens.length === 0) throw new Error('Não encontrei nenhuma linha de produto nesse PDF. É mesmo um relatório de Perdas & Quebras?');
+    const rodape = acharTotaisRodapePerdas(paginas);
+    const cab = acharCabecalhoPerdas(paginas);
+    importPerdas = { itens, totalQuant, totalImproprios, rodape, cabecalho: cab };
+    fecharModal();
+    renderRevisaoPerdas();
+  } catch (e) {
+    corpo.querySelector('.carregando')?.remove();
+    mostrarToast('Não consegui ler esse PDF: ' + e.message, 'erro');
+  }
+}
+
+function renderRevisaoPerdas() {
+  const { itens, totalQuant, totalImproprios, rodape, cabecalho: cab } = importPerdas;
+  const bateQuant = rodape.quant != null && Math.abs(rodape.quant - totalQuant) < 0.05;
+  const bateImproprios = rodape.improprios != null && Math.abs(rodape.improprios - totalImproprios) < 0.05;
+  const confere = bateQuant && bateImproprios;
+  const opcoesSortimento = '<option value="">— escolher —</option>' + SORTIMENTOS_PDF_ORDENADOS.map((s) => '<option value="' + s + '">' + s + '</option>').join('');
+  const revisarCount = itens.filter((i) => i.status === 'revisar').length;
+
+  const linhas = itens.map((item, idx) => {
+    return '<tr' + (item.status === 'revisar' ? ' class="linha-revisar"' : '') + '>' +
+      '<td>' + item.codigo + '</td>' +
+      '<td><input class="campo-tabela" id="rp-produto-' + idx + '" value="' + item.produto.replace(/"/g, '&quot;') + '" /></td>' +
+      '<td><select class="campo-tabela' + (item.sortimento ? '' : ' vazio') + '" id="rp-sortimento-' + idx + '" onchange="this.classList.toggle(\'vazio\', !this.value)">' +
+        opcoesSortimento.replace('value="' + item.sortimento + '"', 'value="' + item.sortimento + '" selected') + '</select></td>' +
+      '<td>' + item.quant.toLocaleString('pt-BR') + '</td>' +
+      '<td>R$ ' + item.improprios.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + '</td>' +
+    '</tr>';
+  }).join('');
+
+  const corpo =
+    '<div class="faixa-checagem ' + (confere ? 'ok' : 'erro') + '">' +
+      '<span>' + (confere ? '✓ Confere com o total do PDF' : '⚠ NÃO confere com o rodapé do PDF') + '</span>' +
+      '<span class="sub">Quantidade: ' + totalQuant.toLocaleString('pt-BR') + (rodape.quant != null ? ' / rodapé ' + rodape.quant.toLocaleString('pt-BR') : ' (rodapé não encontrado)') +
+        ' · Impróprios: R$ ' + totalImproprios.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + (rodape.improprios != null ? ' / rodapé R$ ' + rodape.improprios.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '') + '</span>' +
+    '</div>' +
+    (revisarCount > 0 ? '<div class="contagem-revisar">' + revisarCount + ' linha(s) em vermelho precisam que você escolha o sortimento manualmente (o PDF sobrepôs o texto nessas linhas — quantidade e valor continuam corretos).</div>' : '') +
+    '<div class="tabela-revisao"><table><thead><tr><th>Código</th><th>Produto</th><th>Sortimento</th><th>Quant.</th><th>Impróprios</th></tr></thead><tbody>' + linhas + '</tbody></table></div>' +
+    '<div class="form-linha" style="font-size:11.5px; color:var(--text-secondary);">Loja: ' + (cab.loja || '—') + ' · Período: ' + (cab.inicio ? cab.inicio.split('-').reverse().join('/') : '—') + ' a ' + (cab.fim ? cab.fim.split('-').reverse().join('/') : '—') + '</div>';
+
+  abrirModal('Revisar antes de importar (' + itens.length + ' itens)', corpo, 'Confirmar e importar', confirmarImportacaoPerdas);
+  document.getElementById('overlay-modal').querySelector('.modal-card').classList.add('largo');
+}
+
+async function confirmarImportacaoPerdas() {
+  const { itens, cabecalho: cab } = importPerdas;
+  if (!cab.loja || !cab.inicio || !cab.fim) { mostrarToast('Não consegui identificar loja/período no PDF.', 'erro'); return; }
+
+  const linhas = [];
+  for (let idx = 0; idx < itens.length; idx++) {
+    const produto = document.getElementById('rp-produto-' + idx).value.trim();
+    const sortimento = document.getElementById('rp-sortimento-' + idx).value;
+    if (!sortimento) { mostrarToast('Falta escolher o sortimento da linha ' + (idx + 1) + ' (' + itens[idx].codigo + ').', 'erro'); return; }
+    if (!produto) { mostrarToast('Falta o nome do produto da linha ' + (idx + 1) + '.', 'erro'); return; }
+    const item = itens[idx];
+    linhas.push({
+      loja: cab.loja, periodo_inicio: cab.inicio, periodo_fim: cab.fim,
+      setor: SETOR_POR_SORTIMENTO_PDF[sortimento] || 'mercearia', sortimento,
+      produto_cod: item.codigo, produto, unidade: unidadeParaQuant(item.quant),
+      quantidade: item.quant, valor_perdido: item.improprios, valor_vendido: item.venda, pct_perda: item.pct,
+    });
+  }
+
+  try {
+    const { error } = await sb.from('perdas').upsert(linhas, { onConflict: 'loja,periodo_inicio,periodo_fim,produto_cod' });
+    if (error) throw error;
+    fecharModal();
+    mostrarToast(linhas.length + ' itens de perdas importados.', 'sucesso');
+    importPerdas = null;
+    await paginaPerdas();
+  } catch (e) { mostrarToast('Não consegui gravar: ' + e.message, 'erro'); }
+}
+
+// ---------- Fluxo: nova Conferência a partir de uma Nota Fiscal ----------
+let importConf = null; // { itens, somaValorTotal, valorTotalPdf, info, setor }
+
+function abrirImportarConferencia() {
+  const SETORES_CONFERENCIA = ['flv', 'acougue', 'frios', 'padaria', 'mercearia'];
+  const opcoesSetor = SETORES.filter((s) => SETORES_CONFERENCIA.includes(s.key))
+    .map((s) => '<option value="' + s.key + '"' + (s.key === 'flv' ? ' selected' : '') + '>' + s.nome + '</option>').join('');
+  abrirModal('Nova conferência a partir de uma NF',
+    '<div class="form-linha"><label class="campo-label">Setor</label><select class="campo-input" id="ic-setor" style="margin-bottom:0">' + opcoesSetor + '</select></div>' +
+    '<label class="form-check" id="ic-filtrar-linha" style="display:none"><input type="checkbox" id="ic-filtrar-catalogo" checked /><span class="txt">Usar só os itens que já existem no catálogo de Inventário desse setor</span></label>' +
+    '<div id="import-conf-corpo">' + zonaArrastarSoltarHtml('ic-arquivo', 'Nota fiscal (DANFE) em PDF') + '</div>',
+    'Ler PDF', () => {});
+  document.getElementById('modal-btn-salvar').style.display = 'none';
+  const selSetor = document.getElementById('ic-setor');
+  const linhaFiltro = document.getElementById('ic-filtrar-linha');
+  function atualizarFiltro() { linhaFiltro.style.display = SORTIMENTOS.some((s) => s.key === selSetor.value) ? 'flex' : 'none'; }
+  selSetor.addEventListener('change', atualizarFiltro);
+  atualizarFiltro();
+  ligarZonaArrastarSoltar('ic-arquivo', processarArquivoConferencia);
+}
+
+async function processarArquivoConferencia(file) {
+  const corpo = document.getElementById('import-conf-corpo');
+  corpo.innerHTML += '<div class="carregando" style="margin-top:14px;">Lendo o PDF…</div>';
+  try {
+    const setor = document.getElementById('ic-setor').value;
+    const filtrarCatalogo = SORTIMENTOS.some((s) => s.key === setor) && document.getElementById('ic-filtrar-catalogo').checked;
+    const paginas = await extrairLinhasPDF(file);
+    let { itens, somaValorTotal } = parseConferenciaNFPaginas(paginas);
+    if (itens.length === 0) throw new Error('Não encontrei nenhuma linha de produto nesse PDF. É mesmo uma nota fiscal (DANFE)?');
+    const valorTotalPdf = acharValorTotalProdutos(paginas);
+    const info = acharInfoNF(paginas);
+
+    let itensCatalogoNaoAchados = [];
+    if (filtrarCatalogo) {
+      const { data: catalogo, error } = await sb.from('inventario_itens').select('codigo_interno,produto').eq('sortimento', setor);
+      if (error) throw error;
+      if (!catalogo || catalogo.length === 0) {
+        mostrarToast('Não achei nenhum item de "' + nomeSetor(setor) + '" no catálogo de Inventário — importando todos os itens da NF sem filtrar.', 'erro');
+      } else {
+        const porChave = new Map(catalogo.map((c) => [normalizarProdutoParaMatch(c.produto), c]));
+        const chavesAchadas = new Set();
+        const filtrados = [];
+        for (const item of itens) {
+          const chave = normalizarProdutoParaMatch(item.produto);
+          const cat = porChave.get(chave);
+          if (cat) { filtrados.push({ ...item, codigo: cat.codigo_interno || item.codigo }); chavesAchadas.add(chave); }
+        }
+        itensCatalogoNaoAchados = catalogo.filter((c) => !chavesAchadas.has(normalizarProdutoParaMatch(c.produto)));
+        itens = filtrados;
+      }
+    }
+
+    importConf = { itens, somaValorTotal, valorTotalPdf, info, setor, itensCatalogoNaoAchados };
+    fecharModal();
+    renderRevisaoConferencia();
+  } catch (e) {
+    corpo.querySelector('.carregando')?.remove();
+    mostrarToast('Não consegui ler esse PDF: ' + e.message, 'erro');
+  }
+}
+
+function renderRevisaoConferencia() {
+  const { itens, somaValorTotal, valorTotalPdf, info, setor, itensCatalogoNaoAchados } = importConf;
+  const confere = valorTotalPdf != null && Math.abs(valorTotalPdf - somaValorTotal) < 0.5;
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  const tituloSugerido = (info.numero ? 'NF ' + info.numero + ' - ' : '') + 'Conferência ' + nomeSetor(setor) + (info.dataEmissao ? ' (' + info.dataEmissao.slice(0, 5) + ')' : '');
+
+  const linhas = itens.map((item, idx) =>
+    '<tr><td>' + item.codigo + '</td>' +
+    '<td><input class="campo-tabela" id="rc-produto-' + idx + '" value="' + item.produto.replace(/"/g, '&quot;') + '" /></td>' +
+    '<td><input class="campo-tabela" style="text-align:right" id="rc-qtd-' + idx + '" value="' + item.quantidade + '" /></td></tr>'
+  ).join('');
+
+  const avisoCatalogo = itensCatalogoNaoAchados && itensCatalogoNaoAchados.length
+    ? '<div class="contagem-revisar">' + itensCatalogoNaoAchados.length + ' item(ns) do catálogo de ' + nomeSetor(setor) + ' não apareceram nessa NF (nome pode estar abreviado diferente) — não entraram na conferência automaticamente. Adicione manualmente se precisar.</div>'
+    : '';
+
+  const corpo =
+    '<div class="form-linha"><label class="campo-label">Título da conferência</label><input class="campo-input" id="rc-titulo" style="margin-bottom:0" value="' + tituloSugerido.replace(/"/g, '&quot;') + '" /></div>' +
+    '<div class="faixa-checagem ' + (confere ? 'ok' : 'erro') + '">' +
+      '<span>' + (confere ? '✓ Confere com o valor total da NF' : (valorTotalPdf == null ? '⚠ Não achei o valor total no rodapé da NF' : '⚠ NÃO confere com o valor total da NF')) + '</span>' +
+      '<span class="sub">Soma das linhas: R$ ' + somaValorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + (valorTotalPdf != null ? ' / NF R$ ' + valorTotalPdf.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '') + '</span>' +
+    '</div>' +
+    avisoCatalogo +
+    '<div class="tabela-revisao"><table><thead><tr><th>Código</th><th>Produto</th><th>Qtd. esperada</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+
+  abrirModal('Revisar antes de criar a conferência (' + itens.length + ' itens)', corpo, 'Confirmar e criar conferência', confirmarImportacaoConferencia);
+  document.getElementById('overlay-modal').querySelector('.modal-card').classList.add('largo');
+}
+
+async function confirmarImportacaoConferencia() {
+  const { itens, setor } = importConf;
+  const titulo = document.getElementById('rc-titulo').value.trim();
+  if (!titulo) { mostrarToast('Dá um título pra essa conferência.', 'erro'); return; }
+
+  const itensFinais = [];
+  for (let idx = 0; idx < itens.length; idx++) {
+    const produto = document.getElementById('rc-produto-' + idx).value.trim();
+    const quantidade = numeroBR(document.getElementById('rc-qtd-' + idx).value);
+    if (!produto || quantidade == null) { mostrarToast('Confere a linha ' + (idx + 1) + ' — produto ou quantidade inválidos.', 'erro'); return; }
+    itensFinais.push({ codigo_interno: itens[idx].codigo, produto, quantidade_esperada: quantidade });
+  }
+
+  try {
+    const { data: conf, error: erroConf } = await sb.from('conferencias')
+      .insert({ titulo, setor, criada_por_nome: estado.usuario.nome }).select().single();
+    if (erroConf) throw erroConf;
+    const { error: erroItens } = await sb.from('conferencia_itens').insert(
+      itensFinais.map((i) => ({ conferencia_id: conf.id, ...i }))
+    );
+    if (erroItens) throw erroItens;
+    fecharModal();
+    mostrarToast('Conferência criada com ' + itensFinais.length + ' itens.', 'sucesso');
+    importConf = null;
+    await paginaConferencias();
+  } catch (e) { mostrarToast('Não consegui criar a conferência: ' + e.message, 'erro'); }
+}
+
+// =============================================================================
 // Perdas & Quebras
 // =============================================================================
 function corPct(pct) {
@@ -778,6 +1248,7 @@ function renderizarPerdas() {
 
   document.getElementById('conteudo-principal').innerHTML =
     cabecalho('Perdas &amp; Quebras', 'Relatórios importados a partir dos PDFs') +
+    '<div class="toolbar" style="justify-content:flex-end;"><button class="btn-acao" onclick="abrirImportarPerdas()">+ Importar PDF</button></div>' +
     '<div class="resumo-perdas">' +
       '<div class="box"><div class="rotulo">Total perdido</div><div class="valor">R$ ' + totalPerdido.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + '</div></div>' +
       '<div class="box"><div class="rotulo">Período</div><div class="valor" style="font-size:14px;">' + periodo + '</div></div>' +
@@ -1103,7 +1574,8 @@ function renderizarConferencias() {
       }).join('');
 
   document.getElementById('conteudo-principal').innerHTML =
-    cabecalho('Conferência (FLV)', 'Conferências de nota fiscal enviadas pelo encarregado') +
+    cabecalho('Conferências', 'Conferências de nota fiscal — criadas a partir de um PDF ou enviadas pelo encarregado') +
+    '<div class="toolbar" style="justify-content:flex-end;"><button class="btn-acao" onclick="abrirImportarConferencia()">+ Nova conferência (PDF)</button></div>' +
     '<div class="tabela-wrap"><table><thead><tr><th>Título</th><th>Setor</th><th>Status</th><th>Enviada em</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
 }
 async function abrirConferencia(id) {

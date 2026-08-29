@@ -15,6 +15,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { setores, SetorKey } from '../data/employees';
+import { baixarArquivo, nomeArquivoAmigavel } from '../lib/baixarArquivo';
 import {
   Aviso,
   Visualizacao,
@@ -62,6 +63,20 @@ export default function AvisosScreen({ onVoltar }: { onVoltar: () => void }) {
   const [visualizacoesAbertas, setVisualizacoesAbertas] = useState<
     Record<string, Visualizacao[] | 'carregando' | undefined>
   >({});
+  const [baixando, setBaixando] = useState<Record<string, boolean>>({});
+
+  async function baixarFotoAviso(a: Aviso) {
+    const fotoUrl = a.fotoUrl;
+    if (!fotoUrl || baixando[a.id]) return;
+    setBaixando((prev) => ({ ...prev, [a.id]: true }));
+    try {
+      await baixarArquivo(fotoUrl, nomeArquivoAmigavel(a.titulo, fotoUrl));
+    } catch (e: any) {
+      Alert.alert('Não consegui baixar', e?.message ?? 'Tenta de novo em alguns instantes.');
+    } finally {
+      setBaixando((prev) => ({ ...prev, [a.id]: false }));
+    }
+  }
 
   function carregar() {
     if (!usuarioAtual) return;
@@ -344,6 +359,11 @@ export default function AvisosScreen({ onVoltar }: { onVoltar: () => void }) {
                 </Text>
 
                 <View style={styles.cardAcoes}>
+                  {a.fotoUrl && (
+                    <TouchableOpacity onPress={() => baixarFotoAviso(a)} disabled={!!baixando[a.id]}>
+                      <Text style={styles.btnBaixarTexto}>{baixando[a.id] ? 'Baixando…' : '⬇ Baixar foto'}</Text>
+                    </TouchableOpacity>
+                  )}
                   {podeVerVisualizacoes && (
                     <TouchableOpacity onPress={() => alternarVisualizacoes(a.id)}>
                       <Text style={styles.btnVisualizacoesTexto}>
@@ -421,6 +441,7 @@ const styles = StyleSheet.create({
   cardAcoes: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.md },
   btnRemoverTexto: { fontSize: 11.5, color: colors.red500, fontWeight: '600' },
   btnVisualizacoesTexto: { fontSize: 11.5, color: colors.navy700, fontWeight: '600' },
+  btnBaixarTexto: { fontSize: 11.5, color: colors.navy700, fontWeight: '600' },
   visualizacoesBox: { backgroundColor: colors.gray50, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.md },
   visualizacoesVazio: { fontSize: 11.5, color: colors.gray600 },
   visualizacaoLinha: { fontSize: 11.5, color: colors.gray900, paddingVertical: 2 },

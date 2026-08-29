@@ -1,0 +1,60 @@
+name: Publicar versão web (GitHub Pages)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar o código do repositório
+        uses: actions/checkout@v4
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar as dependências do projeto
+        run: npm install
+
+      - name: Ajustar o endereço da publicação (GitHub Pages usa uma subpasta)
+        run: |
+          node -e "
+            const fs = require('fs');
+            const cfg = JSON.parse(fs.readFileSync('app.json', 'utf8'));
+            cfg.expo.experiments = cfg.expo.experiments || {};
+            cfg.expo.experiments.baseUrl = '/${{ github.event.repository.name }}';
+            fs.writeFileSync('app.json', JSON.stringify(cfg, null, 2) + '\n');
+          "
+
+      - name: Gerar a versão web (Expo export)
+        run: npx expo export -p web
+
+      - name: Preparar o GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Empacotar os arquivos gerados
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Publicar no GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
