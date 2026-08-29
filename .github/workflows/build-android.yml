@@ -26,7 +26,7 @@ jobs:
         uses: android-actions/setup-android@v3
 
       - name: Instalar dependências do projeto
-        run: npm ci
+        run: npm install
 
       - name: Instalar EAS CLI
         run: npm install -g eas-cli
