@@ -3,6 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Employee, employeesIniciais, normalizeNome } from '../data/employees';
 import { supabase, supabaseConfigurado } from '../lib/supabase';
 import { registrarNotificacoes } from '../lib/notifications';
+import { registrarAcesso } from '../lib/acessos';
 
 // ---------------------------------------------------------------------------
 // Autenticação.
@@ -50,6 +51,7 @@ function linhaParaEmployee(linha: any): Employee {
     isAdmin: linha.is_admin,
     senhaAtual: linha.senha_atual,
     senhaDefinida: linha.senha_definida,
+    ferramentasBloqueadas: linha.ferramentas_bloqueadas ?? [],
   };
 }
 
@@ -77,7 +79,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         if (sessaoId) {
           const encontrado = lista.find((c) => c.id === sessaoId) ?? null;
           setUsuarioAtual(encontrado);
-          if (encontrado) registrarNotificacoes(encontrado.id).catch(() => {});
+          if (encontrado) {
+            registrarNotificacoes(encontrado.id).catch(() => {});
+            // Registra acesso também aqui, não só em login(): como a sessão
+            // fica salva no celular, o colaborador raramente volta a ver a
+            // tela de login depois da primeira vez — sem isso, o app dele só
+            // aparecia em "Acessos" no portal uma única vez, na vida. Aqui
+            // cobre toda vez que o app é reaberto com a sessão já salva, que
+            // é o caso do dia a dia.
+            registrarAcesso(encontrado).catch(() => {});
+          }
         }
       } catch (e) {
         // Se o Supabase estiver configurado mas a internet falhar (ou as
@@ -112,6 +123,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setUsuarioAtual(alvo);
     await AsyncStorage.setItem(SESSION_KEY, alvo.id);
     registrarNotificacoes(alvo.id).catch(() => {});
+    registrarAcesso(alvo).catch(() => {});
     return { ok: true };
   }
 

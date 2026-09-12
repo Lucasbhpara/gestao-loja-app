@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { colors, radius, spacing } from '../theme/colors';
 import { Conferencia, ConferenciaItem, buscarTodasConferencias, buscarItensDaConferencia } from '../data/conferenciasApi';
+import { JornalOferta, buscarJornalAtual } from '../data/jornalOfertasApi';
+import VisualizadorJornalModal from '../components/VisualizadorJornalModal';
 
 export default function ConferenciaAdminScreen({ onVoltar }: { onVoltar: () => void }) {
   const [conferencias, setConferencias] = useState<Conferencia[]>([]);
@@ -11,6 +13,11 @@ export default function ConferenciaAdminScreen({ onVoltar }: { onVoltar: () => v
   const [conferenciaAtual, setConferenciaAtual] = useState<Conferencia | null>(null);
   const [itens, setItens] = useState<ConferenciaItem[]>([]);
   const [carregandoItens, setCarregandoItens] = useState(false);
+
+  // Jornal de Ofertas como referência, igual na tela de conferir — mesmo PDF
+  // que o admin sobe no portal.
+  const [jornalAtual, setJornalAtual] = useState<JornalOferta | null>(null);
+  const [verJornal, setVerJornal] = useState(false);
 
   function carregar() {
     buscarTodasConferencias()
@@ -33,14 +40,24 @@ export default function ConferenciaAdminScreen({ onVoltar }: { onVoltar: () => v
       .then(setItens)
       .catch(() => {})
       .finally(() => setCarregandoItens(false));
+    if (c.tipo === 'jornal') {
+      buscarJornalAtual().then(setJornalAtual).catch(() => setJornalAtual(null));
+    } else {
+      setJornalAtual(null);
+    }
   }
 
   if (conferenciaAtual) {
-    const divergencias = itens.filter((i) => i.status === 'divergencia');
+    const tipoJornal = conferenciaAtual.tipo === 'jornal';
+    const divergencias = itens.filter((i) => i.status === 'divergencia' || i.status === 'ruptura');
+    const faltaExplosivo = itens.filter((i) => i.status === 'falta_explosivo');
     return (
       <View style={styles.flex}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => setConferenciaAtual(null)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <TouchableOpacity
+            onPress={() => { setConferenciaAtual(null); setJornalAtual(null); setVerJornal(false); }}
+            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+          >
             <Text style={styles.voltar}>‹ Voltar</Text>
           </TouchableOpacity>
           <Text style={styles.titulo} numberOfLines={1}>{conferenciaAtual.titulo}</Text>
@@ -53,6 +70,15 @@ export default function ConferenciaAdminScreen({ onVoltar }: { onVoltar: () => v
             </Text>
           </View>
 
+          {tipoJornal && jornalAtual && (
+            <View style={styles.itemCard}>
+              <Text style={styles.itemProduto}>Jornal de Ofertas</Text>
+              <TouchableOpacity onPress={() => setVerJornal(true)} style={{ marginTop: spacing.sm }}>
+                <Text style={styles.avisoTexto}>📄 Ver jornal de ofertas</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           {conferenciaAtual.notaFiscalUrl && (
             <View style={styles.itemCard}>
               <Text style={styles.itemProduto}>Nota fiscal da entrega</Text>
@@ -64,29 +90,60 @@ export default function ConferenciaAdminScreen({ onVoltar }: { onVoltar: () => v
             <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.xl }} />
           ) : (
             <>
-              {divergencias.length > 0 && (
-                <Text style={styles.secaoTitulo}>{divergencias.length} divergência(s)</Text>
+              {tipoJornal ? (
+                <>
+                  {divergencias.length > 0 && (
+                    <Text style={styles.secaoTitulo}>{divergencias.length} ruptura(s)</Text>
+                  )}
+                  {faltaExplosivo.length > 0 && (
+                    <Text style={[styles.secaoTitulo, { color: '#B4650E' }]}>{faltaExplosivo.length} falta(m) explosivo</Text>
+                  )}
+                </>
+              ) : (
+                divergencias.length > 0 && (
+                  <Text style={styles.secaoTitulo}>{divergencias.length} divergência(s)</Text>
+                )
               )}
-              {itens.map((item) => (
-                <View key={item.id} style={[styles.itemCard, item.status === 'divergencia' && styles.itemCardDivergencia]}>
-                  <View style={styles.itemTopo}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.itemProduto}>{item.produto}</Text>
-                      <Text style={styles.itemMeta}>
-                        {item.codigoInterno ? `Cód. ${item.codigoInterno} · ` : ''}Esperado: {item.quantidadeEsperada}
-                        {item.quantidadeReal !== null ? ` · Recebido: ${item.quantidadeReal}` : ''}
-                      </Text>
+              {itens.map((item) => {
+                const emDestaque = item.status === 'divergencia' || item.status === 'ruptura' || item.status === 'falta_explosivo';
+                const corStatus =
+                  item.status === 'ok' ? colors.green500 :
+                  item.status === 'divergencia' || item.status === 'ruptura' ? colors.red500 :
+                  item.status === 'falta_explosivo' ? '#B4650E' :
+                  colors.gray400;
+                const rotuloStatus =
+                  item.status === 'ok' ? '✓ OK' :
+                  item.status === 'divergencia' ? '⚠ Divergência' :
+                  item.status === 'ruptura' ? '⚠ Ruptura' :
+                  item.status === 'falta_explosivo' ? '🏷 Falta Explosivo' :
+                  'Pendente';
+                return (
+                  <View key={item.id} style={[styles.itemCard, emDestaque && styles.itemCardDivergencia]}>
+                    <View style={styles.itemTopo}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.itemProduto}>{item.produto}</Text>
+                        <Text style={styles.itemMeta}>
+                          {item.codigoInterno ? `Cód. ${item.codigoInterno} · ` : ''}Esperado: {item.quantidadeEsperada}
+                          {item.quantidadeReal !== null ? ` · Recebido: ${item.quantidadeReal}` : ''}
+                        </Text>
+                      </View>
+                      <Text style={[styles.itemStatus, { color: corStatus }]}>{rotuloStatus}</Text>
                     </View>
-                    <Text style={[styles.itemStatus, { color: item.status === 'ok' ? colors.green500 : item.status === 'divergencia' ? colors.red500 : colors.gray400 }]}>
-                      {item.status === 'ok' ? '✓ OK' : item.status === 'divergencia' ? '⚠ Divergência' : 'Pendente'}
-                    </Text>
+                    {item.fotoUrl && <Image source={{ uri: item.fotoUrl }} style={styles.itemFoto} />}
                   </View>
-                  {item.fotoUrl && <Image source={{ uri: item.fotoUrl }} style={styles.itemFoto} />}
-                </View>
-              ))}
+                );
+              })}
             </>
           )}
         </ScrollView>
+
+        {jornalAtual && (
+          <VisualizadorJornalModal
+            visible={verJornal}
+            arquivoUrl={jornalAtual.arquivoUrl}
+            onFechar={() => setVerJornal(false)}
+          />
+        )}
       </View>
     );
   }

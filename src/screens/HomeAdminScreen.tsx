@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert, BackHandler } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
@@ -16,6 +16,10 @@ import OcorrenciaAdminScreen from './OcorrenciaAdminScreen';
 import ConferenciaScreen from './ConferenciaScreen';
 import PedidosScreen from './PedidosScreen';
 import EstoqueLojaScreen from './EstoqueLojaScreen';
+import PainelResultadosScreen from './PainelResultadosScreen';
+import MapaLojaScreen from './MapaLojaScreen';
+import PontasExtrasScreen from './PontasExtrasScreen';
+import JornalOfertasScreen from './JornalOfertasScreen';
 
 // Aba de chat com a IA visível só nesse login específico (Lucas), não pros
 // demais administradores. Identificado pela matrícula (e não pelo id),
@@ -37,7 +41,28 @@ export default function HomeAdminScreen() {
     | 'conferencias'
     | 'pedidos'
     | 'estoqueLoja'
+    | 'painelResultados'
+    | 'mapaLoja'
+    | 'pontasExtras'
+    | 'jornalOfertas'
   >('home');
+
+  // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
+  // usam uma pilha de navegação, o Android trata o botão físico como "sair
+  // do app" em qualquer tela. Interceptamos e fazemos a mesma coisa que o
+  // botão "‹ Voltar" de cada tela — volta pra Home. Só na própria Home é que
+  // deixamos o comportamento padrão do Android acontecer (fechar o app).
+  useEffect(() => {
+    const aoVoltar = () => {
+      if (tela !== 'home') {
+        setTela('home');
+        return true;
+      }
+      return false;
+    };
+    const assinatura = BackHandler.addEventListener('hardwareBackPress', aoVoltar);
+    return () => assinatura.remove();
+  }, [tela]);
 
   const [validades, setValidades] = useState<Validade[]>([]);
   const [carregandoValidades, setCarregandoValidades] = useState(true);
@@ -98,6 +123,21 @@ export default function HomeAdminScreen() {
   }
   if (tela === 'estoqueLoja') {
     return <EstoqueLojaScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'painelResultados') {
+    // Só existe dentro do HomeAdminScreen — quem não é admin nunca vê essa
+    // opção (ver HomeColaboradorScreen), então o acesso já é restrito. O
+    // seletor de setor (FLV, Açougue, ...) fica dentro do próprio painel.
+    return <PainelResultadosScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'mapaLoja') {
+    return <MapaLojaScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'pontasExtras') {
+    return <PontasExtrasScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'jornalOfertas') {
+    return <JornalOfertasScreen onVoltar={() => setTela('home')} />;
   }
 
   return (
@@ -167,6 +207,10 @@ export default function HomeAdminScreen() {
             { label: 'Ocorrências', icone: 'alert-triangle' as const, onPress: () => setTela('ocorrencias') },
             { label: 'Conferência', icone: 'clipboard' as const, onPress: () => setTela('conferencias') },
             { label: 'Pedidos (FLV)', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') },
+            { label: 'Painel Resultados', icone: 'bar-chart-2' as const, onPress: () => setTela('painelResultados') },
+            { label: 'Mapa da Loja', icone: 'map' as const, onPress: () => setTela('mapaLoja') },
+            { label: 'Pontas e Pontos Extras', icone: 'layers' as const, onPress: () => setTela('pontasExtras') },
+            { label: 'Jornal de Ofertas', icone: 'file-text' as const, onPress: () => setTela('jornalOfertas') },
             { label: 'Sobre', icone: 'info' as const, onPress: () => setTela('sobre') },
           ].map((acao) => (
             <TouchableOpacity key={acao.label} style={styles.tile} onPress={acao.onPress} disabled={!acao.onPress}>

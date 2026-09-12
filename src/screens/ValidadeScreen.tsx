@@ -53,6 +53,12 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
   // validade de qualquer setor (Promotores circula pela loja toda).
   const podeGerenciarTudo =
     !!usuarioAtual && (usuarioAtual.isAdmin || usuarioAtual.funcao === 'A.P.P' || usuarioAtual.setor === 'promotores');
+  // Encarregados (função começando com "Enc.") também podem excluir produtos
+  // vencidos/errados da validade do próprio setor, mesmo sem o acesso amplo
+  // de podeGerenciarTudo (que também libera ver/cadastrar validade de
+  // qualquer setor — aqui é só a exclusão, dentro do setor deles mesmo).
+  const podeExcluirValidade =
+    podeGerenciarTudo || !!usuarioAtual?.funcao?.trim().toLowerCase().startsWith('enc.');
 
   const [validades, setValidades] = useState<Validade[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -499,14 +505,18 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
                   Vence em {formatarData(v.dataValidade)}
                   {podeGerenciarTudo ? ` · ${nomeSetor(v.setor)}` : ''}
                 </Text>
-                {podeGerenciarTudo && (
+                {(podeGerenciarTudo || podeExcluirValidade) && (
                   <View style={styles.cardAcoes}>
-                    <TouchableOpacity onPress={() => abrirEdicao(v)} style={styles.btnEditar}>
-                      <Text style={styles.btnEditarTexto}>Editar</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity onPress={() => confirmarExclusao(v)} style={styles.btnRemover}>
-                      <Text style={styles.btnRemoverTexto}>Remover</Text>
-                    </TouchableOpacity>
+                    {podeGerenciarTudo && (
+                      <TouchableOpacity onPress={() => abrirEdicao(v)} style={styles.btnEditar}>
+                        <Text style={styles.btnEditarTexto}>Editar</Text>
+                      </TouchableOpacity>
+                    )}
+                    {podeExcluirValidade && (
+                      <TouchableOpacity onPress={() => confirmarExclusao(v)} style={styles.btnRemover}>
+                        <Text style={styles.btnRemoverTexto}>Remover</Text>
+                      </TouchableOpacity>
+                    )}
                   </View>
                 )}
               </View>

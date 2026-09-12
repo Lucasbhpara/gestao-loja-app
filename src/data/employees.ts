@@ -56,6 +56,14 @@ export interface Employee {
   senhaAtual: string;
   /** false = ainda não trocou a senha provisória (matrícula) por uma própria. */
   senhaDefinida: boolean;
+  /**
+   * Chaves das ferramentas escondidas da Home desse colaborador (ex.:
+   * 'conferencia', 'pedidos') — configurado pelo administrador na aba
+   * Equipe do portal. Ausente/vazio = enxerga tudo que o setor dele já
+   * liberaria normalmente (comportamento padrão, compatível com quem foi
+   * cadastrado antes dessa opção existir).
+   */
+  ferramentasBloqueadas?: string[];
 }
 
 export const employeesIniciais: Employee[] = [

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, ActivityIndicator } from 'react-native';
+import { View, ActivityIndicator, BackHandler } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import IntroScreen from './src/screens/IntroScreen';
@@ -8,6 +8,7 @@ import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import CreatePasswordScreen from './src/screens/CreatePasswordScreen';
 import HomeColaboradorScreen from './src/screens/HomeColaboradorScreen';
 import HomeAdminScreen from './src/screens/HomeAdminScreen';
+import JornalOfertasFlutuante from './src/components/JornalOfertasFlutuante';
 import Rodape from './src/components/Rodape';
 import { colors } from './src/theme/colors';
 
@@ -25,6 +26,21 @@ function AppInterno() {
   useEffect(() => {
     if (!usuarioAtual) setMostrarIntro(true);
   }, [usuarioAtual]);
+
+  // Seta/gesto nativo de voltar do Android: na tela de "Esqueci a senha",
+  // volta pro Login em vez de sair do app (o resto das telas internas já
+  // trata isso sozinho, dentro de cada Home).
+  useEffect(() => {
+    const aoVoltar = () => {
+      if (!usuarioAtual && telaPublica === 'recuperarSenha') {
+        setTelaPublica('login');
+        return true;
+      }
+      return false;
+    };
+    const assinatura = BackHandler.addEventListener('hardwareBackPress', aoVoltar);
+    return () => assinatura.remove();
+  }, [usuarioAtual, telaPublica]);
 
   const logadoEValidado = !!usuarioAtual && usuarioAtual.senhaDefinida;
   const tocandoIntro = logadoEValidado && mostrarIntro;
@@ -67,6 +83,7 @@ function AppInterno() {
     conteudo = (
       <>
         {usuarioAtual.isAdmin ? <HomeAdminScreen /> : <HomeColaboradorScreen />}
+        <JornalOfertasFlutuante />
         <Rodape />
       </>
     );

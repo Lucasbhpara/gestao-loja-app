@@ -40,6 +40,9 @@ jobs:
       - name: Gerar a versão web (Expo export)
         run: npx expo export -p web
 
+      - name: Publicar o Portal Admin junto (fica em /portal-admin.html)
+        run: cp portal-admin.html dist/portal-admin.html
+
       - name: Preparar o GitHub Pages
         uses: actions/configure-pages@v5
 

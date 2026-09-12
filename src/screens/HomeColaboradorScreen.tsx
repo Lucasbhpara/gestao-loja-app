@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Image, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Image, Alert, BackHandler } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
@@ -15,6 +15,9 @@ import SobreScreen from './SobreScreen';
 import OcorrenciaScreen from './OcorrenciaScreen';
 import ConferenciaScreen from './ConferenciaScreen';
 import PedidosScreen from './PedidosScreen';
+import MapaLojaScreen from './MapaLojaScreen';
+import PontasExtrasScreen from './PontasExtrasScreen';
+import JornalOfertasScreen from './JornalOfertasScreen';
 
 const FRASES_DO_DIA = [
   'Pequenas melhorias todos os dias constroem grandes resultados.',
@@ -32,8 +35,36 @@ function saudacao(): string {
 export default function HomeColaboradorScreen() {
   const { usuarioAtual, logout } = useAuth();
   const [tela, setTela] = useState<
-    'home' | 'perdas' | 'validade' | 'avisos' | 'sobre' | 'ocorrencia' | 'conferencia' | 'pedidos'
+    | 'home'
+    | 'perdas'
+    | 'validade'
+    | 'avisos'
+    | 'sobre'
+    | 'ocorrencia'
+    | 'conferencia'
+    | 'pedidos'
+    | 'mapaLoja'
+    | 'pontasExtras'
+    | 'jornalOfertas'
   >('home');
+
+  // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
+  // usam uma pilha de navegação, o Android trata o botão físico como "sair
+  // do app" em qualquer tela. Interceptamos e fazemos a mesma coisa que o
+  // botão "‹ Voltar" de cada tela — volta pra Home. Só na própria Home é que
+  // deixamos o comportamento padrão do Android acontecer (fechar o app).
+  useEffect(() => {
+    const aoVoltar = () => {
+      if (tela !== 'home') {
+        setTela('home');
+        return true;
+      }
+      return false;
+    };
+    const assinatura = BackHandler.addEventListener('hardwareBackPress', aoVoltar);
+    return () => assinatura.remove();
+  }, [tela]);
+
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [carregandoTarefas, setCarregandoTarefas] = useState(true);
   const [atualizandoTarefas, setAtualizandoTarefas] = useState(false);
@@ -89,6 +120,10 @@ export default function HomeColaboradorScreen() {
   // checar os produtos do tabloide de ofertas) e pelo Açougue (conferência
   // de NF de carnes/cortes) — não só pelo FLV.
   const podeConferir = usuarioAtual.setor === 'flv' || usuarioAtual.setor === 'cpd' || usuarioAtual.setor === 'acougue';
+  // Ferramentas que o administrador escondeu especificamente pra esse
+  // colaborador, lá na aba Equipe do portal — filtra a grade de "Acesso
+  // rápido" abaixo. Sem nada configurado (padrão), enxerga tudo normalmente.
+  const bloqueadas = usuarioAtual.ferramentasBloqueadas ?? [];
 
   if (tela === 'perdas') {
     return <PerdasSetorScreen onVoltar={() => setTela('home')} />;
@@ -110,6 +145,15 @@ export default function HomeColaboradorScreen() {
   }
   if (tela === 'pedidos') {
     return <PedidosScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'mapaLoja') {
+    return <MapaLojaScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'pontasExtras') {
+    return <PontasExtrasScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'jornalOfertas') {
+    return <JornalOfertasScreen onVoltar={() => setTela('home')} />;
   }
 
   const nomeSetor = setores.find((s) => s.key === usuarioAtual.setor)?.nome ?? usuarioAtual.setor;
@@ -247,24 +291,32 @@ export default function HomeColaboradorScreen() {
         <View style={styles.grid}>
           {(somenteValidade
             ? [
-                { label: 'Validade', icone: 'calendar' as const, onPress: () => setTela('validade') },
-                { label: 'Sobre', icone: 'info' as const, onPress: () => setTela('sobre') },
+                { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
+                { label: 'Mapa da Loja', icone: 'map' as const, chave: 'mapaLoja', onPress: () => setTela('mapaLoja') },
+                { label: 'Pontas e Pontos Extras', icone: 'layers' as const, chave: 'pontasExtras', onPress: () => setTela('pontasExtras') },
+                { label: 'Jornal de Ofertas', icone: 'file-text' as const, chave: 'jornalOfertas', onPress: () => setTela('jornalOfertas') },
+                { label: 'Sobre', icone: 'info' as const, chave: null, onPress: () => setTela('sobre') },
               ]
             : [
-                { label: 'Perdas do Setor', icone: 'trending-down' as const, onPress: () => setTela('perdas') },
-                { label: 'Validade', icone: 'calendar' as const, onPress: () => setTela('validade') },
-                { label: 'Inventário', icone: 'package' as const, onPress: undefined },
-                { label: 'Mural de Avisos', icone: 'bell' as const, onPress: () => setTela('avisos') },
-                { label: 'Abrir ocorrência', icone: 'alert-triangle' as const, onPress: () => setTela('ocorrencia') },
+                { label: 'Perdas do Setor', icone: 'trending-down' as const, chave: 'perdas', onPress: () => setTela('perdas') },
+                { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
+                { label: 'Inventário', icone: 'package' as const, chave: null, onPress: undefined },
+                { label: 'Mural de Avisos', icone: 'bell' as const, chave: 'avisos', onPress: () => setTela('avisos') },
+                { label: 'Abrir ocorrência', icone: 'alert-triangle' as const, chave: 'ocorrencia', onPress: () => setTela('ocorrencia') },
                 ...(podeConferir
-                  ? [{ label: 'Conferência', icone: 'clipboard' as const, onPress: () => setTela('conferencia') }]
+                  ? [{ label: 'Conferência', icone: 'clipboard' as const, chave: 'conferencia', onPress: () => setTela('conferencia') }]
                   : []),
                 ...(ehFlv
-                  ? [{ label: 'Pedidos', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') }]
+                  ? [{ label: 'Pedidos', icone: 'shopping-cart' as const, chave: 'pedidos', onPress: () => setTela('pedidos') }]
                   : []),
-                { label: 'Sobre', icone: 'info' as const, onPress: () => setTela('sobre') },
+                { label: 'Mapa da Loja', icone: 'map' as const, chave: 'mapaLoja', onPress: () => setTela('mapaLoja') },
+                { label: 'Pontas e Pontos Extras', icone: 'layers' as const, chave: 'pontasExtras', onPress: () => setTela('pontasExtras') },
+                { label: 'Jornal de Ofertas', icone: 'file-text' as const, chave: 'jornalOfertas', onPress: () => setTela('jornalOfertas') },
+                { label: 'Sobre', icone: 'info' as const, chave: null, onPress: () => setTela('sobre') },
               ]
-          ).map((acao) => (
+          )
+            .filter((acao) => !acao.chave || !bloqueadas.includes(acao.chave))
+            .map((acao) => (
             <TouchableOpacity key={acao.label} style={styles.tile} onPress={acao.onPress} disabled={!acao.onPress}>
               <View style={styles.tileDot}>
                 <Feather name={acao.icone} size={17} color={colors.white} />

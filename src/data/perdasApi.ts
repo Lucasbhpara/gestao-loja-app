@@ -41,11 +41,28 @@ function linhaParaPerda(linha: any): Perda {
   };
 }
 
+// Cada importação no portal deveria substituir o produto anterior do mesmo
+// setor (o banco tem uma trava de "setor + código do produto" pra isso) —
+// mas essa função aqui é uma segunda linha de defesa: se por qualquer
+// motivo ainda existirem duas linhas do mesmo produto no mesmo setor (ex.:
+// dado importado antes dessa trava existir), o app nunca soma as duas.
+// Fica só com a mais recente (maior importado_em; produto_cod desempata).
+function filtrarUltimaImportacaoPorProduto(linhas: Perda[]): Perda[] {
+  const maisRecentePorChave = new Map<string, Perda>();
+  for (const l of linhas) {
+    const chave = l.setor + '|' + l.produtoCod;
+    const atual = maisRecentePorChave.get(chave);
+    if (!atual || l.importadoEm > atual.importadoEm) maisRecentePorChave.set(chave, l);
+  }
+  const vencedoras = new Set(maisRecentePorChave.values());
+  return linhas.filter((l) => vencedoras.has(l));
+}
+
 // Busca todas as perdas de todos os setores (visão do Administrador).
 export async function buscarTodasPerdas(): Promise<Perda[]> {
   const { data, error } = await supabase.from('perdas').select('*').order('valor_perdido', { ascending: false });
   if (error) throw error;
-  return (data ?? []).map(linhaParaPerda);
+  return filtrarUltimaImportacaoPorProduto((data ?? []).map(linhaParaPerda));
 }
 
 // Busca só as perdas do setor do colaborador, do período mais recente importado.
@@ -56,5 +73,5 @@ export async function buscarPerdasDoSetor(setor: SetorKey): Promise<Perda[]> {
     .eq('setor', setor)
     .order('valor_perdido', { ascending: false });
   if (error) throw error;
-  return (data ?? []).map(linhaParaPerda);
+  return filtrarUltimaImportacaoPorProduto((data ?? []).map(linhaParaPerda));
 }

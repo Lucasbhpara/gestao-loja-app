@@ -22,11 +22,16 @@ import {
   buscarItensDaConferencia,
   marcarItemOk,
   marcarItemDivergencia,
+  marcarItemRuptura,
+  marcarItemFaltaExplosivo,
+  reiniciarConferencia,
   concluirConferencia,
   enviarFotoConferencia,
   anexarNotaFiscal,
   criarConferencia,
 } from '../data/conferenciasApi';
+import { JornalOferta, buscarJornalAtual } from '../data/jornalOfertasApi';
+import VisualizadorJornalModal from '../components/VisualizadorJornalModal';
 
 export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -49,6 +54,13 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
   const [salvandoItem, setSalvandoItem] = useState<string | null>(null);
   const [concluindo, setConcluindo] = useState(false);
   const [enviandoNF, setEnviandoNF] = useState(false);
+  const [reiniciando, setReiniciando] = useState(false);
+
+  // Jornal de Ofertas como referência, só pras conferências do tipo "jornal"
+  // (checklist do Jornal de Aniversário) — mesmo PDF que o admin sobe no
+  // portal / na bolha flutuante.
+  const [jornalAtual, setJornalAtual] = useState<JornalOferta | null>(null);
+  const [verJornal, setVerJornal] = useState(false);
 
   // --- Criação de uma conferência nova, direto pelo colaborador ------------
   const [novoTitulo, setNovoTitulo] = useState('');
@@ -85,6 +97,11 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
       .then(setItens)
       .catch(() => {})
       .finally(() => setCarregandoItens(false));
+    if (c.tipo === 'jornal') {
+      buscarJornalAtual().then(setJornalAtual).catch(() => setJornalAtual(null));
+    } else {
+      setJornalAtual(null);
+    }
   }
 
   function voltarParaLista() {
@@ -92,6 +109,8 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
     setConferenciaAtual(null);
     setItens([]);
     setItemEmDivergencia(null);
+    setJornalAtual(null);
+    setVerJornal(false);
     carregarLista();
   }
 
@@ -312,6 +331,57 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
     }
   }
 
+  // --- Ações específicas do tipo "jornal" (checklist do Jornal de Aniversário) ---
+  async function confirmarRuptura(item: ConferenciaItem) {
+    setSalvandoItem(item.id);
+    try {
+      await marcarItemRuptura(item.id);
+      setItens((prev) => prev.map((p) => (p.id === item.id ? { ...p, status: 'ruptura' } : p)));
+    } catch (e: any) {
+      Alert.alert('Não consegui salvar', e?.message ?? 'Tenta de novo em alguns instantes.');
+    } finally {
+      setSalvandoItem(null);
+    }
+  }
+
+  async function confirmarFaltaExplosivo(item: ConferenciaItem) {
+    setSalvandoItem(item.id);
+    try {
+      await marcarItemFaltaExplosivo(item.id);
+      setItens((prev) => prev.map((p) => (p.id === item.id ? { ...p, status: 'falta_explosivo' } : p)));
+    } catch (e: any) {
+      Alert.alert('Não consegui salvar', e?.message ?? 'Tenta de novo em alguns instantes.');
+    } finally {
+      setSalvandoItem(null);
+    }
+  }
+
+  function confirmarReiniciar() {
+    if (!conferenciaAtual) return;
+    Alert.alert(
+      'Reiniciar conferência',
+      'Todos os itens voltam para "pendente" e o progresso atual é apagado. Quer refazer essa conferência do zero?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Reiniciar', style: 'destructive', onPress: reiniciar },
+      ]
+    );
+  }
+
+  async function reiniciar() {
+    if (!conferenciaAtual) return;
+    setReiniciando(true);
+    try {
+      await reiniciarConferencia(conferenciaAtual.id);
+      setItens((prev) => prev.map((p) => ({ ...p, status: 'pendente', quantidadeReal: null, fotoUrl: null, conferidoEm: null })));
+      setConferenciaAtual((prev) => (prev ? { ...prev, status: 'pendente', conferidaPorNome: null, concluidaEm: null } : prev));
+    } catch (e: any) {
+      Alert.alert('Não consegui reiniciar', e?.message ?? 'Tenta de novo em alguns instantes.');
+    } finally {
+      setReiniciando(false);
+    }
+  }
+
   // --- Tela de criar uma conferência nova ---------------------------------
   if (modo === 'nova') {
     return (
@@ -404,6 +474,7 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
 
   // --- Tela de itens de uma conferência -----------------------------------
   if (modo === 'itens' && conferenciaAtual) {
+    const tipoJornal = conferenciaAtual.tipo === 'jornal';
     const conferidos = itens.filter((i) => i.status !== 'pendente').length;
     const todosConferidos = itens.length > 0 && conferidos === itens.length;
     return (
@@ -419,11 +490,16 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
         {!carregandoItens && (
           <View style={styles.progressoBox}>
             <Text style={styles.progressoTexto}>{conferidos} de {itens.length} conferidos</Text>
+            {tipoJornal && (
+              <TouchableOpacity onPress={confirmarReiniciar} disabled={reiniciando} style={{ marginTop: 6 }}>
+                <Text style={styles.btnReiniciarTexto}>{reiniciando ? 'Reiniciando…' : '↻ Reiniciar conferência'}</Text>
+              </TouchableOpacity>
+            )}
           </View>
         )}
 
         <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 100 }}>
-          {!carregandoItens && (
+          {!carregandoItens && !tipoJornal && (
             <View style={styles.nfBox}>
               <Text style={styles.formLabel}>Nota fiscal da entrega</Text>
               {conferenciaAtual.notaFiscalUrl ? (
@@ -440,6 +516,15 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
                   </Text>
                 </TouchableOpacity>
               )}
+            </View>
+          )}
+
+          {!carregandoItens && tipoJornal && jornalAtual && (
+            <View style={styles.nfBox}>
+              <Text style={styles.formLabel}>Jornal de Ofertas</Text>
+              <TouchableOpacity style={styles.btnAdicionarFoto} onPress={() => setVerJornal(true)}>
+                <Text style={styles.btnAdicionarFotoTexto}>📄 Ver jornal de ofertas</Text>
+              </TouchableOpacity>
             </View>
           )}
 
@@ -467,9 +552,49 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
                       </Text>
                     </View>
                   )}
+                  {item.status === 'ruptura' && (
+                    <View style={[styles.chipStatus, styles.chipDivergencia]}>
+                      <Text style={[styles.chipStatusTexto, { color: colors.red500 }]}>⚠ Ruptura</Text>
+                    </View>
+                  )}
+                  {item.status === 'falta_explosivo' && (
+                    <View style={[styles.chipStatus, styles.chipFaltaExplosivo]}>
+                      <Text style={[styles.chipStatusTexto, { color: '#B4650E' }]}>🏷 Falta Explosivo</Text>
+                    </View>
+                  )}
                 </View>
 
-                {item.status === 'pendente' && itemEmDivergencia !== item.id && (
+                {item.status === 'pendente' && itemEmDivergencia !== item.id && tipoJornal && (
+                  <View>
+                    <View style={styles.itemAcoes}>
+                      <TouchableOpacity
+                        style={[styles.btnOk, salvandoItem === item.id && styles.btnDesabilitado]}
+                        onPress={() => confirmarOk(item)}
+                        disabled={!!salvandoItem}
+                      >
+                        <Text style={styles.btnOkTexto}>✓ OK</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.itemAcoes}>
+                      <TouchableOpacity
+                        style={[styles.btnDivergencia, salvandoItem === item.id && styles.btnDesabilitado]}
+                        onPress={() => confirmarRuptura(item)}
+                        disabled={!!salvandoItem}
+                      >
+                        <Text style={styles.btnDivergenciaTexto}>⚠ Ruptura</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity
+                        style={[styles.btnFaltaExplosivo, salvandoItem === item.id && styles.btnDesabilitado]}
+                        onPress={() => confirmarFaltaExplosivo(item)}
+                        disabled={!!salvandoItem}
+                      >
+                        <Text style={styles.btnFaltaExplosivoTexto}>🏷 Falta Explosivo</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                )}
+
+                {item.status === 'pendente' && itemEmDivergencia !== item.id && !tipoJornal && (
                   <View style={styles.itemAcoes}>
                     <TouchableOpacity
                       style={[styles.btnOk, salvandoItem === item.id && styles.btnDesabilitado]}
@@ -488,7 +613,21 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
                   </View>
                 )}
 
-                {item.status !== 'pendente' && (
+                {item.status !== 'pendente' && tipoJornal && (
+                  <View style={styles.itemAcoes}>
+                    <TouchableOpacity onPress={() => confirmarOk(item)} disabled={!!salvandoItem}>
+                      <Text style={styles.btnRefazerTexto}>Marcar OK</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => confirmarRuptura(item)} disabled={!!salvandoItem}>
+                      <Text style={styles.btnRefazerTexto}>Marcar Ruptura</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity onPress={() => confirmarFaltaExplosivo(item)} disabled={!!salvandoItem}>
+                      <Text style={styles.btnRefazerTexto}>Marcar Falta Explosivo</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+
+                {item.status !== 'pendente' && !tipoJornal && (
                   <TouchableOpacity onPress={() => abrirDivergencia({ ...item, status: 'pendente' } as ConferenciaItem)}>
                     <Text style={styles.btnRefazerTexto}>Corrigir</Text>
                   </TouchableOpacity>
@@ -541,6 +680,14 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
           <TouchableOpacity style={styles.btnConcluir} onPress={concluir} disabled={concluindo}>
             <Text style={styles.btnConcluirTexto}>{concluindo ? 'Enviando…' : 'Concluir e enviar pros administradores'}</Text>
           </TouchableOpacity>
+        )}
+
+        {jornalAtual && (
+          <VisualizadorJornalModal
+            visible={verJornal}
+            arquivoUrl={jornalAtual.arquivoUrl}
+            onFechar={() => setVerJornal(false)}
+          />
         )}
       </View>
     );
@@ -641,14 +788,18 @@ const styles = StyleSheet.create({
   chipStatus: { borderRadius: radius.full, paddingVertical: 3, paddingHorizontal: 9 },
   chipOk: { backgroundColor: '#DFF3E9' },
   chipDivergencia: { backgroundColor: '#FBDEDC' },
+  chipFaltaExplosivo: { backgroundColor: '#FBEBD4' },
   chipStatusTexto: { fontSize: 10.5, fontWeight: '700' },
-  itemAcoes: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
+  itemAcoes: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm },
   btnOk: { flex: 1, backgroundColor: colors.green500, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center' },
   btnOkTexto: { color: colors.white, fontSize: 12.5, fontWeight: '700' },
   btnDivergencia: { flex: 1, backgroundColor: '#FBDEDC', borderRadius: radius.md, paddingVertical: 10, alignItems: 'center' },
   btnDivergenciaTexto: { color: colors.red500, fontSize: 12.5, fontWeight: '700' },
+  btnFaltaExplosivo: { flex: 1, backgroundColor: '#FBEBD4', borderRadius: radius.md, paddingVertical: 10, alignItems: 'center' },
+  btnFaltaExplosivoTexto: { color: '#B4650E', fontSize: 12.5, fontWeight: '700' },
   btnDesabilitado: { opacity: 0.6 },
   btnRefazerTexto: { fontSize: 11.5, color: colors.navy700, fontWeight: '700', marginTop: spacing.sm },
+  btnReiniciarTexto: { fontSize: 12, color: colors.navy700, fontWeight: '700' },
   divergenciaBox: { backgroundColor: colors.gray50, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.md },
   formLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4, color: colors.gray600, marginBottom: 6 },
   input: { backgroundColor: colors.white, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: 13, color: colors.gray900, borderWidth: 1, borderColor: colors.gray100 },

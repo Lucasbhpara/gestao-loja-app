@@ -7,7 +7,7 @@ export interface ConferenciaItem {
   produto: string;
   quantidadeEsperada: number;
   quantidadeReal: number | null;
-  status: 'pendente' | 'ok' | 'divergencia';
+  status: 'pendente' | 'ok' | 'divergencia' | 'ruptura' | 'falta_explosivo';
   fotoUrl: string | null;
   conferidoEm: string | null;
 }
@@ -16,6 +16,10 @@ export interface Conferencia {
   id: string;
   titulo: string;
   setor: string;
+  // 'nf' = conferência de nota fiscal (padrão, sempre existiu). 'jornal' =
+  // checklist do Jornal de Aniversário — usa OK/Ruptura/Falta Explosivo em
+  // vez de OK/Divergência e pode ser reiniciada pela própria pessoa.
+  tipo: 'nf' | 'jornal';
   status: 'pendente' | 'concluida';
   criadaPorNome: string;
   conferidaPorNome: string | null;
@@ -29,6 +33,7 @@ function linhaParaConferencia(l: any): Conferencia {
     id: l.id,
     titulo: l.titulo,
     setor: l.setor,
+    tipo: l.tipo === 'jornal' ? 'jornal' : 'nf',
     status: l.status,
     criadaPorNome: l.criada_por_nome,
     conferidaPorNome: l.conferida_por_nome,
@@ -143,6 +148,27 @@ export async function marcarItemDivergencia(dados: {
   if (error) throw error;
 }
 
+// Só pro tipo "jornal" (checklist do Jornal de Aniversário): igual ao OK,
+// mas marca "Ruptura" (produto em falta na loja) num toque só — sem
+// quantidade nem foto, porque esses itens não têm nota fiscal.
+export async function marcarItemRuptura(itemId: string): Promise<void> {
+  const { error } = await supabase
+    .from('conferencia_itens')
+    .update({ status: 'ruptura', conferido_em: new Date().toISOString() })
+    .eq('id', itemId);
+  if (error) throw error;
+}
+
+// Idem, mas "Falta Explosivo" (sem a etiqueta/cartaz de preço promocional no
+// produto).
+export async function marcarItemFaltaExplosivo(itemId: string): Promise<void> {
+  const { error } = await supabase
+    .from('conferencia_itens')
+    .update({ status: 'falta_explosivo', conferido_em: new Date().toISOString() })
+    .eq('id', itemId);
+  if (error) throw error;
+}
+
 // Salva a foto da nota fiscal (NF) que veio com a entrega, junto da
 // conferência inteira (diferente das fotos de divergência, que são por
 // item). Usa o mesmo bucket "conferencias-fotos".
@@ -158,6 +184,25 @@ export async function concluirConferencia(conferenciaId: string, conferidaPorNom
   const { error } = await supabase
     .from('conferencias')
     .update({ status: 'concluida', conferida_por_nome: conferidaPorNome, concluida_em: new Date().toISOString() })
+    .eq('id', conferenciaId);
+  if (error) throw error;
+}
+
+// "Recriar conferência": em vez de gerar uma conferência nova (o que
+// espalharia o histórico do Jornal em vários registros), reaproveita a
+// mesma e zera o progresso — todo item volta pra "pendente" e a conferência
+// volta a ficar disponível pra conferir de novo. Pensado pro tipo "jornal",
+// onde a pessoa que confere pode precisar refazer sempre que for solicitado.
+export async function reiniciarConferencia(conferenciaId: string): Promise<void> {
+  const { error: erroItens } = await supabase
+    .from('conferencia_itens')
+    .update({ status: 'pendente', quantidade_real: null, foto_url: null, conferido_em: null })
+    .eq('conferencia_id', conferenciaId);
+  if (erroItens) throw erroItens;
+
+  const { error } = await supabase
+    .from('conferencias')
+    .update({ status: 'pendente', conferida_por_nome: null, concluida_em: null })
     .eq('id', conferenciaId);
   if (error) throw error;
 }

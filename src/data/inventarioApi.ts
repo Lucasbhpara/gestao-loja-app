@@ -1,6 +1,6 @@
 import { supabase } from '../lib/supabase';
 
-export type Sortimento = 'flv' | 'acougue' | 'padaria' | 'uso_consumo' | 'bebidas';
+export type Sortimento = 'flv' | 'acougue' | 'padaria' | 'uso_consumo' | 'bebidas' | 'paletes_caixas';
 
 export const SORTIMENTOS_INVENTARIO: { key: Sortimento; nome: string; descricao: string }[] = [
   { key: 'flv', nome: 'FLV', descricao: 'Frutas, legumes e verduras' },
@@ -8,6 +8,7 @@ export const SORTIMENTOS_INVENTARIO: { key: Sortimento; nome: string; descricao:
   { key: 'padaria', nome: 'Padaria', descricao: 'Pães industrializados' },
   { key: 'uso_consumo', nome: 'Uso e Consumo', descricao: 'Sacolas, bobinas plásticas e filme PVC' },
   { key: 'bebidas', nome: 'Bebidas', descricao: 'Bebidas destiladas' },
+  { key: 'paletes_caixas', nome: 'Paletes e Caixas', descricao: 'Paletes CHEP/PBR e caixas plásticas' },
 ];
 
 export interface ItemCatalogoInventario {
