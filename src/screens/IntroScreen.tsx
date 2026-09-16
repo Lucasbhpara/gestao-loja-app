@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, Animated, TouchableWithoutFeedback, Image, Easing } from 'react-native';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { useEventListener } from 'expo';
 import { colors } from '../theme/colors';
 
 // Intro animado, tipo o da Netflix/Disney+ quando abre o app: o vídeo do
@@ -23,12 +24,23 @@ export default function IntroScreen({ onFim }: { onFim: () => void }) {
   const [terminado, setTerminado] = useState(false);
   const [videoFalhou, setVideoFalhou] = useState(false);
   const jaCruzou = useRef(false);
-  const videoRef = useRef<Video>(null);
+
+  // expo-video: o "player" é o controlador (equivalente ao antigo videoRef +
+  // expo-av), criado uma vez e reaproveitado — troca direta do expo-av
+  // (removido a partir do SDK 55) por expo-video, sem mudar o comportamento.
+  const player = useVideoPlayer(require('../../assets/intro/lobo_intro.mp4'), (p) => {
+    p.loop = false;
+    p.play();
+  });
 
   function finalizar() {
     if (terminado) return;
     setTerminado(true);
-    videoRef.current?.pauseAsync().catch(() => {});
+    try {
+      player.pause();
+    } catch {
+      // Sem problema se o player já não existir mais nesse momento.
+    }
     Animated.timing(opacidadeTela, {
       toValue: 0,
       duration: 350,
@@ -56,18 +68,19 @@ export default function IntroScreen({ onFim }: { onFim: () => void }) {
     });
   }
 
-  function aoAtualizarStatus(status: AVPlaybackStatus) {
-    if (!status.isLoaded) {
-      if (status.error) {
-        setVideoFalhou(true);
-        mostrarLogo();
-      }
-      return;
-    }
-    if (status.didJustFinish) {
+  // Toca uma vez e cruza pro logo (equivalente ao antigo didJustFinish).
+  useEventListener(player, 'playToEnd', () => {
+    mostrarLogo();
+  });
+
+  // Se o vídeo falhar ao carregar/tocar, cai no mesmo caminho do fallback:
+  // esconde o vídeo e vai direto pro logo, sem travar o acesso ao app.
+  useEventListener(player, 'statusChange', ({ status, error }) => {
+    if (status === 'error' || error) {
+      setVideoFalhou(true);
       mostrarLogo();
     }
-  }
+  });
 
   useEffect(() => {
     Animated.timing(opacidadeToque, {
@@ -93,14 +106,11 @@ export default function IntroScreen({ onFim }: { onFim: () => void }) {
       <Animated.View style={[styles.flex, { opacity: opacidadeTela }]}>
         {!videoFalhou && (
           <Animated.View style={[StyleSheet.absoluteFill, { opacity: opacidadeVideo }]}>
-            <Video
-              ref={videoRef}
-              source={require('../../assets/intro/lobo_intro.mp4')}
+            <VideoView
+              player={player}
               style={StyleSheet.absoluteFill}
-              resizeMode={ResizeMode.COVER}
-              shouldPlay
-              isLooping={false}
-              onPlaybackStatusUpdate={aoAtualizarStatus}
+              contentFit="cover"
+              nativeControls={false}
             />
           </Animated.View>
         )}
