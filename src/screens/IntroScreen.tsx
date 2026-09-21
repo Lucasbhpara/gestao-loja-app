@@ -123,7 +123,7 @@ export default function IntroScreen({ onFim }: { onFim: () => void }) {
             <Image source={require('../../assets/icon.png')} style={styles.logo} />
           </View>
           <Text style={styles.titulo}>ULVA</Text>
-          <Text style={styles.tagline}>Gestão de Loja · Unidade 327</Text>
+          <Text style={styles.tagline}>Gestão na palma da sua mão</Text>
         </Animated.View>
 
         <Animated.Text style={[styles.toque, { opacity: opacidadeToque }]}>toque para continuar</Animated.Text>

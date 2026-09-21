@@ -63,6 +63,10 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
   const [verJornal, setVerJornal] = useState(false);
 
   // --- Criação de uma conferência nova, direto pelo colaborador ------------
+  // 'nf' = conferência normal de nota fiscal. 'jornal' = "Conferência
+  // Folheto de Oferta": usa o Jornal de Ofertas já publicado (o mesmo PDF
+  // que o admin sobe no portal) como referência, em vez de anexar uma NF.
+  const [novoTipo, setNovoTipo] = useState<'nf' | 'jornal'>('nf');
   const [novoTitulo, setNovoTitulo] = useState('');
   const [novaNfUri, setNovaNfUri] = useState<string | null>(null);
   const [novosItens, setNovosItens] = useState<{ codigoInterno: string; produto: string; quantidade: string }[]>([
@@ -205,10 +209,28 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
     }
   }
 
-  function abrirNovaConferencia() {
-    setNovoTitulo('');
+  function escolherTipoNovaConferencia() {
+    Alert.alert('Nova conferência', 'Qual tipo de conferência você quer criar?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Nota Fiscal (NF)', onPress: () => abrirNovaConferencia('nf') },
+      { text: 'Folheto de Oferta', onPress: () => abrirNovaConferencia('jornal') },
+    ]);
+  }
+
+  function abrirNovaConferencia(tipo: 'nf' | 'jornal') {
+    setNovoTipo(tipo);
     setNovaNfUri(null);
     setNovosItens([{ codigoInterno: '', produto: '', quantidade: '' }]);
+    setVerJornal(false);
+    if (tipo === 'jornal') {
+      const hoje = new Date();
+      const dataFormatada = `${String(hoje.getDate()).padStart(2, '0')}/${String(hoje.getMonth() + 1).padStart(2, '0')}`;
+      setNovoTitulo(`Folheto de Oferta - ${dataFormatada}`);
+      buscarJornalAtual().then(setJornalAtual).catch(() => setJornalAtual(null));
+    } else {
+      setNovoTitulo('');
+      setJornalAtual(null);
+    }
     setModo('nova');
   }
 
@@ -284,6 +306,7 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
         criadaPorNome: usuarioAtual.nome,
         notaFiscalUrl,
         itens: itensValidos,
+        tipo: novoTipo,
       });
       Alert.alert('Conferência criada', 'Já pode começar a conferir os itens.');
       setModo('lista');
@@ -390,7 +413,7 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
           <TouchableOpacity onPress={() => setModo('lista')} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
             <Text style={styles.voltar}>‹ Cancelar</Text>
           </TouchableOpacity>
-          <Text style={styles.titulo}>Nova conferência</Text>
+          <Text style={styles.titulo}>{novoTipo === 'jornal' ? 'Folheto de Oferta' : 'Nova conferência'}</Text>
           <View style={{ width: 70 }} />
         </View>
         <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 100 }}>
@@ -398,27 +421,45 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
             <Text style={styles.formLabel}>Título</Text>
             <TextInput
               style={styles.input}
-              placeholder='Ex.: NF 12345 - Fornecedor XPTO'
+              placeholder={novoTipo === 'jornal' ? 'Ex.: Folheto de Oferta - 21/09' : 'Ex.: NF 12345 - Fornecedor XPTO'}
               value={novoTitulo}
               onChangeText={setNovoTitulo}
             />
 
-            <Text style={[styles.formLabel, { marginTop: spacing.md }]}>Nota fiscal (opcional)</Text>
-            {novaNfUri ? (
-              <View>
-                <Image source={{ uri: novaNfUri }} style={styles.fotoPreview} />
-                <TouchableOpacity onPress={() => setNovaNfUri(null)}>
-                  <Text style={styles.btnRemoverFotoTexto}>Remover foto</Text>
-                </TouchableOpacity>
-              </View>
+            {novoTipo === 'nf' ? (
+              <>
+                <Text style={[styles.formLabel, { marginTop: spacing.md }]}>Nota fiscal (opcional)</Text>
+                {novaNfUri ? (
+                  <View>
+                    <Image source={{ uri: novaNfUri }} style={styles.fotoPreview} />
+                    <TouchableOpacity onPress={() => setNovaNfUri(null)}>
+                      <Text style={styles.btnRemoverFotoTexto}>Remover foto</Text>
+                    </TouchableOpacity>
+                  </View>
+                ) : (
+                  <TouchableOpacity style={styles.btnAdicionarFoto} onPress={escolherFotoNovaConferencia}>
+                    <Text style={styles.btnAdicionarFotoTexto}>+ Anexar foto da NF</Text>
+                  </TouchableOpacity>
+                )}
+              </>
             ) : (
-              <TouchableOpacity style={styles.btnAdicionarFoto} onPress={escolherFotoNovaConferencia}>
-                <Text style={styles.btnAdicionarFotoTexto}>+ Anexar foto da NF</Text>
-              </TouchableOpacity>
+              <>
+                <Text style={[styles.formLabel, { marginTop: spacing.md }]}>Jornal de Ofertas</Text>
+                {jornalAtual ? (
+                  <TouchableOpacity style={styles.btnAdicionarFoto} onPress={() => setVerJornal(true)}>
+                    <Text style={styles.btnAdicionarFotoTexto}>📄 Ver jornal de ofertas atual</Text>
+                  </TouchableOpacity>
+                ) : (
+                  <Text style={styles.jornalAvisoTexto}>
+                    Nenhum jornal enviado ainda no portal — dá pra continuar e montar a lista de itens mesmo assim,
+                    mas o encarte não vai aparecer aqui até alguém subir um PDF novo.
+                  </Text>
+                )}
+              </>
             )}
           </View>
 
-          <Text style={styles.secaoTitulo}>Itens da nota fiscal</Text>
+          <Text style={styles.secaoTitulo}>{novoTipo === 'jornal' ? 'Itens do folheto de oferta' : 'Itens da nota fiscal'}</Text>
           {novosItens.map((item, indice) => (
             <View key={indice} style={styles.itemNovoCard}>
               <Text style={styles.formLabel}>Produto</Text>
@@ -468,6 +509,14 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
             <Text style={styles.btnSalvarTexto}>{criandoConferencia ? 'Criando…' : 'Criar conferência'}</Text>
           </TouchableOpacity>
         </ScrollView>
+
+        {jornalAtual && (
+          <VisualizadorJornalModal
+            visible={verJornal}
+            arquivoUrl={jornalAtual.arquivoUrl}
+            onFechar={() => setVerJornal(false)}
+          />
+        )}
       </View>
     );
   }
@@ -747,7 +796,7 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
         )}
       </ScrollView>
 
-      <TouchableOpacity style={styles.fab} onPress={abrirNovaConferencia}>
+      <TouchableOpacity style={styles.fab} onPress={escolherTipoNovaConferencia}>
         <Text style={styles.fabTexto}>+</Text>
       </TouchableOpacity>
     </View>
@@ -807,6 +856,7 @@ const styles = StyleSheet.create({
   btnRemoverFotoTexto: { fontSize: 12, color: colors.red500, fontWeight: '600', marginTop: 6 },
   btnAdicionarFoto: { borderWidth: 1, borderColor: colors.gray100, borderStyle: 'dashed', borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', marginTop: spacing.sm },
   btnAdicionarFotoTexto: { fontSize: 12, color: colors.navy700, fontWeight: '700' },
+  jornalAvisoTexto: { fontSize: 11.5, color: colors.gray600, lineHeight: 17, marginTop: spacing.sm },
   btnCancelarDivergencia: { flex: 1, paddingVertical: 10, alignItems: 'center' },
   btnCancelarDivergenciaTexto: { color: colors.gray600, fontSize: 12.5, fontWeight: '600' },
   btnConfirmarDivergencia: { flex: 1.4, backgroundColor: colors.navy700, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center' },

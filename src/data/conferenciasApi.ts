@@ -66,6 +66,10 @@ export async function criarConferencia(dados: {
   criadaPorNome: string;
   notaFiscalUrl: string | null;
   itens: { codigoInterno: string | null; produto: string; quantidadeEsperada: number }[];
+  // 'nf' (padrão, se não informado) ou 'jornal' — ver comentário no tipo
+  // Conferencia acima. A "Conferência Folheto de Oferta" usa 'jornal' pra
+  // ganhar os botões OK/Ruptura/Falta Explosivo e poder ser reiniciada.
+  tipo?: 'nf' | 'jornal';
 }): Promise<Conferencia> {
   const { data: conf, error } = await supabase
     .from('conferencias')
@@ -74,6 +78,7 @@ export async function criarConferencia(dados: {
       setor: dados.setor,
       criada_por_nome: dados.criadaPorNome,
       nota_fiscal_url: dados.notaFiscalUrl,
+      tipo: dados.tipo ?? 'nf',
     })
     .select()
     .single();

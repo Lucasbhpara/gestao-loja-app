@@ -683,7 +683,11 @@ function cabecalho(titulo, subtitulo) {
 async function paginaJornalOfertas() {
   document.getElementById('conteudo-principal').innerHTML =
     cabecalho('Jornal de Ofertas', 'O encarte de promoções mais recente') +
-    '<div class="celula-vazio">A janelinha do jornal abriu no canto da tela. Use "Atualizar jornal (PDF)" ali pra subir um encarte novo, ou o ▾ pra minimizar.</div>';
+    '<div class="celula-vazio" style="padding:32px 16px;">' +
+    '<div style="font-size:14px;margin-bottom:14px;">Suba aqui o PDF do encarte de ofertas mais recente — é o mesmo arquivo que aparece pros colaboradores dentro do app.</div>' +
+    '<button class="btn-acao" onclick="document.getElementById(\'jornal-flutuante-arquivo\').click()">📤 Enviar novo jornal (PDF)</button>' +
+    '<div style="font-size:11.5px;color:var(--text-muted);margin-top:10px;">Depois de enviar, o encarte também abre na janelinha no canto da tela — não precisa fazer mais nada lá.</div>' +
+    '</div>';
 }
 
 // =============================================================================

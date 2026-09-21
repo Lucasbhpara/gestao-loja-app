@@ -6,11 +6,6 @@
     "orientation": "portrait",
     "userInterfaceStyle": "light",
     "icon": "./assets/icon.png",
-    "splash": {
-      "backgroundColor": "#FFFFFF",
-      "image": "./assets/icon.png",
-      "resizeMode": "contain"
-    },
     "assetBundlePatterns": [
       "**/*"
     ],
@@ -44,6 +39,14 @@
     },
     "plugins": [
       [
+        "expo-splash-screen",
+        {
+          "image": "./assets/icon.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFFFFF"
+        }
+      ],
+      [
         "expo-camera",
         {
           "cameraPermission": "Precisamos da câmera pra ler o código de barras dos produtos na tela de Validade."
@@ -61,7 +64,8 @@
           "photosPermission": "Precisamos acessar suas fotos pra anexar uma imagem no Mural de Avisos.",
           "cameraPermission": "Precisamos da câmera pra tirar uma foto pro Mural de Avisos."
         }
-      ]
+      ],
+      "expo-video"
     ],
     "runtimeVersion": {
       "policy": "appVersion"

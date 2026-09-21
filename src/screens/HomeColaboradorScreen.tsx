@@ -18,6 +18,7 @@ import PedidosScreen from './PedidosScreen';
 import MapaLojaScreen from './MapaLojaScreen';
 import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
+import ChecklistScreen from './ChecklistScreen';
 
 const FRASES_DO_DIA = [
   'Pequenas melhorias todos os dias constroem grandes resultados.',
@@ -46,6 +47,7 @@ export default function HomeColaboradorScreen() {
     | 'mapaLoja'
     | 'pontasExtras'
     | 'jornalOfertas'
+    | 'checklist'
   >('home');
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
@@ -154,6 +156,9 @@ export default function HomeColaboradorScreen() {
   }
   if (tela === 'jornalOfertas') {
     return <JornalOfertasScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'checklist') {
+    return <ChecklistScreen onVoltar={() => setTela('home')} />;
   }
 
   const nomeSetor = setores.find((s) => s.key === usuarioAtual.setor)?.nome ?? usuarioAtual.setor;
@@ -291,6 +296,7 @@ export default function HomeColaboradorScreen() {
         <View style={styles.grid}>
           {(somenteValidade
             ? [
+                { label: 'Checklist', icone: 'check-square' as const, chave: 'checklist', onPress: () => setTela('checklist') },
                 { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
                 { label: 'Mapa da Loja', icone: 'map' as const, chave: 'mapaLoja', onPress: () => setTela('mapaLoja') },
                 { label: 'Pontas e Pontos Extras', icone: 'layers' as const, chave: 'pontasExtras', onPress: () => setTela('pontasExtras') },
@@ -298,6 +304,7 @@ export default function HomeColaboradorScreen() {
                 { label: 'Sobre', icone: 'info' as const, chave: null, onPress: () => setTela('sobre') },
               ]
             : [
+                { label: 'Checklist', icone: 'check-square' as const, chave: 'checklist', onPress: () => setTela('checklist') },
                 { label: 'Perdas do Setor', icone: 'trending-down' as const, chave: 'perdas', onPress: () => setTela('perdas') },
                 { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
                 { label: 'Inventário', icone: 'package' as const, chave: null, onPress: undefined },

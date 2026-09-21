@@ -20,6 +20,7 @@ import PainelResultadosScreen from './PainelResultadosScreen';
 import MapaLojaScreen from './MapaLojaScreen';
 import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
+import ChecklistAdminScreen from './ChecklistAdminScreen';
 
 // Aba de chat com a IA visível só nesse login específico (Lucas), não pros
 // demais administradores. Identificado pela matrícula (e não pelo id),
@@ -45,6 +46,7 @@ export default function HomeAdminScreen() {
     | 'mapaLoja'
     | 'pontasExtras'
     | 'jornalOfertas'
+    | 'checklist'
   >('home');
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
@@ -139,6 +141,9 @@ export default function HomeAdminScreen() {
   if (tela === 'jornalOfertas') {
     return <JornalOfertasScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'checklist') {
+    return <ChecklistAdminScreen onVoltar={() => setTela('home')} />;
+  }
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -198,7 +203,8 @@ export default function HomeAdminScreen() {
         <Text style={styles.sectionTitle}>Ações rápidas</Text>
         <View style={styles.grid}>
           {[
-            { label: 'Criar tarefa', icone: 'check-square' as const, onPress: () => setTela('tarefas') },
+            { label: 'Checklist', icone: 'check-square' as const, onPress: () => setTela('checklist') },
+            { label: 'Criar tarefa', icone: 'edit-3' as const, onPress: () => setTela('tarefas') },
             { label: 'Perdas geral', icone: 'trending-down' as const, onPress: () => setTela('perdas') },
             { label: 'Validade', icone: 'calendar' as const, onPress: () => setTela('validade') },
             { label: 'Inventário', icone: 'package' as const, onPress: () => setTela('inventario') },
