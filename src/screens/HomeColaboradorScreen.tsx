@@ -131,9 +131,6 @@ export default function HomeColaboradorScreen() {
   // colaborador, lá na aba Equipe do portal — filtra a grade de "Acesso
   // rápido" abaixo. Sem nada configurado (padrão), enxerga tudo normalmente.
   const bloqueadas = usuarioAtual.ferramentasBloqueadas ?? [];
-  // Faltas e Atestados: só encarregado lança (pro próprio setor) — gerência
-  // já tem a mesma tela dentro do HomeAdminScreen, com seletor de setor.
-  const ehEncarregado = usuarioAtual.funcao?.trim().toLowerCase().startsWith('enc.') ?? false;
 
   if (tela === 'perdas') {
     return <PerdasSetorScreen onVoltar={() => setTela('home')} />;
@@ -353,10 +350,12 @@ export default function HomeColaboradorScreen() {
               ]
             : [
                 { label: 'Checklist', icone: 'check-square' as const, chave: 'checklist', onPress: () => setTela('checklist') },
-                { label: 'Colaboradores', icone: 'users' as const, chave: 'colaboradores', onPress: () => setTela('colaboradores') },
-                ...(ehEncarregado
-                  ? [{ label: 'Faltas e Atestados', icone: 'user-x' as const, chave: 'escalaFaltas', onPress: () => setTela('escalaFaltas') }]
-                  : []),
+                // "Colaboradores" agora é a tela de presença/falta por dia
+                // (antiga "Faltas e Atestados"), aberta pra qualquer
+                // colaborador logado — cada um só enxerga o próprio setor.
+                // A tela antiga de cadastro (ColaboradoresScreen) ficou sem
+                // tile por enquanto — inativa, mas o código continua aqui.
+                { label: 'Colaboradores', icone: 'users' as const, chave: 'escalaFaltas', onPress: () => setTela('escalaFaltas') },
                 { label: 'Perdas e Desperdício', icone: 'trending-down' as const, chave: 'perdas', onPress: () => setTela('perdas') },
                 { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
                 { label: 'Inventário', icone: 'package' as const, chave: null, onPress: undefined },

@@ -221,8 +221,11 @@ export default function HomeAdminScreen() {
           {[
             { label: 'Checklist', icone: 'check-square' as const, onPress: () => setTela('checklist') },
             { label: 'Checklist de Setor', icone: 'clipboard' as const, onPress: () => setTela('checklistSetor') },
-            { label: 'Faltas e Atestados', icone: 'user-x' as const, onPress: () => setTela('escalaFaltas') },
-            { label: 'Colaboradores', icone: 'users' as const, onPress: () => setTela('colaboradores') },
+            // "Colaboradores" agora abre a tela de presença/falta por dia
+            // (antiga "Faltas e Atestados"); a tela antiga de cadastro
+            // (ColaboradoresScreen) ficou sem tile por enquanto — inativa,
+            // mas o código continua aqui se precisar reativar depois.
+            { label: 'Colaboradores', icone: 'users' as const, onPress: () => setTela('escalaFaltas') },
             { label: 'Criar tarefa', icone: 'edit-3' as const, onPress: () => setTela('tarefas') },
             { label: 'Perdas e Desperdício', icone: 'trending-down' as const, onPress: () => setTela('perdas') },
             { label: 'Validade', icone: 'calendar' as const, onPress: () => setTela('validade') },
