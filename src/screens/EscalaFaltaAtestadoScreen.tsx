@@ -27,12 +27,13 @@ import {
 } from '../data/escalaApi';
 import SeletorDataValidade from '../components/SeletorDataValidade';
 
-// Escala de Folgas + Faltas/Atestados — a mesma tela serve pra gerência
-// (enxerga e lança em qualquer setor, com seletor) e pra encarregado (só
-// lança dentro do próprio setor, sem seletor). Quem decide isso é o
-// HomeAdminScreen/HomeColaboradorScreen, que só exibem o botão de entrada
-// pra quem pode usar — aqui dentro só olhamos usuarioAtual.isAdmin pra
-// saber se mostra o seletor de setor ou trava no setor da pessoa.
+// Tela "Colaboradores" (antiga "Faltas e Atestados") — Escala de Folgas +
+// Faltas/Atestados. Aberta pra QUALQUER colaborador logado, não só
+// gerência/encarregado: a mesma tela serve pra gerência (enxerga e lança em
+// qualquer setor, com seletor) e pra todo o resto do time (só lança dentro
+// do próprio setor, sem seletor — cada um só vê/mexe no setor dele). Quem
+// decide isso é só o usuarioAtual.isAdmin aqui dentro, pra saber se mostra
+// o seletor de setor ou trava no setor da pessoa.
 //
 // A tela mostra UM DIA por vez (hoje por padrão, com seta pra navegar pros
 // outros dias ou tocar na data pra abrir o calendário) — a ideia é o
@@ -296,7 +297,7 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
         <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.voltar}>‹ Voltar</Text>
         </TouchableOpacity>
-        <Text style={styles.titulo}>Faltas e Atestados</Text>
+        <Text style={styles.titulo}>Colaboradores</Text>
         <View style={{ width: 50 }} />
       </View>
 
