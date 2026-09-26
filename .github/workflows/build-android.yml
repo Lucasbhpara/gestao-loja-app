@@ -37,6 +37,15 @@ jobs:
       - name: Instalar EAS CLI
         run: npm install -g eas-cli
 
+      - name: Configurar memória do Gradle
+        run: |
+          mkdir -p ~/.gradle
+          cat <<'EOF' >> ~/.gradle/gradle.properties
+          org.gradle.jvmargs=-Xmx4608m -XX:MaxMetaspaceSize=1024m
+          org.gradle.daemon=false
+          org.gradle.parallel=false
+          EOF
+
       - name: Gerar o build do Android (local)
         run: eas build --platform android --profile ${{ inputs.profile }} --local --non-interactive --output ${{ github.workspace }}/app-release.apk
         env:
