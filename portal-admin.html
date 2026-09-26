@@ -462,6 +462,7 @@
     <button class="nav-item" data-pagina="perdas" onclick="irPara('perdas')"><span class="dot"></span>Perdas e Desperdícios</button>
     <button class="nav-item" data-pagina="validade" onclick="irPara('validade')"><span class="dot"></span>Validade</button>
     <button class="nav-item" data-pagina="checklist-setor" onclick="irPara('checklist-setor')"><span class="dot"></span>📋 Checklist de Setor</button>
+    <button class="nav-item" data-pagina="escala" onclick="irPara('escala')"><span class="dot"></span>🗓️ Faltas e Atestados</button>
     <button class="nav-item" data-pagina="historico-exclusoes" onclick="irPara('historico-exclusoes')"><span class="dot"></span>Histórico de Exclusões</button>
     <button class="nav-item" data-pagina="inventario" onclick="irPara('inventario')"><span class="dot"></span>Inventário</button>
     <button class="nav-item" data-pagina="ocorrencias" onclick="irPara('ocorrencias')"><span class="dot"></span>Ocorrências</button>
@@ -605,6 +606,11 @@ let estado = {
   checklistPerguntas: [],
   checklistAvaliacoes: [],
   checklistNaoConformidades: [],
+  escalaSetor: null,
+  escalaAno: new Date().getFullYear(),
+  escalaMes: new Date().getMonth() + 1,
+  escalaRegistros: [],
+  escalaAberto: null,
 };
 
 function normalizar(s) { return (s || '').trim().toLowerCase(); }
@@ -690,6 +696,7 @@ async function irPara(pagina) {
     else if (pagina === 'perdas') await paginaPerdas();
     else if (pagina === 'validade') await paginaValidade();
     else if (pagina === 'checklist-setor') await paginaChecklistSetor();
+    else if (pagina === 'escala') await paginaEscala();
     else if (pagina === 'historico-exclusoes') await paginaHistoricoExclusoes();
     else if (pagina === 'inventario') await paginaInventario();
     else if (pagina === 'ocorrencias') await paginaOcorrencias();
@@ -934,7 +941,7 @@ function renderizarEquipe() {
       '<button class="btn-acao" onclick="abrirModalNovoColaborador()">+ Adicionar colaborador</button>' +
     '</div>' +
     (estado.ultimaPlanilhaFolga
-      ? '<div class="celula-vazio" style="text-align:left; padding:0 0 16px;">Última planilha de folgas enviada: <b>' + estado.ultimaPlanilhaFolga.nome_arquivo + '</b>' + (estado.ultimaPlanilhaFolga.enviado_por_nome ? ' · por ' + estado.ultimaPlanilhaFolga.enviado_por_nome : '') + ' · ' + formatarDataHora(estado.ultimaPlanilhaFolga.enviado_em) + ' — processamento pra mostrar quem está de folga ainda não está ligado.</div>'
+      ? '<div class="celula-vazio" style="text-align:left; padding:0 0 16px;">Última planilha de folgas enviada: <b>' + estado.ultimaPlanilhaFolga.nome_arquivo + '</b>' + (estado.ultimaPlanilhaFolga.enviado_por_nome ? ' · por ' + estado.ultimaPlanilhaFolga.enviado_por_nome : '') + ' · ' + formatarDataHora(estado.ultimaPlanilhaFolga.enviado_em) + ' — o arquivo só fica guardado aqui; pra importar os dias de folga pro sistema, é preciso pedir pra alguém rodar a importação (ainda não é automático). Quem está de folga, faltou ou trouxe atestado fica em <b onclick="irPara(\'escala\')" style="cursor:pointer;text-decoration:underline;">Faltas e Atestados</b>.</div>'
       : '') +
     '<div class="tabela-wrap"><table><thead><tr><th>Nome</th><th>Matrícula</th><th>Função</th><th>Setor</th><th>Status</th><th>Acessos (7 dias)</th><th>Último acesso</th><th></th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
 }
@@ -3960,6 +3967,277 @@ function htmlChecklistDashboard() {
 }
 
 // =============================================================================
+// =============================================================================
+// Faltas e Atestados — mesma tabela escala_folgas usada pelo app (ver
+// escalaApi.ts / EscalaFaltaAtestadoScreen.tsx): reúne as folgas importadas
+// da planilha de escala (tipo 'folga'), o período de férias/licença/INSS
+// quando a planilha já trouxer isso, e os lançamentos de falta/atestado
+// feitos na hora pela gerência ou pelo encarregado do setor. Aqui no portal
+// a gerência acompanha o mês inteiro por setor e também pode lançar,
+// EDITAR (inclusive trocar de colaborador — útil quando a planilha bate com
+// a pessoa errada) e remover qualquer registro, não só falta/atestado.
+// Tabela própria do ULVA: escala_folgas — não confundir com
+// "planilhas_folga" (só guarda o arquivo enviado, ver seção Equipe).
+// =============================================================================
+
+const MESES_ESCALA = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const LABEL_TIPO_ESCALA = {
+  folga: { texto: 'Folga', classe: '' },
+  ferias_licenca_inss: { texto: 'Férias/Licença/INSS', classe: '' },
+  falta: { texto: 'Falta', classe: 'vermelho' },
+  atestado: { texto: 'Atestado', classe: 'laranja' },
+};
+
+async function paginaEscala() {
+  await carregarColaboradoresLoja();
+  const setoresComGente = SETORES.filter((s) => estado.colaboradoresLoja.some((c) => c.setor === s.key));
+  if (!estado.escalaSetor || !setoresComGente.some((s) => s.key === estado.escalaSetor)) {
+    estado.escalaSetor = setoresComGente.length > 0 ? setoresComGente[0].key : null;
+  }
+  await carregarEscalaDoMes();
+  renderizarEscala();
+}
+
+async function carregarEscalaDoMes() {
+  const idsDoSetor = estado.colaboradoresLoja.filter((c) => c.setor === estado.escalaSetor).map((c) => c.id);
+  if (idsDoSetor.length === 0) { estado.escalaRegistros = []; return; }
+  const inicio = estado.escalaAno + '-' + String(estado.escalaMes).padStart(2, '0') + '-01';
+  const ultimoDia = new Date(estado.escalaAno, estado.escalaMes, 0).getDate();
+  const fim = estado.escalaAno + '-' + String(estado.escalaMes).padStart(2, '0') + '-' + String(ultimoDia).padStart(2, '0');
+  const { data, error } = await sb.from('escala_folgas').select('*').in('colaborador_loja_id', idsDoSetor).gte('data', inicio).lte('data', fim);
+  if (error) throw error;
+  estado.escalaRegistros = data || [];
+}
+
+function trocarMesEscala(delta) {
+  let m = estado.escalaMes + delta, a = estado.escalaAno;
+  if (m > 12) { m = 1; a += 1; }
+  if (m < 1) { m = 12; a -= 1; }
+  estado.escalaMes = m; estado.escalaAno = a;
+  estado.escalaAberto = null;
+  carregarEscalaDoMes().then(renderizarEscala).catch((e) => mostrarToast('Não consegui carregar: ' + e.message, 'erro'));
+}
+
+function trocarSetorEscala(setor) {
+  estado.escalaSetor = setor;
+  estado.escalaAberto = null;
+  carregarEscalaDoMes().then(renderizarEscala).catch((e) => mostrarToast('Não consegui carregar: ' + e.message, 'erro'));
+}
+
+function alternarLinhaEscala(colaboradorId) {
+  estado.escalaAberto = estado.escalaAberto === colaboradorId ? null : colaboradorId;
+  renderizarEscala();
+}
+
+function formatarDataCurtaEscala(iso) {
+  const partes = iso.split('-');
+  return partes[2] + '/' + partes[1];
+}
+
+function resumoRegistrosColaborador(colaboradorId) {
+  const registros = estado.escalaRegistros.filter((r) => r.colaborador_loja_id === colaboradorId);
+  if (registros.length === 0) return 'Nenhum registro esse mês';
+  const porTipo = {};
+  registros.forEach((r) => { porTipo[r.tipo] = (porTipo[r.tipo] || 0) + 1; });
+  return Object.keys(porTipo)
+    .map((t) => porTipo[t] + ' ' + LABEL_TIPO_ESCALA[t].texto.toLowerCase() + (porTipo[t] > 1 ? 's' : ''))
+    .join(' · ');
+}
+
+function renderizarEscala() {
+  const setoresComGente = SETORES.filter((s) => estado.colaboradoresLoja.some((c) => c.setor === s.key));
+  const chips = setoresComGente.map((s) =>
+    '<button class="chip' + (estado.escalaSetor === s.key ? ' ativo' : '') + '" onclick="trocarSetorEscala(\'' + s.key + '\')">' + s.nome + '</button>'
+  ).join('');
+
+  const colaboradoresDoSetor = estado.colaboradoresLoja
+    .filter((c) => c.setor === estado.escalaSetor)
+    .sort((a, b) => a.nome.localeCompare(b.nome));
+
+  const linhas = colaboradoresDoSetor.length === 0
+    ? '<div class="celula-vazio">Nenhum colaborador cadastrado nesse setor ainda.</div>'
+    : colaboradoresDoSetor.map((c) => {
+        const aberto = estado.escalaAberto === c.id;
+        const registros = estado.escalaRegistros
+          .filter((r) => r.colaborador_loja_id === c.id)
+          .sort((a, b) => (a.data < b.data ? -1 : 1));
+
+        const listaRegistros = registros.length === 0
+          ? '<div class="celula-vazio" style="padding:8px 0;">Nenhum registro esse mês.</div>'
+          : registros.map((r) =>
+              '<div style="padding:8px 0;border-bottom:1px solid var(--border);">' +
+                '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">' +
+                  '<div>' +
+                    '<span class="pill' + (LABEL_TIPO_ESCALA[r.tipo].classe ? ' ' + LABEL_TIPO_ESCALA[r.tipo].classe : '') + '" style="margin-right:8px;">' + LABEL_TIPO_ESCALA[r.tipo].texto + '</span>' +
+                    '<span style="font-size:12.5px;font-weight:700;">' + formatarDataCurtaEscala(r.data) + '</span>' +
+                    ((r.tipo === 'falta' || r.tipo === 'atestado') && r.registrado_por_nome
+                      ? '<span style="font-size:11.5px;color:var(--text-muted);margin-left:8px;">lançado por ' + r.registrado_por_nome + '</span>'
+                      : '') +
+                  '</div>' +
+                  '<div style="display:flex;gap:12px;">' +
+                    '<button class="link-remover" style="color:var(--accent-hover);" onclick="abrirModalEditarRegistroEscala(\'' + r.id + '\')">Editar</button>' +
+                    '<button class="link-remover" onclick="removerRegistroEscalaPortal(\'' + r.id + '\')">Remover</button>' +
+                  '</div>' +
+                '</div>' +
+                (r.observacao ? '<div style="font-size:11.5px;color:var(--text-muted);margin-top:3px;">' + r.observacao + '</div>' : '') +
+                (r.foto_url ? '<a href="' + r.foto_url + '" target="_blank" class="link-foto">Ver foto</a>' : '') +
+              '</div>'
+            ).join('');
+
+        const detalhe = !aberto ? '' :
+          '<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;">' +
+            listaRegistros +
+            '<button class="btn-acao secundario" style="margin-top:10px;" onclick="abrirModalFaltaAtestado(\'' + c.id + '\', \'' + c.nome.replace(/'/g, "\\'") + '\')">+ Registrar falta ou atestado</button>' +
+          '</div>';
+
+        return '<div class="item-card" style="margin-bottom:10px;">' +
+          '<div style="display:flex;justify-content:space-between;align-items:center;cursor:pointer;" onclick="alternarLinhaEscala(\'' + c.id + '\')">' +
+            '<div>' +
+              '<div style="font-size:13.5px;font-weight:700;">' + c.nome + '</div>' +
+              '<div style="font-size:11.5px;color:var(--text-muted);margin-top:2px;">' + resumoRegistrosColaborador(c.id) + '</div>' +
+            '</div>' +
+            '<span style="color:var(--text-muted);">' + (aberto ? '▲' : '▼') + '</span>' +
+          '</div>' +
+          detalhe +
+        '</div>';
+      }).join('');
+
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Faltas e Atestados', 'Escala do mês por setor — folgas da planilha enviada + faltas/atestados lançados na hora, pelo app ou por aqui') +
+    '<div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px;">' +
+      '<button class="chip" onclick="trocarMesEscala(-1)">‹</button>' +
+      '<div style="font-weight:700;font-size:14px;min-width:170px;text-align:center;">' + MESES_ESCALA[estado.escalaMes - 1] + ' de ' + estado.escalaAno + '</div>' +
+      '<button class="chip" onclick="trocarMesEscala(1)">›</button>' +
+    '</div>' +
+    (setoresComGente.length === 0
+      ? '<div class="celula-vazio">Nenhum colaborador de chão de loja cadastrado ainda (aba Equipe).</div>'
+      : '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;">' + chips + '</div>' + linhas);
+}
+
+function abrirModalFaltaAtestado(colaboradorId, nomeColaborador) {
+  const hoje = new Date();
+  const isoHoje = hoje.getFullYear() + '-' + String(hoje.getMonth() + 1).padStart(2, '0') + '-' + String(hoje.getDate()).padStart(2, '0');
+  abrirModal(
+    'Registrar falta/atestado — ' + nomeColaborador,
+    '<div class="form-linha"><label class="campo-label">Tipo</label>' +
+      '<select class="campo-input" id="fa-tipo"><option value="falta">Falta</option><option value="atestado">Atestado</option></select></div>' +
+    '<div class="form-linha"><label class="campo-label">Data</label><input class="campo-input" id="fa-data" type="date" value="' + isoHoje + '" /></div>' +
+    '<div class="form-linha"><label class="campo-label">Observação (opcional)</label><textarea class="campo-input" id="fa-observacao" rows="2"></textarea></div>' +
+    '<div class="form-linha"><label class="campo-label">Foto (opcional — recomendada pra documentar o atestado)</label><input type="file" id="fa-foto" accept="image/*" /></div>',
+    'Salvar',
+    () => salvarFaltaAtestadoPortal(colaboradorId)
+  );
+}
+
+async function salvarFaltaAtestadoPortal(colaboradorId) {
+  const tipo = document.getElementById('fa-tipo').value;
+  const data = document.getElementById('fa-data').value;
+  const observacao = document.getElementById('fa-observacao').value.trim() || null;
+  const arquivo = document.getElementById('fa-foto').files[0];
+  if (!data) { mostrarToast('Escolha uma data.', 'erro'); return; }
+  try {
+    let fotoUrl = null;
+    if (arquivo) {
+      const nomeArquivo = Date.now() + '_' + Math.round(Math.random() * 1e6) + '.jpg';
+      const { error: erroUpload } = await sb.storage.from('atestado-fotos').upload(nomeArquivo, arquivo, { upsert: true });
+      if (erroUpload) throw erroUpload;
+      fotoUrl = sb.storage.from('atestado-fotos').getPublicUrl(nomeArquivo).data.publicUrl;
+    }
+    const { error } = await sb.from('escala_folgas').upsert(
+      {
+        colaborador_loja_id: colaboradorId,
+        data,
+        tipo,
+        observacao,
+        foto_url: fotoUrl,
+        registrado_por_nome: estado.usuario.nome,
+      },
+      { onConflict: 'colaborador_loja_id,data' }
+    );
+    if (error) throw error;
+    fecharModal();
+    mostrarToast('Registrado.', 'sucesso');
+    await carregarEscalaDoMes();
+    renderizarEscala();
+  } catch (e) {
+    mostrarToast('Não consegui salvar: ' + e.message, 'erro');
+  }
+}
+
+// Edição geral de um registro já existente — qualquer tipo (inclusive
+// 'folga' vinda da planilha), não só falta/atestado. Cobre exatamente o
+// tipo de correção manual que a gerência precisou pedir por fora até agora:
+// mudar pra outra pessoa (nome bateu errado na importação da planilha),
+// trocar a data, mudar o tipo ou substituir a foto.
+function abrirModalEditarRegistroEscala(registroId) {
+  const r = estado.escalaRegistros.find((x) => x.id === registroId);
+  if (!r) return;
+  const opcoesColaborador = [...estado.colaboradoresLoja]
+    .sort((a, b) => nomeSetor(a.setor).localeCompare(nomeSetor(b.setor)) || a.nome.localeCompare(b.nome))
+    .map((c) => '<option value="' + c.id + '"' + (c.id === r.colaborador_loja_id ? ' selected' : '') + '>' + c.nome + ' — ' + nomeSetor(c.setor) + '</option>')
+    .join('');
+  const opcoesTipo = Object.keys(LABEL_TIPO_ESCALA)
+    .map((t) => '<option value="' + t + '"' + (t === r.tipo ? ' selected' : '') + '>' + LABEL_TIPO_ESCALA[t].texto + '</option>')
+    .join('');
+
+  abrirModal(
+    'Editar registro da escala',
+    '<div class="form-linha"><label class="campo-label">Colaborador</label><select class="campo-input" id="er-colaborador">' + opcoesColaborador + '</select></div>' +
+    '<div class="form-linha"><label class="campo-label">Tipo</label><select class="campo-input" id="er-tipo">' + opcoesTipo + '</select></div>' +
+    '<div class="form-linha"><label class="campo-label">Data</label><input class="campo-input" id="er-data" type="date" value="' + r.data + '" /></div>' +
+    '<div class="form-linha"><label class="campo-label">Observação (opcional)</label><textarea class="campo-input" id="er-observacao" rows="2">' + (r.observacao || '') + '</textarea></div>' +
+    '<div class="form-linha"><label class="campo-label">Foto</label>' +
+      (r.foto_url ? '<div style="margin-bottom:6px;"><a href="' + r.foto_url + '" target="_blank" class="link-foto">Ver foto atual</a></div>' : '') +
+      '<input type="file" id="er-foto" accept="image/*" />' +
+      (r.foto_url ? '<label style="display:flex;align-items:center;gap:6px;margin-top:6px;font-size:12px;color:var(--text-muted);"><input type="checkbox" id="er-remover-foto" /> Remover a foto atual</label>' : '') +
+    '</div>',
+    'Salvar',
+    () => salvarEdicaoRegistroEscala(registroId)
+  );
+}
+
+async function salvarEdicaoRegistroEscala(registroId) {
+  const r = estado.escalaRegistros.find((x) => x.id === registroId);
+  if (!r) return;
+  const colaboradorId = document.getElementById('er-colaborador').value;
+  const tipo = document.getElementById('er-tipo').value;
+  const data = document.getElementById('er-data').value;
+  const observacao = document.getElementById('er-observacao').value.trim() || null;
+  const arquivo = document.getElementById('er-foto').files[0];
+  const removerFotoAtual = document.getElementById('er-remover-foto') ? document.getElementById('er-remover-foto').checked : false;
+  if (!data) { mostrarToast('Escolha uma data.', 'erro'); return; }
+  try {
+    const payload = { colaborador_loja_id: colaboradorId, tipo, data, observacao };
+    if (arquivo) {
+      const nomeArquivo = Date.now() + '_' + Math.round(Math.random() * 1e6) + '.jpg';
+      const { error: erroUpload } = await sb.storage.from('atestado-fotos').upload(nomeArquivo, arquivo, { upsert: true });
+      if (erroUpload) throw erroUpload;
+      payload.foto_url = sb.storage.from('atestado-fotos').getPublicUrl(nomeArquivo).data.publicUrl;
+    } else if (removerFotoAtual) {
+      payload.foto_url = null;
+    }
+    const { error } = await sb.from('escala_folgas').update(payload).eq('id', registroId);
+    if (error) throw error;
+    fecharModal();
+    mostrarToast('Registro atualizado.', 'sucesso');
+    await carregarEscalaDoMes();
+    renderizarEscala();
+  } catch (e) {
+    const msg = (e.message || '').includes('duplicate key')
+      ? 'Já existe um registro nesse dia pra essa pessoa. Remova ou edite o outro primeiro.'
+      : e.message;
+    mostrarToast('Não consegui salvar: ' + msg, 'erro');
+  }
+}
+
+async function removerRegistroEscalaPortal(id) {
+  if (!confirm('Remover esse registro?')) return;
+  const { error } = await sb.from('escala_folgas').delete().eq('id', id);
+  if (error) { mostrarToast('Não consegui remover: ' + error.message, 'erro'); return; }
+  await carregarEscalaDoMes();
+  renderizarEscala();
+}
+
 function abrirModal(titulo, corpoHtml, textoBotao, aoSalvar) {
   fecharModal();
   const overlay = document.createElement('div');

@@ -1,5 +1,8 @@
 [build]
-  command = "npx expo export -p web"
+  # O "&& cp portal-admin.html dist/portal-admin.html" é pra publicar o
+  # Portal Admin junto (fica em /portal-admin.html) — sem isso, o Netlify só
+  # publicava o app, e o portal só ficava atualizado no GitHub Pages.
+  command = "npx expo export -p web && cp portal-admin.html dist/portal-admin.html"
   publish = "dist"
 
 [build.environment]

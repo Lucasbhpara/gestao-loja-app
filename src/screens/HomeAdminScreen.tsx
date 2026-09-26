@@ -23,6 +23,7 @@ import JornalOfertasScreen from './JornalOfertasScreen';
 import ChecklistAdminScreen from './ChecklistAdminScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
 import ChecklistSetorScreen from './ChecklistSetorScreen';
+import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 
 // Aba de chat com a IA visível só nesse login específico (Lucas), não pros
 // demais administradores. Identificado pela matrícula (e não pelo id),
@@ -51,6 +52,7 @@ export default function HomeAdminScreen() {
     | 'checklist'
     | 'colaboradores'
     | 'checklistSetor'
+    | 'escalaFaltas'
   >('home');
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
@@ -154,6 +156,9 @@ export default function HomeAdminScreen() {
   if (tela === 'checklistSetor') {
     return <ChecklistSetorScreen onVoltar={() => setTela('home')} usuarioNome={usuarioAtual.nome} />;
   }
+  if (tela === 'escalaFaltas') {
+    return <EscalaFaltaAtestadoScreen onVoltar={() => setTela('home')} />;
+  }
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -216,6 +221,7 @@ export default function HomeAdminScreen() {
           {[
             { label: 'Checklist', icone: 'check-square' as const, onPress: () => setTela('checklist') },
             { label: 'Checklist de Setor', icone: 'clipboard' as const, onPress: () => setTela('checklistSetor') },
+            { label: 'Faltas e Atestados', icone: 'user-x' as const, onPress: () => setTela('escalaFaltas') },
             { label: 'Colaboradores', icone: 'users' as const, onPress: () => setTela('colaboradores') },
             { label: 'Criar tarefa', icone: 'edit-3' as const, onPress: () => setTela('tarefas') },
             { label: 'Perdas e Desperdício', icone: 'trending-down' as const, onPress: () => setTela('perdas') },

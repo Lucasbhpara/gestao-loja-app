@@ -21,6 +21,7 @@ import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
 import ChecklistScreen from './ChecklistScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
+import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 
 const FRASES_DO_DIA = [
   'Pequenas melhorias todos os dias constroem grandes resultados.',
@@ -51,6 +52,7 @@ export default function HomeColaboradorScreen() {
     | 'jornalOfertas'
     | 'checklist'
     | 'colaboradores'
+    | 'escalaFaltas'
   >('home');
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
@@ -129,6 +131,9 @@ export default function HomeColaboradorScreen() {
   // colaborador, lá na aba Equipe do portal — filtra a grade de "Acesso
   // rápido" abaixo. Sem nada configurado (padrão), enxerga tudo normalmente.
   const bloqueadas = usuarioAtual.ferramentasBloqueadas ?? [];
+  // Faltas e Atestados: só encarregado lança (pro próprio setor) — gerência
+  // já tem a mesma tela dentro do HomeAdminScreen, com seletor de setor.
+  const ehEncarregado = usuarioAtual.funcao?.trim().toLowerCase().startsWith('enc.') ?? false;
 
   if (tela === 'perdas') {
     return <PerdasSetorScreen onVoltar={() => setTela('home')} />;
@@ -165,6 +170,9 @@ export default function HomeColaboradorScreen() {
   }
   if (tela === 'colaboradores') {
     return <ColaboradoresScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'escalaFaltas') {
+    return <EscalaFaltaAtestadoScreen onVoltar={() => setTela('home')} />;
   }
 
   const nomeSetor = setores.find((s) => s.key === usuarioAtual.setor)?.nome ?? usuarioAtual.setor;
@@ -346,6 +354,9 @@ export default function HomeColaboradorScreen() {
             : [
                 { label: 'Checklist', icone: 'check-square' as const, chave: 'checklist', onPress: () => setTela('checklist') },
                 { label: 'Colaboradores', icone: 'users' as const, chave: 'colaboradores', onPress: () => setTela('colaboradores') },
+                ...(ehEncarregado
+                  ? [{ label: 'Faltas e Atestados', icone: 'user-x' as const, chave: 'escalaFaltas', onPress: () => setTela('escalaFaltas') }]
+                  : []),
                 { label: 'Perdas e Desperdício', icone: 'trending-down' as const, chave: 'perdas', onPress: () => setTela('perdas') },
                 { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
                 { label: 'Inventário', icone: 'package' as const, chave: null, onPress: undefined },
