@@ -28,6 +28,8 @@ import {
 import { diasRestantes, formatarData, statusPrazo } from '../lib/validadeUtils';
 import { exportarContagemXlsx } from '../lib/exportarPlanilha';
 import { camaraDisponivel } from '../lib/plataforma';
+import { verificarEIniciarTratativa, buscarTratativasAbertas } from '../data/tratativaApi';
+import TratativasScreen from './TratativasScreen';
 
 // "Todos" não é um setor de colaborador de verdade — é um marcador especial
 // só pra deixar um produto visível em qualquer aba de setor de uma vez (ex.:
@@ -83,6 +85,19 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
   // lançar um novo.
   const [editandoId, setEditandoId] = useState<string | null>(null);
   const [exportando, setExportando] = useState(false);
+  const [quantidadeTexto, setQuantidadeTexto] = useState('1');
+
+  // Tela de Tratativas é exibida por cima da Validade (mesma tela, sem
+  // depender da navegação da Home) quando o usuário toca no botão no
+  // cabeçalho.
+  const [mostrarTratativas, setMostrarTratativas] = useState(false);
+  const [qtdTratativasAbertas, setQtdTratativasAbertas] = useState(0);
+
+  function carregarQtdTratativas() {
+    buscarTratativasAbertas()
+      .then((lista) => setQtdTratativasAbertas(lista.length))
+      .catch(() => {});
+  }
 
   function carregar() {
     if (!usuarioAtual) return;
@@ -97,6 +112,7 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
         setCarregando(false);
         setAtualizando(false);
       });
+    carregarQtdTratativas();
   }
 
   useEffect(() => {
@@ -109,10 +125,37 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
     [validades, setorFiltro]
   );
 
+  const [termoBuscaValidade, setTermoBuscaValidade] = useState('');
+
+  // Busca por nome do produto ou código de barras, pra achar rápido um
+  // produto específico entre os já cadastrados (em cima do filtro de setor
+  // acima, quando tiver um selecionado).
+  const validadesExibidas = useMemo(() => {
+    const termo = termoBuscaValidade.trim().toLowerCase();
+    if (!termo) return validadesFiltradas;
+    return validadesFiltradas.filter(
+      (v) => v.produto.toLowerCase().includes(termo) || (v.codigoBarras ?? '').toLowerCase().includes(termo)
+    );
+  }, [validadesFiltradas, termoBuscaValidade]);
+
   const setoresComProduto = useMemo(() => {
     const chaves = new Set(validades.map((v) => v.setor));
     return setoresComTodos.filter((s) => chaves.has(s.key));
   }, [validades]);
+
+  // Resumo rápido de quantos itens estão vencidos ou vencendo em breve —
+  // respeita o filtro de setor selecionado, mas não a busca por nome/código
+  // (é uma visão geral, não do resultado da busca).
+  const resumoVencimento = useMemo(() => {
+    let vencidos = 0;
+    let vencendoEm7Dias = 0;
+    for (const v of validadesFiltradas) {
+      const dias = diasRestantes(v.dataValidade);
+      if (dias < 0) vencidos++;
+      else if (dias <= 7) vencendoEm7Dias++;
+    }
+    return { vencidos, vencendoEm7Dias, total: validadesFiltradas.length };
+  }, [validadesFiltradas]);
 
   function nomeSetor(key: SetorKey) {
     return setoresComTodos.find((s) => s.key === key)?.nome ?? key;
@@ -148,6 +191,7 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
     } finally {
       setBuscandoCatalogo(false);
       setDataValidadeTexto('');
+      setQuantidadeTexto('1');
       setSetorEscolhido(podeGerenciarTudo ? usuarioAtual!.setor : null);
       setEditarCatalogo(false);
       setModo('confirmar');
@@ -160,6 +204,7 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
     setUnidade('un');
     setProdutoNaoEncontrado(false);
     setDataValidadeTexto('');
+    setQuantidadeTexto('1');
     setSetorEscolhido(podeGerenciarTudo ? usuarioAtual!.setor : null);
     setEditarCatalogo(false);
     setEditandoId(null);
@@ -174,6 +219,7 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
     setProduto(v.produto);
     setUnidade(v.unidade);
     setDataValidadeTexto(v.dataValidade);
+    setQuantidadeTexto(String(v.quantidade ?? 1));
     setSetorEscolhido(v.setor);
     setProdutoNaoEncontrado(false);
     setEditarCatalogo(false);
@@ -187,10 +233,26 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
   }
 
   const setorFinal = podeGerenciarTudo ? setorEscolhido : usuarioAtual?.setor ?? null;
-  const formValido = !!produto.trim() && dataValida(dataValidadeTexto) && !!setorFinal;
+  const quantidadeNumero = Number(quantidadeTexto.replace(',', '.'));
+  const formValido =
+    !!produto.trim() && dataValida(dataValidadeTexto) && !!setorFinal && quantidadeNumero > 0;
 
   async function salvar() {
     if (!formValido || !usuarioAtual || !setorFinal) return;
+
+    // Só checa duplicidade em lançamento novo (não numa edição) — e só
+    // quando tem código de barras, que é a identidade real do produto.
+    // Mesmo código + mesma data de validade já cadastrados = provavelmente
+    // essa mesma unidade foi escaneada de novo por engano.
+    if (!editandoId && codigoBarras) {
+      const dataAlvo = dataValidadeTexto.trim();
+      const jaExiste = validades.some((v) => v.codigoBarras === codigoBarras && v.dataValidade === dataAlvo);
+      if (jaExiste) {
+        Alert.alert('Produto já está coletado', 'Esse código de barras com essa mesma data de validade já está cadastrado.');
+        return;
+      }
+    }
+
     setSalvando(true);
     try {
       if (codigoBarras && editarCatalogo) {
@@ -200,32 +262,51 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
           unidade: unidade.trim() || 'un',
         });
       }
+      let itemSalvo: Validade;
       if (editandoId) {
-        const atualizada = await atualizarValidade({
+        itemSalvo = await atualizarValidade({
           id: editandoId,
           produto: produto.trim(),
           unidade: unidade.trim() || 'un',
           setor: setorFinal,
           dataValidade: dataValidadeTexto.trim(),
+          quantidade: quantidadeNumero,
         });
         setValidades((prev) =>
           prev
-            .map((v) => (v.id === atualizada.id ? atualizada : v))
+            .map((v) => (v.id === itemSalvo.id ? itemSalvo : v))
             .sort((a, b) => (a.dataValidade < b.dataValidade ? -1 : 1))
         );
       } else {
-        const nova = await adicionarValidade({
+        itemSalvo = await adicionarValidade({
           codigoBarras,
           produto: produto.trim(),
           unidade: unidade.trim() || 'un',
           setor: setorFinal,
           dataValidade: dataValidadeTexto.trim(),
+          quantidade: quantidadeNumero,
           cadastradoPorNome: usuarioAtual.nome,
         });
-        setValidades((prev) => [...prev, nova].sort((a, b) => (a.dataValidade < b.dataValidade ? -1 : 1)));
+        setValidades((prev) => [...prev, itemSalvo].sort((a, b) => (a.dataValidade < b.dataValidade ? -1 : 1)));
       }
       setEditandoId(null);
       setModo('lista');
+
+      // Igual no ALCATÉIA: se a quantidade é alta e o vencimento tá
+      // próximo, abre uma tratativa sozinha pra esse item (se ainda não
+      // tiver uma aberta) e avisa quem cadastrou.
+      try {
+        const tratativaAberta = await verificarEIniciarTratativa(itemSalvo, usuarioAtual.nome);
+        if (tratativaAberta) {
+          carregarQtdTratativas();
+          Alert.alert(
+            'Tratativa aberta automaticamente',
+            `"${itemSalvo.produto}" tem ${itemSalvo.quantidade} unidades vencendo em breve — abri uma tratativa pra acompanhar até resolver. Você encontra em "Tratativas" aqui na Validade.`
+          );
+        }
+      } catch {
+        // Não trava o cadastro se a checagem de tratativa falhar.
+      }
     } catch (e: any) {
       setErro(e?.message ?? 'Não consegui salvar esse produto.');
       setModo('lista');
@@ -266,7 +347,7 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
         style: 'destructive',
         onPress: async () => {
           try {
-            await removerValidade(v.id);
+            await removerValidade(v, usuarioAtual.nome);
             setValidades((prev) => prev.filter((p) => p.id !== v.id));
           } catch (e: any) {
             setErro(e?.message ?? 'Não consegui remover.');
@@ -277,6 +358,18 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
   }
 
   if (!usuarioAtual) return null;
+
+  if (mostrarTratativas) {
+    return (
+      <TratativasScreen
+        onVoltar={() => {
+          setMostrarTratativas(false);
+          carregarQtdTratativas();
+        }}
+        usuarioNome={usuarioAtual.nome}
+      />
+    );
+  }
 
   // --- Tela do scanner --------------------------------------------------
   if (modo === 'scanner') {
@@ -386,6 +479,15 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
               <Text style={styles.formLabel}>Unidade</Text>
               <TextInput style={styles.input} placeholder="un, kg, cx…" value={unidade} onChangeText={setUnidade} />
 
+              <Text style={styles.formLabel}>Quantidade</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="1"
+                value={quantidadeTexto}
+                onChangeText={setQuantidadeTexto}
+                keyboardType="numeric"
+              />
+
               <Text style={styles.formLabel}>Data de validade</Text>
               <SeletorDataValidade valor={dataValidadeTexto} onSelecionar={setDataValidadeTexto} />
 
@@ -441,6 +543,15 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
         )}
       </View>
 
+      <TouchableOpacity style={styles.btnTratativas} onPress={() => setMostrarTratativas(true)}>
+        <Text style={styles.btnTratativasTexto}>📋 Tratativas em aberto</Text>
+        {qtdTratativasAbertas > 0 && (
+          <View style={styles.badgeTratativas}>
+            <Text style={styles.badgeTratativasTexto}>{qtdTratativasAbertas}</Text>
+          </View>
+        )}
+      </TouchableOpacity>
+
       <ScrollView
         style={styles.flex}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 100 }}
@@ -454,6 +565,23 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
           />
         }
       >
+        {!carregando && resumoVencimento.total > 0 && (
+          <View style={styles.resumoRow}>
+            <View style={styles.resumoCard}>
+              <Text style={[styles.resumoNumero, { color: colors.red500 }]}>{resumoVencimento.vencidos}</Text>
+              <Text style={styles.resumoLabel}>Vencidos</Text>
+            </View>
+            <View style={styles.resumoCard}>
+              <Text style={[styles.resumoNumero, { color: '#B4650E' }]}>{resumoVencimento.vencendoEm7Dias}</Text>
+              <Text style={styles.resumoLabel}>Vencendo em 7 dias</Text>
+            </View>
+            <View style={styles.resumoCard}>
+              <Text style={styles.resumoNumero}>{resumoVencimento.total}</Text>
+              <Text style={styles.resumoLabel}>Total cadastrado</Text>
+            </View>
+          </View>
+        )}
+
         {podeGerenciarTudo && setoresComProduto.length > 1 && (
           <View style={styles.chipsWrap}>
             <TouchableOpacity
@@ -474,6 +602,13 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
           </View>
         )}
 
+        <TextInput
+          style={styles.buscaValidadeInput}
+          placeholder="Buscar por nome ou código de barras…"
+          value={termoBuscaValidade}
+          onChangeText={setTermoBuscaValidade}
+        />
+
         {erro && (
           <View style={styles.erroBox}>
             <Text style={styles.erroTexto}>{erro}</Text>
@@ -489,14 +624,19 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
               primeiro.
             </Text>
           </View>
+        ) : validadesExibidas.length === 0 ? (
+          <View style={styles.vazio}>
+            <Text style={styles.vazioTexto}>Nenhum produto encontrado para "{termoBuscaValidade.trim()}".</Text>
+          </View>
         ) : (
-          validadesFiltradas.map((v) => {
+          validadesExibidas.map((v) => {
             const dias = diasRestantes(v.dataValidade);
             const status = statusPrazo(dias);
+            const alertaVencimento = dias < 5;
             return (
-              <View key={v.id} style={styles.card}>
+              <View key={v.id} style={[styles.card, alertaVencimento && styles.cardAlerta]}>
                 <View style={styles.cardTopo}>
-                  <Text style={styles.cardProduto}>{v.produto}</Text>
+                  <Text style={styles.cardProduto}>{alertaVencimento ? '⚠ ' : ''}{v.produto}</Text>
                   <View style={[styles.chipStatus, { backgroundColor: status.fundo }]}>
                     <Text style={[styles.chipStatusTexto, { color: status.cor }]}>{status.texto}</Text>
                   </View>
@@ -548,16 +688,51 @@ const styles = StyleSheet.create({
   voltar: { color: colors.navy700, fontSize: 15, fontWeight: '600' },
   titulo: { fontSize: 16, fontWeight: '700', color: colors.navy900 },
   exportarTexto: { color: colors.navy700, fontSize: 12, fontWeight: '700' },
+  btnTratativas: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: colors.white,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.gray100,
+    paddingVertical: 10,
+  },
+  btnTratativasTexto: { fontSize: 12.5, fontWeight: '700', color: colors.navy700 },
+  badgeTratativas: { backgroundColor: colors.red500, borderRadius: radius.full, minWidth: 18, height: 18, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 5 },
+  badgeTratativasTexto: { color: colors.white, fontSize: 10.5, fontWeight: '700' },
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.lg },
   chip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.full, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100 },
   chipAtivo: { backgroundColor: colors.navy700, borderColor: colors.navy700 },
   chipTexto: { fontSize: 11.5, fontWeight: '600', color: colors.gray600 },
   chipTextoAtivo: { color: colors.white },
+  resumoRow: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.lg },
+  resumoCard: {
+    flex: 1,
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    paddingVertical: spacing.md,
+    alignItems: 'center',
+  },
+  resumoNumero: { fontSize: 20, fontWeight: '800', color: colors.gray900 },
+  resumoLabel: { fontSize: 10.5, color: colors.gray600, fontWeight: '600', marginTop: 2, textAlign: 'center' },
+  buscaValidadeInput: {
+    backgroundColor: colors.white,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.gray100,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 10,
+    fontSize: 13,
+    color: colors.gray900,
+    marginBottom: spacing.lg,
+  },
   erroBox: { backgroundColor: '#FBDEDC', borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.lg },
   erroTexto: { color: colors.red500, fontSize: 12, lineHeight: 17 },
   vazio: { paddingTop: spacing.xxl, alignItems: 'center' },
   vazioTexto: { color: colors.gray600, fontSize: 13, textAlign: 'center', paddingHorizontal: spacing.xl, lineHeight: 19 },
   card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.md },
+  cardAlerta: { borderWidth: 1, borderColor: colors.red500 },
   cardTopo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm },
   cardProduto: { fontSize: 14, fontWeight: '700', color: colors.gray900, flex: 1 },
   cardData: { fontSize: 12.5, color: colors.gray600, marginTop: 6, fontWeight: '600' },

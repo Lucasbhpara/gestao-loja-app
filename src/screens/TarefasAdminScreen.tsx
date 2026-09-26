@@ -13,7 +13,7 @@ import {
 import { colors, radius, spacing } from '../theme/colors';
 import { setores, SetorKey } from '../data/employees';
 import { useAuth } from '../context/AuthContext';
-import { Tarefa, buscarTodasTarefas, criarTarefa, removerTarefa } from '../data/tarefasApi';
+import { Tarefa, PrioridadeTarefa, buscarTodasTarefas, criarTarefa, removerTarefa } from '../data/tarefasApi';
 
 // Confere se o texto digitado é uma data real no formato AAAA-MM-DD.
 // Campo vazio é válido (o prazo é opcional).
@@ -41,6 +41,7 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
   const [descricao, setDescricao] = useState('');
   const [setorSelecionado, setSetorSelecionado] = useState<SetorKey | null>(null);
   const [prazo, setPrazo] = useState('');
+  const [prioridade, setPrioridade] = useState<PrioridadeTarefa>('normal');
   const [salvando, setSalvando] = useState(false);
   const prazoTemErro = prazo.trim().length > 0 && !prazoValido(prazo);
 
@@ -71,12 +72,14 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
         setor: setorSelecionado,
         prazo: prazo.trim() || null,
         criadoPorNome: usuarioAtual.nome,
+        prioridade,
       });
       setTarefas((prev) => [nova, ...prev]);
       setTitulo('');
       setDescricao('');
       setSetorSelecionado(null);
       setPrazo('');
+      setPrioridade('normal');
       setMostrarForm(false);
     } catch (e: any) {
       setErro(e?.message ?? 'Não consegui criar a tarefa.');
@@ -172,6 +175,25 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
               ))}
             </View>
 
+            <Text style={styles.formLabel}>Prioridade</Text>
+            <View style={styles.chipsWrap}>
+              <TouchableOpacity
+                style={[styles.chip, prioridade === 'normal' && styles.chipAtivo]}
+                onPress={() => setPrioridade('normal')}
+              >
+                <Text style={[styles.chipTexto, prioridade === 'normal' && styles.chipTextoAtivo]}>Normal</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[styles.chip, prioridade === 'alta' && styles.chipAtivoAlta]}
+                onPress={() => setPrioridade('alta')}
+              >
+                <Text style={[styles.chipTexto, prioridade === 'alta' && styles.chipTextoAtivo]}>🔴 Muito importante</Text>
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.formAjuda}>
+              Toda tarefa exige foto do encarregado pra ser concluída. "Muito importante" só destaca a tarefa na lista dele.
+            </Text>
+
             <TouchableOpacity
               style={[styles.btnSalvar, (!titulo.trim() || salvando || prazoTemErro) && styles.btnSalvarDesabilitado]}
               onPress={salvarTarefa}
@@ -196,9 +218,12 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
           </View>
         ) : (
           tarefas.map((t) => (
-            <View key={t.id} style={styles.tarefaCard}>
+            <View key={t.id} style={[styles.tarefaCard, t.prioridade === 'alta' && styles.tarefaCardAlta]}>
               <View style={styles.tarefaTopo}>
-                <Text style={styles.tarefaTitulo}>{t.titulo}</Text>
+                <Text style={styles.tarefaTitulo}>
+                  {t.prioridade === 'alta' ? '🔴 ' : ''}
+                  {t.titulo}
+                </Text>
                 <View style={[styles.chipStatus, t.concluida ? styles.chipConcluida : styles.chipPendente]}>
                   <Text style={styles.chipStatusTexto}>{t.concluida ? 'Concluída' : 'Pendente'}</Text>
                 </View>
@@ -209,7 +234,10 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
                 {t.prazo ? ` · prazo ${t.prazo}` : ''}
               </Text>
               {t.concluida && t.concluidaPorNome && (
-                <Text style={styles.tarefaConcluidaPor}>Concluída por {t.concluidaPorNome}</Text>
+                <Text style={styles.tarefaConcluidaPor}>
+                  Concluída por {t.concluidaPorNome}
+                  {t.fotoUrl ? ' · com foto' : ''}
+                </Text>
               )}
               <TouchableOpacity onPress={() => confirmarExclusao(t)} style={styles.btnRemover}>
                 <Text style={styles.btnRemoverTexto}>Remover</Text>
@@ -247,8 +275,10 @@ const styles = StyleSheet.create({
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   chip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.full, backgroundColor: colors.gray50, borderWidth: 1, borderColor: colors.gray100 },
   chipAtivo: { backgroundColor: colors.navy700, borderColor: colors.navy700 },
+  chipAtivoAlta: { backgroundColor: colors.red500, borderColor: colors.red500 },
   chipTexto: { fontSize: 11.5, fontWeight: '600', color: colors.gray600 },
   chipTextoAtivo: { color: colors.white },
+  formAjuda: { fontSize: 11, color: colors.gray400, marginTop: 8, lineHeight: 15 },
   btnSalvar: { backgroundColor: colors.navy700, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', marginTop: spacing.lg },
   btnSalvarDesabilitado: { backgroundColor: colors.gray100 },
   btnSalvarTexto: { color: colors.white, fontSize: 13, fontWeight: '700' },
@@ -257,6 +287,7 @@ const styles = StyleSheet.create({
   vazio: { paddingTop: spacing.xxl, alignItems: 'center' },
   vazioTexto: { color: colors.gray600, fontSize: 13, textAlign: 'center', paddingHorizontal: spacing.xl },
   tarefaCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.md },
+  tarefaCardAlta: { borderWidth: 1, borderColor: '#F3B4AE' },
   tarefaTopo: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: spacing.sm },
   tarefaTitulo: { fontSize: 14, fontWeight: '700', color: colors.gray900, flex: 1 },
   tarefaDescricao: { fontSize: 12.5, color: colors.gray600, marginTop: 6, lineHeight: 18 },

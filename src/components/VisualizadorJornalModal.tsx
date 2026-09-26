@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Modal, ActivityIndicator, Alert } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { colors, spacing } from '../theme/colors';
 
@@ -13,14 +13,46 @@ export default function VisualizadorJornalModal({
   onFechar,
   titulo = 'Jornal de Ofertas',
   textoFechar = 'Fechar',
+  tituloConferenciaJornal,
+  onReiniciarConferenciaJornal,
 }: {
   visible: boolean;
   arquivoUrl: string;
   onFechar: () => void;
   titulo?: string;
   textoFechar?: string;
+  // Quando presentes (só passados pro administrador, ver
+  // JornalOfertasFlutuante), mostram um botão no rodapé pra reiniciar a
+  // conferência do tipo "jornal" mais recente sem sair do visor do PDF.
+  tituloConferenciaJornal?: string | null;
+  onReiniciarConferenciaJornal?: () => void;
 }) {
   const urlVisualizacao = 'https://docs.google.com/viewer?embedded=true&url=' + encodeURIComponent(arquivoUrl);
+
+  const [reiniciando, setReiniciando] = useState(false);
+
+  function confirmarReiniciar() {
+    if (!onReiniciarConferenciaJornal) return;
+    Alert.alert(
+      'Reiniciar conferência do Jornal',
+      'Isso zera o progresso da conferência atual do Folheto de Oferta pra começar de novo. Confirma?',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Reiniciar',
+          style: 'destructive',
+          onPress: async () => {
+            setReiniciando(true);
+            try {
+              await onReiniciarConferenciaJornal();
+            } finally {
+              setReiniciando(false);
+            }
+          },
+        },
+      ]
+    );
+  }
 
   // Aquela leve travadinha ao abrir o jornal acontecia porque o Modal
   // começava a deslizar pra cima e, no mesmo instante, o app tentava montar
@@ -63,6 +95,23 @@ export default function VisualizadorJornalModal({
             <ActivityIndicator color={colors.navy700} size="large" />
           </View>
         )}
+        {onReiniciarConferenciaJornal && (
+          <View style={styles.rodapeConferencia}>
+            <TouchableOpacity
+              style={[styles.btnReiniciar, !tituloConferenciaJornal && styles.btnReiniciarDesabilitado]}
+              onPress={confirmarReiniciar}
+              disabled={!tituloConferenciaJornal || reiniciando}
+            >
+              <Text style={styles.btnReiniciarTexto}>
+                {reiniciando
+                  ? 'Reiniciando…'
+                  : tituloConferenciaJornal
+                  ? `↻ Reiniciar conferência "${tituloConferenciaJornal}"`
+                  : 'Nenhuma conferência de Jornal criada ainda'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
       </View>
     </Modal>
   );
@@ -89,4 +138,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     backgroundColor: colors.white,
   },
+  rodapeConferencia: {
+    backgroundColor: colors.white,
+    borderTopWidth: 1,
+    borderTopColor: colors.gray100,
+    padding: spacing.lg,
+  },
+  btnReiniciar: {
+    backgroundColor: colors.navy700,
+    borderRadius: 10,
+    paddingVertical: 12,
+    alignItems: 'center',
+  },
+  btnReiniciarDesabilitado: { backgroundColor: colors.gray100 },
+  btnReiniciarTexto: { color: colors.white, fontSize: 12.5, fontWeight: '700' },
 });

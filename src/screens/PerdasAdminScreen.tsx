@@ -72,7 +72,7 @@ export default function PerdasAdminScreen({ onVoltar }: { onVoltar: () => void }
         <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Text style={styles.voltar}>‹ Voltar</Text>
         </TouchableOpacity>
-        <Text style={styles.titulo}>Perdas geral</Text>
+        <Text style={styles.titulo}>Perdas e Desperdício</Text>
         <View style={{ width: 50 }} />
       </View>
 

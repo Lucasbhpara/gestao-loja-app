@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Image, Alert, BackHandler } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { setores } from '../data/employees';
-import { Tarefa, buscarTarefasDoSetor, concluirTarefa } from '../data/tarefasApi';
+import { Tarefa, buscarTarefasDoSetor, concluirTarefa, enviarFotoTarefa } from '../data/tarefasApi';
 import { Aviso, buscarAvisosDoSetor } from '../data/avisosApi';
 import { Validade, buscarValidadesDoSetor } from '../data/validadeApi';
 import { diasRestantes, formatarData, statusPrazo } from '../lib/validadeUtils';
@@ -19,6 +20,7 @@ import MapaLojaScreen from './MapaLojaScreen';
 import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
 import ChecklistScreen from './ChecklistScreen';
+import ColaboradoresScreen from './ColaboradoresScreen';
 
 const FRASES_DO_DIA = [
   'Pequenas melhorias todos os dias constroem grandes resultados.',
@@ -48,6 +50,7 @@ export default function HomeColaboradorScreen() {
     | 'pontasExtras'
     | 'jornalOfertas'
     | 'checklist'
+    | 'colaboradores'
   >('home');
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
@@ -160,18 +163,52 @@ export default function HomeColaboradorScreen() {
   if (tela === 'checklist') {
     return <ChecklistScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'colaboradores') {
+    return <ColaboradoresScreen onVoltar={() => setTela('home')} />;
+  }
 
   const nomeSetor = setores.find((s) => s.key === usuarioAtual.setor)?.nome ?? usuarioAtual.setor;
   const frase = FRASES_DO_DIA[new Date().getDate() % FRASES_DO_DIA.length];
 
-  async function marcarConcluida(tarefa: Tarefa) {
-    if (!usuarioAtual) return;
+  // Toda tarefa agora exige uma foto pra ser concluída — sem ela não dá pra
+  // fechar. Segue o mesmo fluxo de Alert + câmera/galeria usado em Ocorrência
+  // e Tratativas.
+  function marcarConcluida(tarefa: Tarefa) {
+    Alert.alert('Concluir tarefa', 'É obrigatório enviar uma foto para concluir esta tarefa.', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Tirar foto agora', onPress: () => concluirComFoto(tarefa, 'camera') },
+      { text: 'Escolher da galeria', onPress: () => concluirComFoto(tarefa, 'galeria') },
+    ]);
+  }
+
+  async function concluirComFoto(tarefa: Tarefa, origem: 'camera' | 'galeria') {
+    let uri: string | null = null;
+    if (origem === 'camera') {
+      const permissao = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permissao.granted) {
+        Alert.alert('Sem permissão', 'Precisa liberar o acesso à câmera nas configurações do celular.');
+        return;
+      }
+      const resultado = await ImagePicker.launchCameraAsync({ quality: 0.6 });
+      if (!resultado.canceled && resultado.assets?.[0]) uri = resultado.assets[0].uri;
+    } else {
+      const permissao = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permissao.granted) {
+        Alert.alert('Sem permissão', 'Precisa liberar o acesso às fotos nas configurações do celular.');
+        return;
+      }
+      const resultado = await ImagePicker.launchImageLibraryAsync({ quality: 0.6, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+      if (!resultado.canceled && resultado.assets?.[0]) uri = resultado.assets[0].uri;
+    }
+    if (!uri || !usuarioAtual) return;
+
     setConcluindo(tarefa.id);
     try {
-      await concluirTarefa(tarefa.id, usuarioAtual.nome);
+      const fotoUrl = await enviarFotoTarefa(uri);
+      await concluirTarefa(tarefa.id, usuarioAtual.nome, fotoUrl);
       setTarefas((prev) => prev.filter((t) => t.id !== tarefa.id));
     } catch (e: any) {
-      setErroTarefas(e?.message ?? 'Não consegui marcar como concluída.');
+      setErroTarefas(e?.message ?? 'Não consegui concluir a tarefa.');
     } finally {
       setConcluindo(null);
     }
@@ -238,11 +275,12 @@ export default function HomeColaboradorScreen() {
           </View>
           <View style={styles.listCard}>
             {validadesProximas.map((v, i) => {
-              const status = statusPrazo(diasRestantes(v.dataValidade));
+              const dias = diasRestantes(v.dataValidade);
+              const status = statusPrazo(dias);
               return (
                 <View key={v.id} style={[styles.row, i !== validadesProximas.length - 1 && styles.rowBorder]}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.rowTitle}>{v.produto}</Text>
+                    <Text style={styles.rowTitle}>{dias < 5 ? '⚠ ' : ''}{v.produto}</Text>
                     <Text style={styles.rowSubtitle}>Vence em {formatarData(v.dataValidade)}</Text>
                   </View>
                   <View style={[styles.chipStatus, { backgroundColor: status.fundo }]}>
@@ -273,8 +311,9 @@ export default function HomeColaboradorScreen() {
             </Text>
           </View>
         ) : (
-          tarefas.map((t) => (
-            <View key={t.id} style={styles.tarefaCard}>
+          [...tarefas].sort((a, b) => (a.prioridade === b.prioridade ? 0 : a.prioridade === 'alta' ? -1 : 1)).map((t) => (
+            <View key={t.id} style={[styles.tarefaCard, t.prioridade === 'alta' && styles.tarefaCardAlta]}>
+              {t.prioridade === 'alta' && <Text style={styles.tarefaTagAlta}>🔴 MUITO IMPORTANTE</Text>}
               <Text style={styles.tarefaTitulo}>{t.titulo}</Text>
               {!!t.descricao && <Text style={styles.tarefaDescricao}>{t.descricao}</Text>}
               {!!t.prazo && <Text style={styles.tarefaPrazo}>Prazo: {t.prazo}</Text>}
@@ -300,12 +339,14 @@ export default function HomeColaboradorScreen() {
                 { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
                 { label: 'Mapa da Loja', icone: 'map' as const, chave: 'mapaLoja', onPress: () => setTela('mapaLoja') },
                 { label: 'Pontas e Pontos Extras', icone: 'layers' as const, chave: 'pontasExtras', onPress: () => setTela('pontasExtras') },
-                { label: 'Jornal de Ofertas', icone: 'file-text' as const, chave: 'jornalOfertas', onPress: () => setTela('jornalOfertas') },
+                // Jornal de Ofertas: tile removido — o balão flutuante já
+                // cobre esse acesso em qualquer tela.
                 { label: 'Sobre', icone: 'info' as const, chave: null, onPress: () => setTela('sobre') },
               ]
             : [
                 { label: 'Checklist', icone: 'check-square' as const, chave: 'checklist', onPress: () => setTela('checklist') },
-                { label: 'Perdas do Setor', icone: 'trending-down' as const, chave: 'perdas', onPress: () => setTela('perdas') },
+                { label: 'Colaboradores', icone: 'users' as const, chave: 'colaboradores', onPress: () => setTela('colaboradores') },
+                { label: 'Perdas e Desperdício', icone: 'trending-down' as const, chave: 'perdas', onPress: () => setTela('perdas') },
                 { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
                 { label: 'Inventário', icone: 'package' as const, chave: null, onPress: undefined },
                 { label: 'Mural de Avisos', icone: 'bell' as const, chave: 'avisos', onPress: () => setTela('avisos') },
@@ -318,7 +359,8 @@ export default function HomeColaboradorScreen() {
                   : []),
                 { label: 'Mapa da Loja', icone: 'map' as const, chave: 'mapaLoja', onPress: () => setTela('mapaLoja') },
                 { label: 'Pontas e Pontos Extras', icone: 'layers' as const, chave: 'pontasExtras', onPress: () => setTela('pontasExtras') },
-                { label: 'Jornal de Ofertas', icone: 'file-text' as const, chave: 'jornalOfertas', onPress: () => setTela('jornalOfertas') },
+                // Jornal de Ofertas: tile removido — o balão flutuante já
+                // cobre esse acesso em qualquer tela.
                 { label: 'Sobre', icone: 'info' as const, chave: null, onPress: () => setTela('sobre') },
               ]
           )
@@ -367,6 +409,8 @@ const styles = StyleSheet.create({
   erroCard: { backgroundColor: '#FBDEDC', borderRadius: radius.lg, padding: spacing.lg },
   erroText: { color: colors.red500, fontSize: 12, lineHeight: 18 },
   tarefaCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.md },
+  tarefaCardAlta: { borderWidth: 1, borderColor: '#F3B4AE' },
+  tarefaTagAlta: { fontSize: 10, fontWeight: '700', color: colors.red500, marginBottom: 6, letterSpacing: 0.3 },
   tarefaTitulo: { fontSize: 14, fontWeight: '700', color: colors.gray900 },
   tarefaDescricao: { fontSize: 12.5, color: colors.gray600, marginTop: 6, lineHeight: 18 },
   tarefaPrazo: { fontSize: 11, color: colors.gray400, marginTop: 8 },

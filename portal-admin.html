@@ -205,6 +205,20 @@
   .link-editar:hover { text-decoration: underline; }
   .celula-vazio { padding: 50px 20px; text-align: center; color: var(--text-muted); font-size: 13px; }
 
+  /* ---------- Gaveta de colaboradores (Equipe) ---------- */
+  .linha-lideranca { cursor: pointer; }
+  .seta-gaveta { display: inline-block; margin-right: 8px; font-size: 10px; color: var(--text-muted); transition: transform 0.15s ease; }
+  .seta-gaveta.aberta { transform: rotate(90deg); }
+  .linha-gaveta td { padding: 0; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.015); }
+  .gaveta-conteudo { padding: 16px 18px 20px 44px; }
+  .gaveta-vazio { font-size: 12.5px; color: var(--text-muted); padding: 4px 0; }
+  .gaveta-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 10px; }
+  .gaveta-item { background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 10px 12px; }
+  .gaveta-item .nome { font-size: 12.5px; font-weight: 700; }
+  .gaveta-item .info { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+  .gaveta-item-editar { display: block; margin-top: 8px; font-size: 11px; }
+  .gaveta-titulo { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-muted); margin-bottom: 10px; }
+
   /* ---------- Cards de avisos / validade / perdas ---------- */
   .lista-cards { display: flex; flex-direction: column; gap: 14px; }
   .item-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px 20px; }
@@ -447,10 +461,12 @@
     <button class="nav-item" data-pagina="avisos" onclick="irPara('avisos')"><span class="dot"></span>Mural de avisos</button>
     <button class="nav-item" data-pagina="perdas" onclick="irPara('perdas')"><span class="dot"></span>Perdas e Desperdícios</button>
     <button class="nav-item" data-pagina="validade" onclick="irPara('validade')"><span class="dot"></span>Validade</button>
+    <button class="nav-item" data-pagina="checklist-setor" onclick="irPara('checklist-setor')"><span class="dot"></span>📋 Checklist de Setor</button>
+    <button class="nav-item" data-pagina="historico-exclusoes" onclick="irPara('historico-exclusoes')"><span class="dot"></span>Histórico de Exclusões</button>
     <button class="nav-item" data-pagina="inventario" onclick="irPara('inventario')"><span class="dot"></span>Inventário</button>
     <button class="nav-item" data-pagina="ocorrencias" onclick="irPara('ocorrencias')"><span class="dot"></span>Ocorrências</button>
     <button class="nav-item" data-pagina="conferencias" onclick="irPara('conferencias')"><span class="dot"></span>Conferência (FLV)</button>
-    <button class="nav-item" data-pagina="pedidos" onclick="irPara('pedidos')"><span class="dot"></span>Pedidos (FLV)</button>
+    <button class="nav-item" data-pagina="pedidos" onclick="irPara('pedidos')"><span class="dot"></span>Pedidos</button>
     <button class="nav-item" data-pagina="estoque-loja" onclick="irPara('estoque-loja')"><span class="dot"></span>Estoque Loja</button>
     <button class="nav-item" data-pagina="painel-resultados" onclick="irPara('painel-resultados')"><span class="dot"></span>Painel Resultados</button>
     <button class="nav-item" data-pagina="mapa-loja" onclick="irPara('mapa-loja')"><span class="dot"></span>Mapa da Loja</button>
@@ -517,8 +533,9 @@ function nomeSetor(key) { return (SETORES.find((s) => s.key === key) || {}).nome
 // ferramenta nova for adicionada lá, adiciona aqui também pra poder
 // controlar o acesso a ela. Não afeta administradores, que sempre veem tudo.
 const FERRAMENTAS_APP = [
-  { chave: 'perdas', nome: 'Perdas do Setor' },
+  { chave: 'perdas', nome: 'Perdas e Desperdício' },
   { chave: 'validade', nome: 'Validade' },
+  { chave: 'colaboradores', nome: 'Colaboradores' },
   { chave: 'avisos', nome: 'Mural de Avisos' },
   { chave: 'ocorrencia', nome: 'Abrir Ocorrência' },
   { chave: 'conferencia', nome: 'Conferência' },
@@ -527,6 +544,10 @@ const FERRAMENTAS_APP = [
   { chave: 'pontasExtras', nome: 'Pontas e Pontos Extras' },
   { chave: 'jornalOfertas', nome: 'Jornal de Ofertas' },
 ];
+
+// Os 6 setores atendidos pelo Checklist de Setor (avaliação diária de
+// conformidade) — subconjunto de SETORES, sem roteiro fixo de dia.
+const SETORES_CHECKLIST = ['mercearia', 'acougue', 'flv', 'frios', 'padaria', 'deposito'];
 
 const SORTIMENTOS = [
   { key: 'flv', nome: 'FLV' },
@@ -543,6 +564,9 @@ let estado = {
   colaboradores: [],
   buscaEquipe: '',
   filtroSetorEquipe: '',
+  colaboradoresLoja: [],
+  equipeExpandida: {},
+  ultimaPlanilhaFolga: null,
   avisos: [],
   visualizacoesAbertas: {},
   perdas: [],
@@ -576,6 +600,11 @@ let estado = {
   pontas: [],
   pontasProdutos: [],
   jornalAtual: null,
+  checklistSetorAba: 'dashboard',
+  checklistDashboardVisao: 'grafico',
+  checklistPerguntas: [],
+  checklistAvaliacoes: [],
+  checklistNaoConformidades: [],
 };
 
 function normalizar(s) { return (s || '').trim().toLowerCase(); }
@@ -660,6 +689,8 @@ async function irPara(pagina) {
     else if (pagina === 'avisos') await paginaAvisos();
     else if (pagina === 'perdas') await paginaPerdas();
     else if (pagina === 'validade') await paginaValidade();
+    else if (pagina === 'checklist-setor') await paginaChecklistSetor();
+    else if (pagina === 'historico-exclusoes') await paginaHistoricoExclusoes();
     else if (pagina === 'inventario') await paginaInventario();
     else if (pagina === 'ocorrencias') await paginaOcorrencias();
     else if (pagina === 'conferencias') await paginaConferencias();
@@ -712,6 +743,21 @@ async function carregarColaboradoresComAcessos() {
     // Não trava a tela de Equipe se o histórico de acessos falhar — só fica
     // sem essa informação extra por enquanto.
     estado.acessos = [];
+  }
+  await carregarColaboradoresLoja();
+}
+
+// Colaboradores "de chão de loja" (não têm login no app) — a equipe de cada
+// encarregado/liderança, exibida na gaveta que abre ao clicar no nome dele
+// na tabela da aba Equipe. Setor aqui é o mesmo SetorKey usado no resto do
+// app, então basta bater setor === setor do colaborador-líder.
+async function carregarColaboradoresLoja() {
+  try {
+    const { data, error } = await sb.from('colaboradores_loja').select('*').order('nome');
+    if (error) throw error;
+    estado.colaboradoresLoja = data || [];
+  } catch (e) {
+    estado.colaboradoresLoja = [];
   }
 }
 
@@ -770,6 +816,57 @@ async function paginaVisaoGeral() {
 // =============================================================================
 async function paginaEquipe() {
   await carregarColaboradoresComAcessos();
+  await carregarUltimaPlanilhaFolga();
+  renderizarEquipe();
+}
+
+// A escala/planilha de folgas ainda não existe — o Lucas vai preparar e
+// subir depois. Isso só guarda o arquivo enviado (bucket "planilhas-folga")
+// e o metadado de quando/quem enviou; o processamento linha a linha (pra
+// mostrar quem está de folga hoje) entra numa próxima etapa, quando a
+// planilha real existir e a gente puder ver o formato dela.
+async function carregarUltimaPlanilhaFolga() {
+  try {
+    const { data, error } = await sb.from('planilhas_folga').select('*').order('enviado_em', { ascending: false }).limit(1);
+    if (error) throw error;
+    estado.ultimaPlanilhaFolga = (data && data[0]) || null;
+  } catch (e) {
+    estado.ultimaPlanilhaFolga = null;
+  }
+}
+async function enviarPlanilhaFolgas(input) {
+  const arquivo = input.files[0];
+  if (!arquivo) return;
+  const nomeOk = /\.(xlsx|xls|csv)$/i.test(arquivo.name);
+  if (!nomeOk) { mostrarToast('Só aceita arquivo .xlsx, .xls ou .csv.', 'erro'); input.value = ''; return; }
+  try {
+    const nomeArquivo = Date.now() + '_' + Math.round(Math.random() * 1e6) + '_' + arquivo.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const { error: erroUpload } = await sb.storage.from('planilhas-folga').upload(nomeArquivo, arquivo, { upsert: true });
+    if (erroUpload) throw erroUpload;
+    const url = sb.storage.from('planilhas-folga').getPublicUrl(nomeArquivo).data.publicUrl;
+    const { error: erroInsert } = await sb.from('planilhas_folga').insert({
+      nome_arquivo: arquivo.name, url, enviado_por_nome: estado.usuario ? estado.usuario.nome : null,
+    });
+    if (erroInsert) throw erroInsert;
+    input.value = '';
+    mostrarToast('Planilha enviada — quando o processamento estiver pronto, ela já vai estar aqui.', 'sucesso');
+    await paginaEquipe();
+  } catch (e) { mostrarToast('Não consegui enviar: ' + e.message, 'erro'); }
+}
+// Colaboradores de chão de loja do mesmo setor de um líder — é o conteúdo
+// da gaveta que abre ao clicar nele na tabela da Equipe. Claudiane (A.P.P)
+// não tem equipe própria, então a gaveta dela fica sempre vazia.
+function equipeDoLider(c) {
+  return (estado.colaboradoresLoja || []).filter((cl) => cl.setor === c.setor);
+}
+function formatarDataSimples(iso) {
+  if (!iso) return '';
+  const [ano, mes, dia] = String(iso).split('-');
+  if (!ano || !mes || !dia) return iso;
+  return dia + '/' + mes + '/' + ano;
+}
+function alternarGavetaEquipe(id) {
+  estado.equipeExpandida[id] = !estado.equipeExpandida[id];
   renderizarEquipe();
 }
 function renderizarEquipe() {
@@ -793,8 +890,10 @@ function renderizarEquipe() {
         const statusPill = c.senha_definida ? '<span class="pill verde">Senha própria</span>' : '<span class="pill laranja">Senha provisória</span>';
         const adminPill = c.is_admin ? '<span class="pill admin">Admin</span>' : '';
         const acesso = resumoAcessos[c.id];
-        return '<tr>' +
-          '<td class="nome-forte">' + c.nome + '</td>' +
+        const aberta = !!estado.equipeExpandida[c.id];
+        const equipe = equipeDoLider(c);
+        const linhaPrincipal = '<tr class="linha-lideranca" onclick="alternarGavetaEquipe(\'' + c.id + '\')">' +
+          '<td class="nome-forte"><span class="seta-gaveta' + (aberta ? ' aberta' : '') + '">▶</span>' + c.nome + '</td>' +
           '<td>' + c.matricula + '</td>' +
           '<td>' + c.funcao + '</td>' +
           '<td><span class="pill">' + nomeSetor(c.setor) + '</span></td>' +
@@ -802,10 +901,23 @@ function renderizarEquipe() {
           '<td>' + (acesso ? acesso.sete : '—') + '</td>' +
           '<td>' + (acesso ? formatarDataHora(acesso.ultimo) : 'Nunca acessou') + '</td>' +
           '<td>' +
-            '<button class="link-editar" onclick="abrirModalEditarColaborador(\'' + c.id + '\')">Editar</button> ' +
-            '<button class="link-remover" onclick="removerColaborador(\'' + c.id + '\', \'' + c.nome.replace(/'/g, "\\'") + '\')">Remover</button>' +
+            '<button class="link-editar" onclick="event.stopPropagation(); abrirModalEditarColaborador(\'' + c.id + '\')">Editar</button> ' +
+            '<button class="link-remover" onclick="event.stopPropagation(); removerColaborador(\'' + c.id + '\', \'' + c.nome.replace(/'/g, "\\'") + '\')">Remover</button>' +
           '</td>' +
         '</tr>';
+        if (!aberta) return linhaPrincipal;
+        const conteudoGaveta = equipe.length === 0
+          ? '<div class="gaveta-vazio">Nenhum colaborador de loja cadastrado ainda no setor ' + nomeSetor(c.setor) + '.</div>'
+          : '<div class="gaveta-titulo">Equipe de ' + c.nome + ' · ' + equipe.length + ' colaborador' + (equipe.length === 1 ? '' : 'es') + '</div>' +
+            '<div class="gaveta-grid">' + equipe.map((cl) =>
+              '<div class="gaveta-item">' +
+                '<div class="nome">' + cl.nome + '</div>' +
+                '<div class="info">' + (cl.cargo || '') + ' · Mat. ' + cl.matricula + (cl.admissao ? ' · desde ' + formatarDataSimples(cl.admissao) : '') + '</div>' +
+                '<button class="link-editar gaveta-item-editar" onclick="abrirModalEditarColaboradorLoja(\'' + cl.id + '\')">✎ Editar / transferir</button>' +
+              '</div>'
+            ).join('') + '</div>';
+        const linhaGaveta = '<tr class="linha-gaveta"><td colspan="8"><div class="gaveta-conteudo">' + conteudoGaveta + '</div></td></tr>';
+        return linhaPrincipal + linhaGaveta;
       }).join('');
 
   document.getElementById('conteudo-principal').innerHTML =
@@ -817,8 +929,13 @@ function renderizarEquipe() {
     '<div class="toolbar">' +
       '<input class="input-busca" placeholder="Buscar por nome ou matrícula…" value="' + estado.buscaEquipe.replace(/"/g, '&quot;') + '" oninput="estado.buscaEquipe=this.value; renderizarEquipe();" />' +
       '<select class="select-filtro" onchange="estado.filtroSetorEquipe=this.value; renderizarEquipe();">' + opcoesSetor + '</select>' +
+      '<button class="btn-acao secundario" onclick="document.getElementById(\'planilha-folgas-arquivo\').click()">📤 Enviar planilha de folgas</button>' +
+      '<input type="file" id="planilha-folgas-arquivo" accept=".xlsx,.xls,.csv" style="display:none" onchange="enviarPlanilhaFolgas(this)" />' +
       '<button class="btn-acao" onclick="abrirModalNovoColaborador()">+ Adicionar colaborador</button>' +
     '</div>' +
+    (estado.ultimaPlanilhaFolga
+      ? '<div class="celula-vazio" style="text-align:left; padding:0 0 16px;">Última planilha de folgas enviada: <b>' + estado.ultimaPlanilhaFolga.nome_arquivo + '</b>' + (estado.ultimaPlanilhaFolga.enviado_por_nome ? ' · por ' + estado.ultimaPlanilhaFolga.enviado_por_nome : '') + ' · ' + formatarDataHora(estado.ultimaPlanilhaFolga.enviado_em) + ' — processamento pra mostrar quem está de folga ainda não está ligado.</div>'
+      : '') +
     '<div class="tabela-wrap"><table><thead><tr><th>Nome</th><th>Matrícula</th><th>Função</th><th>Setor</th><th>Status</th><th>Acessos (7 dias)</th><th>Último acesso</th><th></th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
 }
 
@@ -898,6 +1015,36 @@ async function removerColaborador(id, nome) {
     mostrarToast('Colaborador removido.', 'sucesso');
     await paginaEquipe();
   } catch (e) { mostrarToast('Não consegui remover: ' + e.message, 'erro'); }
+}
+
+// Editar / transferir um colaborador "de chão de loja" (a gente que aparece
+// dentro da gaveta de cada líder) pra outro setor — é como o Lucas move
+// alguém de função sem precisar excluir e recadastrar.
+function abrirModalEditarColaboradorLoja(id) {
+  const cl = (estado.colaboradoresLoja || []).find((x) => x.id === id);
+  if (!cl) return;
+  const opcoesSetor = SETORES.map((s) => '<option value="' + s.key + '"' + (s.key === cl.setor ? ' selected' : '') + '>' + s.nome + '</option>').join('');
+  abrirModal('Editar colaborador',
+    '<div class="form-linha"><label class="campo-label">Nome</label><input class="campo-input" id="ecl-nome" value="' + (cl.nome || '').replace(/"/g, '&quot;') + '" style="margin-bottom:0" /></div>' +
+    '<div class="form-linha"><label class="campo-label">Matrícula</label><input class="campo-input" id="ecl-matricula" value="' + (cl.matricula || '').replace(/"/g, '&quot;') + '" style="margin-bottom:0" /></div>' +
+    '<div class="form-linha"><label class="campo-label">Cargo</label><input class="campo-input" id="ecl-cargo" value="' + (cl.cargo || '').replace(/"/g, '&quot;') + '" style="margin-bottom:0" /></div>' +
+    '<div class="form-linha"><label class="campo-label">Setor (transferir pra outra equipe)</label><select class="campo-input" id="ecl-setor" style="margin-bottom:0">' + opcoesSetor + '</select></div>' +
+    '<div class="celula-vazio" style="padding:8px 0 0; font-size:11.5px; text-align:left;">Trocar o setor aqui move esse colaborador pra gaveta do líder daquele setor.</div>',
+    'Salvar alterações', () => salvarEdicaoColaboradorLoja(id));
+}
+async function salvarEdicaoColaboradorLoja(id) {
+  const nome = document.getElementById('ecl-nome').value.trim();
+  const matricula = document.getElementById('ecl-matricula').value.trim();
+  const cargo = document.getElementById('ecl-cargo').value.trim();
+  const setor = document.getElementById('ecl-setor').value;
+  if (!nome) { mostrarToast('Preenche pelo menos o nome.', 'erro'); return; }
+  try {
+    const { error } = await sb.from('colaboradores_loja').update({ nome, matricula, cargo, setor }).eq('id', id);
+    if (error) throw error;
+    fecharModal();
+    mostrarToast('Colaborador atualizado.', 'sucesso');
+    await paginaEquipe();
+  } catch (e) { mostrarToast('Não consegui salvar: ' + e.message, 'erro'); }
 }
 
 // =============================================================================
@@ -1498,6 +1645,101 @@ async function confirmarImportacaoConferencia() {
   } catch (e) { mostrarToast('Não consegui criar a conferência: ' + e.message, 'erro'); }
 }
 
+// ---------- Fluxo: nova Conferência a partir do Folheto de Oferta (itens digitados à mão) ----------
+// Diferente da NF, o folheto é uma peça de marketing (não tem leitura
+// automática de itens) — a pessoa digita os produtos olhando o PDF na
+// janelinha do Jornal de Ofertas, que já existe. Mesma ideia usada no app
+// (Conferência Folheto de Oferta), só que criada aqui pelo portal.
+let novaConfJornal = null; // { setor, itens: [{codigo, produto, quantidade}] }
+
+function abrirNovaConferenciaJornal() {
+  const SETORES_CONFERENCIA = ['flv', 'acougue', 'frios', 'padaria', 'mercearia'];
+  const hoje = new Date();
+  const dataFormatada = String(hoje.getDate()).padStart(2, '0') + '/' + String(hoje.getMonth() + 1).padStart(2, '0');
+  novaConfJornal = { setor: 'flv', itens: [{ codigo: '', produto: '', quantidade: '' }] };
+  abrirModal('Nova conferência — Folheto de Oferta', renderNovaConfJornalCorpo('Folheto de Oferta - ' + dataFormatada, SETORES_CONFERENCIA), 'Criar conferência', confirmarNovaConferenciaJornal);
+  document.getElementById('overlay-modal').querySelector('.modal-card').classList.add('largo');
+}
+
+function renderNovaConfJornalCorpo(tituloSugerido, setoresConferencia) {
+  const opcoesSetor = SETORES.filter((s) => setoresConferencia.includes(s.key))
+    .map((s) => '<option value="' + s.key + '"' + (s.key === novaConfJornal.setor ? ' selected' : '') + '>' + s.nome + '</option>').join('');
+
+  return '<div class="form-linha"><label class="campo-label">Título da conferência</label><input class="campo-input" id="ncj-titulo" style="margin-bottom:0" value="' + tituloSugerido.replace(/"/g, '&quot;') + '" /></div>' +
+    '<div class="form-linha"><label class="campo-label">Setor</label><select class="campo-input" id="ncj-setor" style="margin-bottom:0" onchange="ncjSetor(this.value)">' + opcoesSetor + '</select></div>' +
+    '<button class="btn-acao secundario" style="margin-bottom:12px;" onclick="abrirJornalFlutuante()">📄 Ver jornal de ofertas atual</button>' +
+    '<div style="font-size:11.5px;color:var(--text-muted);margin:-6px 0 14px;">Não tem leitura automática do folheto — digite os itens olhando o encarte na janelinha.</div>' +
+    '<div class="tabela-revisao"><table><thead><tr><th>Código (opcional)</th><th>Produto</th><th>Qtd. esperada</th><th></th></tr></thead><tbody id="ncj-corpo-tabela">' + ncjLinhasHtml() + '</tbody></table></div>' +
+    '<button class="btn-acao secundario" style="margin-top:10px;" onclick="ncjAdicionarLinha()">+ Adicionar item</button>';
+}
+
+function ncjLinhasHtml() {
+  return novaConfJornal.itens.map((item, idx) =>
+    '<tr>' +
+      '<td><input class="campo-tabela" value="' + (item.codigo || '').replace(/"/g, '&quot;') + '" oninput="ncjSincronizarLinha(' + idx + ',\'codigo\',this.value)" /></td>' +
+      '<td><input class="campo-tabela" value="' + (item.produto || '').replace(/"/g, '&quot;') + '" oninput="ncjSincronizarLinha(' + idx + ',\'produto\',this.value)" /></td>' +
+      '<td><input class="campo-tabela" style="text-align:right" value="' + (item.quantidade || '').toString().replace(/"/g, '&quot;') + '" oninput="ncjSincronizarLinha(' + idx + ',\'quantidade\',this.value)" /></td>' +
+      '<td class="nao-imprimir"><button class="btn-acao secundario" style="padding:4px 10px;font-size:12.5px;" onclick="ncjRemoverLinha(' + idx + ')">Remover</button></td>' +
+    '</tr>'
+  ).join('');
+}
+
+function ncjSincronizarLinha(idx, campo, valor) {
+  if (!novaConfJornal || !novaConfJornal.itens[idx]) return;
+  novaConfJornal.itens[idx][campo] = valor;
+}
+
+function ncjSetor(valor) {
+  if (novaConfJornal) novaConfJornal.setor = valor;
+}
+
+function ncjAdicionarLinha() {
+  novaConfJornal.itens.push({ codigo: '', produto: '', quantidade: '' });
+  const tbody = document.getElementById('ncj-corpo-tabela');
+  if (tbody) tbody.innerHTML = ncjLinhasHtml();
+}
+
+function ncjRemoverLinha(idx) {
+  if (novaConfJornal.itens.length <= 1) { mostrarToast('A conferência precisa de pelo menos um item.', 'erro'); return; }
+  novaConfJornal.itens.splice(idx, 1);
+  const tbody = document.getElementById('ncj-corpo-tabela');
+  if (tbody) tbody.innerHTML = ncjLinhasHtml();
+}
+
+async function confirmarNovaConferenciaJornal() {
+  const titulo = document.getElementById('ncj-titulo').value.trim();
+  if (!titulo) { mostrarToast('Dá um título pra essa conferência.', 'erro'); return; }
+  const setor = document.getElementById('ncj-setor').value;
+
+  const itensFinais = [];
+  for (let idx = 0; idx < novaConfJornal.itens.length; idx++) {
+    const item = novaConfJornal.itens[idx];
+    const produto = (item.produto || '').trim();
+    const codigo = (item.codigo || '').trim();
+    const qtdBruta = (item.quantidade || '').toString().trim();
+    if (!produto && !codigo && !qtdBruta) continue; // linha em branco, ignora
+    if (!produto) { mostrarToast('Confere a linha ' + (idx + 1) + ' — falta o nome do produto.', 'erro'); return; }
+    const quantidade = numeroBR(qtdBruta);
+    if (quantidade == null) { mostrarToast('Confere a linha ' + (idx + 1) + ' — quantidade inválida.', 'erro'); return; }
+    itensFinais.push({ codigo_interno: codigo || null, produto, quantidade_esperada: quantidade });
+  }
+  if (itensFinais.length === 0) { mostrarToast('Adiciona pelo menos um item com produto e quantidade preenchidos.', 'erro'); return; }
+
+  try {
+    const { data: conf, error: erroConf } = await sb.from('conferencias')
+      .insert({ titulo, setor, criada_por_nome: estado.usuario.nome, tipo: 'jornal' }).select().single();
+    if (erroConf) throw erroConf;
+    const { error: erroItens } = await sb.from('conferencia_itens').insert(
+      itensFinais.map((i) => ({ conferencia_id: conf.id, ...i }))
+    );
+    if (erroItens) throw erroItens;
+    fecharModal();
+    mostrarToast('Conferência do Folheto de Oferta criada com ' + itensFinais.length + ' itens.', 'sucesso');
+    novaConfJornal = null;
+    await paginaConferencias();
+  } catch (e) { mostrarToast('Não consegui criar a conferência: ' + e.message, 'erro'); }
+}
+
 // =============================================================================
 // Perdas e Desperdícios
 // =============================================================================
@@ -1731,11 +1973,57 @@ async function salvarEdicaoValidade(id) {
 async function removerValidade(id, produto) {
   if (!confirm('Remover "' + produto + '" do controle de validade?')) return;
   try {
+    const v = estado.validades.find((x) => x.id === id);
+    const { error: erroLog } = await sb.from('validades_excluidas').insert({
+      produto: v ? v.produto : produto,
+      codigo_barras: v ? v.codigo_barras : null,
+      unidade: v ? v.unidade : null,
+      setor: v ? v.setor : null,
+      data_validade: v ? v.data_validade : null,
+      excluido_por_nome: estado.usuario.nome,
+    });
+    if (erroLog) throw erroLog;
     const { error } = await sb.from('validades').delete().eq('id', id);
     if (error) throw error;
     mostrarToast('Produto removido.', 'sucesso');
     await paginaValidade();
   } catch (e) { mostrarToast('Não consegui remover: ' + e.message, 'erro'); }
+}
+
+// =============================================================================
+// Histórico de exclusões (Validade) — últimos 30 dias, quem excluiu e quando.
+// Alimentado por validades_excluidas (gravado tanto aqui no portal quanto no
+// app, ver removerValidade no app e aqui em cima).
+// =============================================================================
+async function paginaHistoricoExclusoes() {
+  const desde = new Date();
+  desde.setDate(desde.getDate() - 30);
+  const { data, error } = await sb
+    .from('validades_excluidas')
+    .select('*')
+    .gte('excluido_em', desde.toISOString())
+    .order('excluido_em', { ascending: false });
+  if (error) throw error;
+  estado.historicoExclusoes = data || [];
+  renderizarHistoricoExclusoes();
+}
+function renderizarHistoricoExclusoes() {
+  const lista = estado.historicoExclusoes;
+  const linhas = lista.length === 0
+    ? '<div class="celula-vazio">Nenhuma exclusão de produto nos últimos 30 dias.</div>'
+    : lista.map((v) => {
+        const quando = new Date(v.excluido_em);
+        const dataFormatada = quando.toLocaleDateString('pt-BR') + ' às ' + quando.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+        const validadeTexto = v.data_validade ? v.data_validade.split('-').reverse().join('/') : '—';
+        return '<div class="item-card">' +
+          '<div class="topo"><span class="titulo">' + v.produto + '</span></div>' +
+          '<div class="rodape">Validade era ' + validadeTexto + (v.setor ? ' · ' + nomeSetorValidade(v.setor) : '') + '</div>' +
+          '<div class="rodape">Excluído por ' + v.excluido_por_nome + ' em ' + dataFormatada + '</div>' +
+        '</div>';
+      }).join('');
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Histórico de Exclusões', 'Produtos removidos da Validade nos últimos 30 dias') +
+    '<div class="lista-cards" style="margin-top:18px;">' + linhas + '</div>';
 }
 
 // =============================================================================
@@ -1906,7 +2194,10 @@ function renderizarConferencias() {
 
   document.getElementById('conteudo-principal').innerHTML =
     cabecalho('Conferências', 'Conferências de nota fiscal — criadas a partir de um PDF ou enviadas pelo encarregado') +
-    '<div class="toolbar" style="justify-content:flex-end;"><button class="btn-acao" onclick="abrirImportarConferencia()">+ Nova conferência (PDF)</button></div>' +
+    '<div class="toolbar" style="justify-content:flex-end;">' +
+      '<button class="btn-acao secundario" onclick="abrirNovaConferenciaJornal()">+ Nova (Folheto de Oferta)</button>' +
+      '<button class="btn-acao" onclick="abrirImportarConferencia()">+ Nova conferência (PDF)</button>' +
+    '</div>' +
     '<div class="tabela-wrap"><table><thead><tr><th>Título</th><th>Setor</th><th>Status</th><th>Enviada em</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
 }
 async function abrirConferencia(id) {
@@ -1989,7 +2280,7 @@ async function reiniciarConferenciaJornal(id) {
 }
 
 // =============================================================================
-// Pedidos (FLV) — pedidos enviados + catálogo de produtos
+// Pedidos — pedidos enviados + catálogo de produtos
 // =============================================================================
 async function paginaPedidos() {
   const [{ data: pedidos, error: erroPedidos }, { data: catalogo, error: erroCatalogo }] = await Promise.all([
@@ -2027,7 +2318,7 @@ function renderizarPedidos() {
   }
 
   document.getElementById('conteudo-principal').innerHTML =
-    cabecalho('Pedidos (FLV)', 'Pedidos enviados pelo encarregado e catálogo de produtos') +
+    cabecalho('Pedidos', 'Pedidos enviados pelo encarregado e catálogo de produtos') +
     abas + corpo + '<div id="pedido-detalhe"></div>';
 
   if (aba === 'catalogo') {
@@ -3396,6 +3687,278 @@ async function enviarNovoJornal(input) {
 
 // =============================================================================
 // Modal genérico
+// =============================================================================
+// Checklist de Setor — edição das perguntas + dashboard de evolução/
+// recidivência. Preenchido apenas pela gerência, direto no app (ver
+// avaliacaoSetorApi.ts / ChecklistSetorScreen.tsx); aqui no portal só se edita
+// o banco de perguntas e se acompanham os resultados. Tabelas próprias do
+// ULVA: avaliacao_perguntas / avaliacoes_setor / avaliacao_respostas — não
+// confundir com as tabelas checklist_* do ALCATÉIA nem com a Checklist
+// simples já existente (rotina fixa por turno, aba "Checklist" do app).
+// =============================================================================
+async function paginaChecklistSetor() {
+  await Promise.all([carregarChecklistPerguntas(), carregarChecklistDashboardDados()]);
+  renderizarChecklistSetor();
+}
+
+async function carregarChecklistPerguntas() {
+  const { data, error } = await sb.from('avaliacao_perguntas').select('*').order('ordem', { ascending: true });
+  if (error) throw error;
+  estado.checklistPerguntas = data || [];
+}
+
+async function carregarChecklistDashboardDados() {
+  const { data: avaliacoes, error } = await sb
+    .from('avaliacoes_setor')
+    .select('*')
+    .eq('status', 'finalizada')
+    .order('finalizada_em', { ascending: true });
+  if (error) throw error;
+  estado.checklistAvaliacoes = avaliacoes || [];
+
+  const idsAvaliacoes = estado.checklistAvaliacoes.map((a) => a.id);
+  if (idsAvaliacoes.length === 0) {
+    estado.checklistNaoConformidades = [];
+    return;
+  }
+  const { data: respostas, error: erroResp } = await sb
+    .from('avaliacao_respostas')
+    .select('avaliacao_id, pergunta_texto')
+    .eq('resposta', 'nao')
+    .in('avaliacao_id', idsAvaliacoes);
+  if (erroResp) throw erroResp;
+  estado.checklistNaoConformidades = respostas || [];
+}
+
+function alternarAbaChecklistSetor(aba) {
+  estado.checklistSetorAba = aba;
+  renderizarChecklistSetor();
+}
+
+function alternarVisaoChecklistDashboard(visao) {
+  estado.checklistDashboardVisao = visao;
+  renderizarChecklistSetor();
+}
+
+function renderizarChecklistSetor() {
+  const el = document.getElementById('conteudo-principal');
+  el.innerHTML =
+    cabecalho('Checklist de Setor', 'Avaliação diária de conformidade — preenchida pela gerência, direto no app') +
+    '<div style="display:flex;gap:8px;margin-bottom:22px;">' +
+      '<button class="chip ' + (estado.checklistSetorAba === 'dashboard' ? 'ativo' : '') + '" onclick="alternarAbaChecklistSetor(\'dashboard\')">📊 Dashboard</button>' +
+      '<button class="chip ' + (estado.checklistSetorAba === 'perguntas' ? 'ativo' : '') + '" onclick="alternarAbaChecklistSetor(\'perguntas\')">📝 Perguntas</button>' +
+    '</div>' +
+    '<div id="checklist-setor-conteudo">' + (estado.checklistSetorAba === 'perguntas' ? htmlChecklistPerguntas() : htmlChecklistDashboard()) + '</div>';
+}
+
+// --- Aba Perguntas -----------------------------------------------------------
+
+function htmlChecklistPerguntas() {
+  const ativos = estado.checklistPerguntas.filter((p) => p.ativo).length;
+  const linhas = estado.checklistPerguntas.length === 0
+    ? '<div class="celula-vazio">Nenhuma pergunta cadastrada ainda.</div>'
+    : estado.checklistPerguntas.map((p, i) =>
+        '<div class="item-card" style="display:flex;align-items:center;gap:12px;margin-bottom:10px;' + (p.ativo ? '' : 'opacity:.5;') + '">' +
+          '<div style="flex:1;font-size:13.5px;font-weight:600;">' + (i + 1) + '. ' + p.texto + '</div>' +
+          '<button class="btn-acao secundario" style="padding:6px 12px;font-size:11.5px;white-space:nowrap;" onclick="alternarAtivoPerguntaChecklist(\'' + p.id + '\', ' + !p.ativo + ')">' + (p.ativo ? 'Desativar' : 'Reativar') + '</button>' +
+          '<button class="btn-acao secundario" style="padding:6px 12px;font-size:11.5px;white-space:nowrap;color:var(--red);" onclick="removerPerguntaChecklist(\'' + p.id + '\')">Remover</button>' +
+        '</div>'
+      ).join('');
+
+  return (
+    '<div class="celula-vazio" style="text-align:left;padding:0 0 18px;">' +
+      'Recomendado manter em torno de 20 perguntas — hoje há <b>' + ativos + ' ativa(s)</b> de ' + estado.checklistPerguntas.length + ' cadastrada(s). ' +
+      'Elas valem para os 6 setores do Checklist de Setor: Mercearia, Açougue, FLV, Frios, Padaria e Depósito.' +
+    '</div>' +
+    '<div style="display:flex;gap:10px;margin-bottom:20px;">' +
+      '<input id="nova-pergunta-checklist" class="campo-input" style="flex:1;" placeholder="Nova pergunta do checklist" onkeydown="if(event.key===\'Enter\')criarPerguntaChecklist()">' +
+      '<button class="btn-acao" onclick="criarPerguntaChecklist()">+ Adicionar</button>' +
+    '</div>' +
+    linhas
+  );
+}
+
+async function criarPerguntaChecklist() {
+  const input = document.getElementById('nova-pergunta-checklist');
+  const texto = (input.value || '').trim();
+  if (!texto) return;
+  const ordem = estado.checklistPerguntas.length > 0 ? Math.max(...estado.checklistPerguntas.map((p) => p.ordem)) + 1 : 1;
+  const { error } = await sb.from('avaliacao_perguntas').insert({ texto, ordem });
+  if (error) { mostrarToast('Não consegui criar a pergunta: ' + error.message, 'erro'); return; }
+  await carregarChecklistPerguntas();
+  renderizarChecklistSetor();
+}
+
+async function alternarAtivoPerguntaChecklist(id, ativo) {
+  const { error } = await sb.from('avaliacao_perguntas').update({ ativo }).eq('id', id);
+  if (error) { mostrarToast('Não consegui atualizar: ' + error.message, 'erro'); return; }
+  await carregarChecklistPerguntas();
+  renderizarChecklistSetor();
+}
+
+async function removerPerguntaChecklist(id) {
+  if (!confirm('Remover essa pergunta do checklist? Avaliações antigas mantêm o texto que já foi respondido — só deixa de aparecer em novas avaliações.')) return;
+  const { error } = await sb.from('avaliacao_perguntas').delete().eq('id', id);
+  if (error) { mostrarToast('Não consegui remover: ' + error.message, 'erro'); return; }
+  await carregarChecklistPerguntas();
+  renderizarChecklistSetor();
+}
+
+// --- Aba Dashboard -------------------------------------------------------------
+
+// 3 faixas (mesmo vocabulário de pill já usado no resto do portal: verde/
+// laranja/vermelho) — colapsa as 4 faixas do app (Excelente/Bom/Atenção/
+// Crítico) em 3, já que aqui é uma visão gerencial rápida.
+function bandaAproveitamento(pct) {
+  if (pct >= 75) return { classe: 'verde', texto: 'Bom' };
+  if (pct >= 60) return { classe: 'laranja', texto: 'Atenção' };
+  return { classe: 'vermelho', texto: 'Crítico' };
+}
+
+function svgEvolucaoSetor(pontos) {
+  if (pontos.length === 0) {
+    return '<div class="celula-vazio" style="padding:18px 0;">Sem avaliações ainda.</div>';
+  }
+  if (pontos.length === 1) {
+    const p = pontos[0];
+    return '<div style="font-size:26px;font-weight:800;">' + p.valor + '%</div>' +
+      '<div style="font-size:11px;color:var(--text-muted);margin-top:2px;">' + formatarDataSimples(p.data) + ' · primeira avaliação</div>';
+  }
+  const largura = 260, altura = 70, margemY = 10;
+  const passoX = largura / (pontos.length - 1);
+  const escalaY = (v) => altura - margemY - (v / 100) * (altura - margemY * 2);
+  const coords = pontos.map((p, i) => [i * passoX, escalaY(p.valor)]);
+  const linha = coords.map((c) => c[0].toFixed(1) + ',' + c[1].toFixed(1)).join(' ');
+  const area = 'M' + coords.map((c, i) => (i === 0 ? c[0].toFixed(1) + ',' + c[1].toFixed(1) : 'L' + c[0].toFixed(1) + ',' + c[1].toFixed(1))).join(' ') +
+    ' L' + coords[coords.length - 1][0].toFixed(1) + ',' + altura + ' L0,' + altura + ' Z';
+  let pontosSvg = '';
+  pontos.forEach((p, i) => {
+    const x = coords[i][0], y = coords[i][1];
+    const raio = i === coords.length - 1 ? 4 : 2.5;
+    pontosSvg += '<circle cx="' + x.toFixed(1) + '" cy="' + y.toFixed(1) + '" r="' + raio + '" fill="var(--accent-hover)"><title>' + formatarDataSimples(p.data) + ': ' + p.valor + '%</title></circle>';
+  });
+  return (
+    '<svg width="100%" viewBox="0 0 ' + largura + ' ' + altura + '" preserveAspectRatio="none" style="display:block;overflow:visible;">' +
+      '<path d="' + area + '" fill="var(--accent-hover)" opacity="0.14"></path>' +
+      '<polyline points="' + linha + '" fill="none" stroke="var(--accent-hover)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"></polyline>' +
+      pontosSvg +
+    '</svg>'
+  );
+}
+
+function cardEvolucaoSetor(setorKey) {
+  const avaliacoesSetor = estado.checklistAvaliacoes.filter((a) => a.setor === setorKey);
+  const pontos = avaliacoesSetor.map((a) => ({ data: a.finalizada_em, valor: Number(a.aproveitamento) }));
+  const ultima = avaliacoesSetor[avaliacoesSetor.length - 1];
+  const banda = ultima ? bandaAproveitamento(Number(ultima.aproveitamento)) : null;
+  return (
+    '<div class="item-card">' +
+      '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;">' +
+        '<div style="font-size:13.5px;font-weight:700;">' + nomeSetor(setorKey) + '</div>' +
+        (banda ? '<span class="pill ' + banda.classe + '">' + ultima.aproveitamento + '% · ' + banda.texto + '</span>' : '') +
+      '</div>' +
+      svgEvolucaoSetor(pontos) +
+      (ultima ? '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Última avaliação: ' + formatarDataHora(ultima.finalizada_em) + '</div>' : '') +
+    '</div>'
+  );
+}
+
+function statsChecklistDashboard() {
+  const total = estado.checklistAvaliacoes.length;
+  const mediaGeral = total > 0
+    ? Math.round((estado.checklistAvaliacoes.reduce((s, a) => s + Number(a.aproveitamento || 0), 0) / total) * 10) / 10
+    : null;
+  const totalNaoConformidades = estado.checklistAvaliacoes.reduce((s, a) => s + (a.nao_conformidades || 0), 0);
+
+  const porSetor = {};
+  estado.checklistAvaliacoes.forEach((a) => {
+    (porSetor[a.setor] = porSetor[a.setor] || []).push(Number(a.aproveitamento || 0));
+  });
+  let melhorSetor = null, melhorMedia = -1;
+  Object.keys(porSetor).forEach((s) => {
+    const media = porSetor[s].reduce((x, y) => x + y, 0) / porSetor[s].length;
+    if (media > melhorMedia) { melhorMedia = media; melhorSetor = s; }
+  });
+
+  return (
+    '<div class="stats-grid">' +
+      '<div class="stat-card"><div class="rotulo">Checklists finalizados</div><div class="valor">' + total + '</div><div class="legenda">desde o início</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Aproveitamento médio geral</div><div class="valor' + (mediaGeral !== null && mediaGeral >= 75 ? ' verde' : '') + '">' + (mediaGeral === null ? '—' : mediaGeral + '%') + '</div><div class="legenda">média de todos os setores</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Setor com melhor desempenho</div><div class="valor" style="font-size:19px;">' + (melhorSetor ? nomeSetor(melhorSetor) : '—') + '</div><div class="legenda">' + (melhorSetor ? Math.round(melhorMedia * 10) / 10 + '% de média' : 'ainda sem dados') + '</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Não conformidades encontradas</div><div class="valor laranja">' + totalNaoConformidades + '</div><div class="legenda">no total, em todos os checklists</div></div>' +
+    '</div>'
+  );
+}
+
+function tabelaEvolucaoCompleta() {
+  const linhas = [...estado.checklistAvaliacoes].reverse().map((a) => {
+    const banda = bandaAproveitamento(Number(a.aproveitamento || 0));
+    return '<tr>' +
+      '<td><span class="pill">' + nomeSetor(a.setor) + '</span></td>' +
+      '<td>' + formatarDataHora(a.finalizada_em) + '</td>' +
+      '<td>' + a.gerente_nome + '</td>' +
+      '<td><span class="pill ' + banda.classe + '">' + a.aproveitamento + '%</span></td>' +
+      '<td style="text-align:center;">' + (a.nao_conformidades || 0) + '</td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="tabela-wrap"><table><thead><tr><th>Setor</th><th>Finalizado em</th><th>Gerente</th><th>Aproveitamento</th><th style="text-align:center;">Não conformidades</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+}
+
+// "Recidivência" = a mesma não conformidade (mesmo texto de pergunta) se
+// repetindo num mesmo setor em avaliações diferentes (2 ou mais vezes).
+function tabelaRecidivencia() {
+  const setorPorAvaliacao = new Map(estado.checklistAvaliacoes.map((a) => [a.id, a.setor]));
+  const contagem = new Map();
+  estado.checklistNaoConformidades.forEach((r) => {
+    const setor = setorPorAvaliacao.get(r.avaliacao_id);
+    if (!setor) return;
+    const chave = setor + '|' + r.pergunta_texto;
+    const atual = contagem.get(chave) || { setor, texto: r.pergunta_texto, count: 0 };
+    atual.count += 1;
+    contagem.set(chave, atual);
+  });
+  const recorrentes = Array.from(contagem.values()).filter((c) => c.count >= 2).sort((a, b) => b.count - a.count).slice(0, 15);
+
+  if (recorrentes.length === 0) {
+    return '<div class="celula-vazio">Nenhuma não conformidade se repetiu ainda (2 ou mais vezes) num mesmo setor.</div>';
+  }
+
+  const linhas = recorrentes.map((r) =>
+    '<tr>' +
+      '<td><span class="pill">' + nomeSetor(r.setor) + '</span></td>' +
+      '<td>' + r.texto + '</td>' +
+      '<td style="text-align:center;font-weight:800;">' + r.count + 'x</td>' +
+    '</tr>'
+  ).join('');
+
+  return '<div class="tabela-wrap"><table><thead><tr><th>Setor</th><th>Não conformidade recorrente</th><th style="text-align:center;">Ocorrências</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+}
+
+function htmlChecklistDashboard() {
+  if (estado.checklistAvaliacoes.length === 0) {
+    return statsChecklistDashboard() +
+      '<div class="celula-vazio" style="margin-top:20px;">Nenhum Checklist de Setor finalizado ainda. Assim que a gerência concluir o primeiro pelo app, a evolução aparece aqui.</div>';
+  }
+
+  const corpoEvolucao = estado.checklistDashboardVisao === 'tabela'
+    ? tabelaEvolucaoCompleta()
+    : '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:16px;">' + SETORES_CHECKLIST.map(cardEvolucaoSetor).join('') + '</div>';
+
+  return (
+    statsChecklistDashboard() +
+    '<div style="display:flex;justify-content:space-between;align-items:center;margin:28px 0 14px;flex-wrap:wrap;gap:10px;">' +
+      '<h3 style="margin:0;font-size:15px;">Evolução por setor</h3>' +
+      '<div style="display:flex;gap:8px;">' +
+        '<button class="chip ' + (estado.checklistDashboardVisao !== 'tabela' ? 'ativo' : '') + '" onclick="alternarVisaoChecklistDashboard(\'grafico\')">Gráfico</button>' +
+        '<button class="chip ' + (estado.checklistDashboardVisao === 'tabela' ? 'ativo' : '') + '" onclick="alternarVisaoChecklistDashboard(\'tabela\')">Tabela</button>' +
+      '</div>' +
+    '</div>' +
+    corpoEvolucao +
+    '<h3 style="font-size:15px;margin:32px 0 14px;">Recidivência — não conformidades que se repetem</h3>' +
+    tabelaRecidivencia()
+  );
+}
+
 // =============================================================================
 function abrirModal(titulo, corpoHtml, textoBotao, aoSalvar) {
   fecharModal();

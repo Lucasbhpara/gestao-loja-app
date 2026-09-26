@@ -26,6 +26,7 @@ import {
   buscarPessoasQueContaram,
   buscarPessoasRecentes,
   buscarComparacao,
+  reiniciarInventario,
 } from '../data/inventarioApi';
 import { exportarContagemXlsx } from '../lib/exportarPlanilha';
 import { camaraDisponivel } from '../lib/plataforma';
@@ -71,6 +72,33 @@ export default function InventarioScreen({ onVoltar }: { onVoltar: () => void })
   const [itensDeposito, setItensDeposito] = useState<ContagemInventario[]>([]);
   const [carregandoContagem, setCarregandoContagem] = useState(false);
   const [pessoasQueContaram, setPessoasQueContaram] = useState<string[]>([]);
+  const [reiniciandoSortimento, setReiniciandoSortimento] = useState<Sortimento | null>(null);
+
+  // Apaga toda a contagem já lançada nesse inventário (de qualquer pessoa)
+  // pra começar um ciclo novo do zero — resolve o problema de abrir o
+  // inventário e ainda ver a "memória" da contagem anterior.
+  function confirmarReiniciarInventario(s: Sortimento) {
+    Alert.alert('Reiniciar inventário', 'O inventario atual será perdido.', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Reiniciar', style: 'destructive', onPress: () => executarReiniciarInventario(s) },
+    ]);
+  }
+
+  async function executarReiniciarInventario(s: Sortimento) {
+    setReiniciandoSortimento(s);
+    try {
+      await reiniciarInventario(s);
+      if (sortimento === s) {
+        setItensVenda([]);
+        setItensDeposito([]);
+        setPessoasQueContaram([]);
+      }
+    } catch (e: any) {
+      Alert.alert('Não consegui reiniciar', e?.message ?? 'Tenta de novo em alguns instantes.');
+    } finally {
+      setReiniciandoSortimento(null);
+    }
+  }
 
   async function escolherSortimento(s: Sortimento) {
     setSortimento(s);
@@ -385,15 +413,26 @@ export default function InventarioScreen({ onVoltar }: { onVoltar: () => void })
           <Text style={styles.saudacao}>Olá, {pessoaNome}</Text>
           <Text style={styles.perguntaTitulo}>Qual inventário você vai contar?</Text>
           {SORTIMENTOS_INVENTARIO.map((s) => (
-            <TouchableOpacity key={s.key} style={styles.sortimentoCard} onPress={() => escolherSortimento(s.key)}>
-              <View style={styles.sortimentoIcone}>
-                <Text style={styles.sortimentoIconeTexto}>{s.nome.charAt(0)}</Text>
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.sortimentoNome}>{s.nome}</Text>
-                <Text style={styles.sortimentoDescricao}>{s.descricao}</Text>
-              </View>
-            </TouchableOpacity>
+            <View key={s.key} style={styles.sortimentoCard}>
+              <TouchableOpacity style={styles.sortimentoToque} onPress={() => escolherSortimento(s.key)}>
+                <View style={styles.sortimentoIcone}>
+                  <Text style={styles.sortimentoIconeTexto}>{s.nome.charAt(0)}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.sortimentoNome}>{s.nome}</Text>
+                  <Text style={styles.sortimentoDescricao}>{s.descricao}</Text>
+                </View>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.btnReiniciarInventario}
+                onPress={() => confirmarReiniciarInventario(s.key)}
+                disabled={reiniciandoSortimento === s.key}
+              >
+                <Text style={styles.btnReiniciarInventarioTexto}>
+                  {reiniciandoSortimento === s.key ? 'Reiniciando…' : '↻ Reiniciar'}
+                </Text>
+              </TouchableOpacity>
+            </View>
           ))}
         </ScrollView>
       </View>
@@ -730,9 +769,6 @@ const styles = StyleSheet.create({
   chipTexto: { fontSize: 12.5, fontWeight: '600', color: colors.gray600 },
   chipTextoAtivo: { color: colors.white },
   sortimentoCard: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
     backgroundColor: colors.white,
     borderRadius: radius.lg,
     borderWidth: 1,
@@ -740,6 +776,20 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     marginBottom: spacing.md,
   },
+  sortimentoToque: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+  },
+  btnReiniciarInventario: {
+    alignSelf: 'flex-start',
+    marginTop: spacing.md,
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+    borderRadius: radius.full,
+    backgroundColor: colors.gray50,
+  },
+  btnReiniciarInventarioTexto: { fontSize: 11.5, fontWeight: '700', color: colors.navy700 },
   sortimentoIcone: {
     width: 42,
     height: 42,

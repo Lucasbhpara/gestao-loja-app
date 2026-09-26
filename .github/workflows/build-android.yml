@@ -2,6 +2,15 @@ name: Build Android (EAS local)
 
 on:
   workflow_dispatch:
+    inputs:
+      profile:
+        description: 'Perfil do eas.json pra usar na build'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - preview
 
 jobs:
   build:
@@ -32,12 +41,12 @@ jobs:
         run: npm install -g eas-cli
 
       - name: Gerar o build do Android (local)
-        run: eas build --platform android --profile preview --local --non-interactive --output ${{ github.workspace }}/app-release.apk
+        run: eas build --platform android --profile ${{ inputs.profile }} --local --non-interactive --output ${{ github.workspace }}/app-release.apk
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
       - name: Publicar o APK gerado
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk
+          name: app-release-apk-${{ inputs.profile }}
           path: ${{ github.workspace }}/app-release.apk

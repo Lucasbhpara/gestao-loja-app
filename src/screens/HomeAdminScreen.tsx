@@ -21,6 +21,8 @@ import MapaLojaScreen from './MapaLojaScreen';
 import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
 import ChecklistAdminScreen from './ChecklistAdminScreen';
+import ColaboradoresScreen from './ColaboradoresScreen';
+import ChecklistSetorScreen from './ChecklistSetorScreen';
 
 // Aba de chat com a IA visível só nesse login específico (Lucas), não pros
 // demais administradores. Identificado pela matrícula (e não pelo id),
@@ -47,6 +49,8 @@ export default function HomeAdminScreen() {
     | 'pontasExtras'
     | 'jornalOfertas'
     | 'checklist'
+    | 'colaboradores'
+    | 'checklistSetor'
   >('home');
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
@@ -144,6 +148,12 @@ export default function HomeAdminScreen() {
   if (tela === 'checklist') {
     return <ChecklistAdminScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'colaboradores') {
+    return <ColaboradoresScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'checklistSetor') {
+    return <ChecklistSetorScreen onVoltar={() => setTela('home')} usuarioNome={usuarioAtual.nome} />;
+  }
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -182,11 +192,12 @@ export default function HomeAdminScreen() {
             <Text style={styles.vazioProdutosTexto}>Nenhum produto com validade cadastrado ainda.</Text>
           ) : (
             top5Vencendo.map((v, i) => {
-              const status = statusPrazo(diasRestantes(v.dataValidade));
+              const dias = diasRestantes(v.dataValidade);
+              const status = statusPrazo(dias);
               return (
                 <View key={v.id} style={[styles.row, i !== top5Vencendo.length - 1 && styles.rowBorder]}>
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.rowTitle}>{v.produto}</Text>
+                    <Text style={styles.rowTitle}>{dias < 5 ? '⚠ ' : ''}{v.produto}</Text>
                     <Text style={styles.rowSubtitle}>Vence em {formatarData(v.dataValidade)}</Text>
                   </View>
                   <View style={[styles.chipStatus, { backgroundColor: status.fundo }]}>
@@ -204,19 +215,23 @@ export default function HomeAdminScreen() {
         <View style={styles.grid}>
           {[
             { label: 'Checklist', icone: 'check-square' as const, onPress: () => setTela('checklist') },
+            { label: 'Checklist de Setor', icone: 'clipboard' as const, onPress: () => setTela('checklistSetor') },
+            { label: 'Colaboradores', icone: 'users' as const, onPress: () => setTela('colaboradores') },
             { label: 'Criar tarefa', icone: 'edit-3' as const, onPress: () => setTela('tarefas') },
-            { label: 'Perdas geral', icone: 'trending-down' as const, onPress: () => setTela('perdas') },
+            { label: 'Perdas e Desperdício', icone: 'trending-down' as const, onPress: () => setTela('perdas') },
             { label: 'Validade', icone: 'calendar' as const, onPress: () => setTela('validade') },
             { label: 'Inventário', icone: 'package' as const, onPress: () => setTela('inventario') },
             { label: 'Estoque Loja', icone: 'archive' as const, onPress: () => setTela('estoqueLoja') },
             { label: 'Mural de Avisos', icone: 'bell' as const, onPress: () => setTela('avisos') },
             { label: 'Ocorrências', icone: 'alert-triangle' as const, onPress: () => setTela('ocorrencias') },
             { label: 'Conferência', icone: 'clipboard' as const, onPress: () => setTela('conferencias') },
-            { label: 'Pedidos (FLV)', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') },
+            { label: 'Pedidos', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') },
             { label: 'Painel Resultados', icone: 'bar-chart-2' as const, onPress: () => setTela('painelResultados') },
             { label: 'Mapa da Loja', icone: 'map' as const, onPress: () => setTela('mapaLoja') },
             { label: 'Pontas e Pontos Extras', icone: 'layers' as const, onPress: () => setTela('pontasExtras') },
-            { label: 'Jornal de Ofertas', icone: 'file-text' as const, onPress: () => setTela('jornalOfertas') },
+            // Jornal de Ofertas: tile removido — o balão flutuante
+            // (JornalOfertasFlutuante, ver App.tsx) já cobre esse acesso em
+            // qualquer tela, então essa aba ficava redundante.
             { label: 'Sobre', icone: 'info' as const, onPress: () => setTela('sobre') },
           ].map((acao) => (
             <TouchableOpacity key={acao.label} style={styles.tile} onPress={acao.onPress} disabled={!acao.onPress}>

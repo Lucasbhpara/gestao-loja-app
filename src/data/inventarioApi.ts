@@ -163,6 +163,16 @@ export async function lancarContagem(dados: {
   return linhaParaContagem(data);
 }
 
+// Apaga todas as contagens desse sortimento (de qualquer pessoa) — usado
+// pelo botão "Reiniciar inventário" na tela de escolha de sortimento, pra
+// começar um ciclo de contagem novo sem carregar a memória do ciclo
+// anterior. Não mexe no catálogo de itens (inventario_itens), só nas
+// contagens já lançadas.
+export async function reiniciarInventario(sortimento: Sortimento): Promise<void> {
+  const { error } = await supabase.from('inventario_contagens').delete().eq('sortimento', sortimento);
+  if (error) throw error;
+}
+
 export async function buscarPessoasQueContaram(sortimento: Sortimento): Promise<string[]> {
   const { data, error } = await supabase.from('inventario_contagens').select('pessoa_nome').eq('sortimento', sortimento);
   if (error) throw error;

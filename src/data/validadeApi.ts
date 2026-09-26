@@ -14,6 +14,7 @@ export interface Validade {
   unidade: string;
   setor: SetorKey;
   dataValidade: string; // 'AAAA-MM-DD'
+  quantidade: number;
   cadastradoPorNome: string;
   criadoEm: string;
 }
@@ -26,6 +27,7 @@ function linhaParaValidade(linha: any): Validade {
     unidade: linha.unidade,
     setor: linha.setor,
     dataValidade: linha.data_validade,
+    quantidade: linha.quantidade === null || linha.quantidade === undefined ? 1 : Number(linha.quantidade),
     cadastradoPorNome: linha.cadastrado_por_nome,
     criadoEm: linha.criado_em,
   };
@@ -70,6 +72,7 @@ export async function adicionarValidade(dados: {
   unidade: string;
   setor: SetorKey;
   dataValidade: string;
+  quantidade: number;
   cadastradoPorNome: string;
 }): Promise<Validade> {
   const { data, error } = await supabase
@@ -80,6 +83,7 @@ export async function adicionarValidade(dados: {
       unidade: dados.unidade || 'un',
       setor: dados.setor,
       data_validade: dados.dataValidade,
+      quantidade: dados.quantidade && dados.quantidade > 0 ? dados.quantidade : 1,
       cadastrado_por_nome: dados.cadastradoPorNome,
     })
     .select()
@@ -88,14 +92,15 @@ export async function adicionarValidade(dados: {
   return linhaParaValidade(data);
 }
 
-// Corrige um produto já cadastrado (nome, unidade, setor ou validade) sem
-// precisar remover e recadastrar do zero.
+// Corrige um produto já cadastrado (nome, unidade, setor, validade ou
+// quantidade) sem precisar remover e recadastrar do zero.
 export async function atualizarValidade(dados: {
   id: string;
   produto: string;
   unidade: string;
   setor: SetorKey;
   dataValidade: string;
+  quantidade: number;
 }): Promise<Validade> {
   const { data, error } = await supabase
     .from('validades')
@@ -104,6 +109,7 @@ export async function atualizarValidade(dados: {
       unidade: dados.unidade || 'un',
       setor: dados.setor,
       data_validade: dados.dataValidade,
+      quantidade: dados.quantidade && dados.quantidade > 0 ? dados.quantidade : 1,
     })
     .eq('id', dados.id)
     .select()
@@ -112,8 +118,22 @@ export async function atualizarValidade(dados: {
   return linhaParaValidade(data);
 }
 
-export async function removerValidade(id: string): Promise<void> {
-  const { error } = await supabase.from('validades').delete().eq('id', id);
+// Antes de apagar de verdade, grava um registro em validades_excluidas —
+// isso alimenta o histórico de exclusões no portal (quem excluiu, quando,
+// o quê), já que remover um produto da validade some pra sempre da tabela
+// principal sem deixar rastro nenhum.
+export async function removerValidade(v: Validade, excluidoPorNome: string): Promise<void> {
+  const { error: erroLog } = await supabase.from('validades_excluidas').insert({
+    produto: v.produto,
+    codigo_barras: v.codigoBarras,
+    unidade: v.unidade,
+    setor: v.setor,
+    data_validade: v.dataValidade,
+    excluido_por_nome: excluidoPorNome,
+  });
+  if (erroLog) throw erroLog;
+
+  const { error } = await supabase.from('validades').delete().eq('id', v.id);
   if (error) throw error;
 }
 

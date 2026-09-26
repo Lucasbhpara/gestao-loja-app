@@ -1,7 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity } from 'react-native';
+import { Alert, StyleSheet, Text, TouchableOpacity } from 'react-native';
 import { colors, spacing } from '../theme/colors';
+import { useAuth } from '../context/AuthContext';
 import { JornalOferta, buscarJornalAtual } from '../data/jornalOfertasApi';
+import { Conferencia, buscarTodasConferencias, reiniciarConferencia } from '../data/conferenciasApi';
 import VisualizadorJornalModal from './VisualizadorJornalModal';
 
 // Bolha flutuante com o jornal de ofertas atual — fica por cima de qualquer
@@ -14,14 +16,41 @@ import VisualizadorJornalModal from './VisualizadorJornalModal';
 // da Loja e as Pontas e Pontos Extras. O mesmo PDF também aparece como
 // referência nas conferências do tipo "jornal" (ver VisualizadorJornalModal).
 export default function JornalOfertasFlutuante() {
+  const { usuarioAtual } = useAuth();
   const [jornal, setJornal] = useState<JornalOferta | null>(null);
   const [aberto, setAberto] = useState(false);
+  const [conferenciaJornal, setConferenciaJornal] = useState<Conferencia | null>(null);
 
   useEffect(() => {
     buscarJornalAtual()
       .then(setJornal)
       .catch(() => setJornal(null));
   }, []);
+
+  // Só o administrador vê o botão de reiniciar (ver VisualizadorJornalModal)
+  // — busca a conferência do tipo "jornal" mais recente pra saber qual
+  // reiniciar quando ele abrir o visor do PDF.
+  useEffect(() => {
+    if (!usuarioAtual?.isAdmin || !aberto) return;
+    buscarTodasConferencias()
+      .then((lista) => {
+        const maisRecente = lista
+          .filter((c) => c.tipo === 'jornal')
+          .sort((a, b) => (a.criadoEm < b.criadoEm ? 1 : -1))[0];
+        setConferenciaJornal(maisRecente ?? null);
+      })
+      .catch(() => setConferenciaJornal(null));
+  }, [usuarioAtual?.isAdmin, aberto]);
+
+  async function reiniciarJornal() {
+    if (!conferenciaJornal) return;
+    try {
+      await reiniciarConferencia(conferenciaJornal.id);
+      Alert.alert('Pronto', 'A conferência do Jornal foi reiniciada.');
+    } catch (e: any) {
+      Alert.alert('Não consegui reiniciar', e?.message ?? 'Tenta de novo em alguns instantes.');
+    }
+  }
 
   // Nada pra mostrar ainda (ou deu erro ao carregar) — some, não atrapalha
   // o resto da tela.
@@ -43,6 +72,8 @@ export default function JornalOfertasFlutuante() {
         arquivoUrl={jornal.arquivoUrl}
         onFechar={() => setAberto(false)}
         textoFechar="Minimizar"
+        tituloConferenciaJornal={usuarioAtual?.isAdmin ? conferenciaJornal?.titulo ?? null : undefined}
+        onReiniciarConferenciaJornal={usuarioAtual?.isAdmin ? reiniciarJornal : undefined}
       />
     </>
   );
