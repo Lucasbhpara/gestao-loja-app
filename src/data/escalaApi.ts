@@ -90,6 +90,25 @@ export async function buscarEscalaDeVariosNoMes(
   return (data ?? []).map(linhaParaRegistro);
 }
 
+// Todos os registros de uma lista de colaboradores (ex.: todo mundo de um
+// setor) num ÚNICO dia — usado na tela principal de Faltas e Atestados, que
+// mostra "quem tá presente hoje" (quem não tem registro nenhum nesse dia) e
+// "quem não vai estar" (folga/férias/falta/atestado), com uma seta pra
+// navegar dia a dia.
+export async function buscarEscalaDeVariosNoDia(
+  colaboradorLojaIds: string[],
+  data: string
+): Promise<RegistroEscala[]> {
+  if (colaboradorLojaIds.length === 0) return [];
+  const { data: linhas, error } = await supabase
+    .from('escala_folgas')
+    .select('*')
+    .in('colaborador_loja_id', colaboradorLojaIds)
+    .eq('data', data);
+  if (error) throw error;
+  return (linhas ?? []).map(linhaParaRegistro);
+}
+
 // Lança (ou substitui) uma falta ou atestado. "Não, só registrar" foi a
 // decisão do gerente: isso aqui NÃO cria tarefa nem alerta nenhum sozinho,
 // diferente do Checklist de Setor — é só o registro mesmo, que já entra

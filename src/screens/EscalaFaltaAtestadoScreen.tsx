@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Modal,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { colors, radius, spacing } from '../theme/colors';
@@ -19,11 +20,12 @@ import { ColaboradorLoja, buscarColaboradoresLoja, buscarColaboradoresLojaDoSeto
 import {
   RegistroEscala,
   TipoEscala,
-  buscarEscalaDeVariosNoMes,
+  buscarEscalaDeVariosNoDia,
   registrarFaltaOuAtestado,
   removerRegistroEscala,
   enviarFotoAtestado,
 } from '../data/escalaApi';
+import SeletorDataValidade from '../components/SeletorDataValidade';
 
 // Escala de Folgas + Faltas/Atestados — a mesma tela serve pra gerência
 // (enxerga e lança em qualquer setor, com seletor) e pra encarregado (só
@@ -32,14 +34,17 @@ import {
 // pra quem pode usar — aqui dentro só olhamos usuarioAtual.isAdmin pra
 // saber se mostra o seletor de setor ou trava no setor da pessoa.
 //
+// A tela mostra UM DIA por vez (hoje por padrão, com seta pra navegar pros
+// outros dias ou tocar na data pra abrir o calendário) — a ideia é o
+// encarregado abrir e já ver, de cara, quem ele pode contar naquele dia:
+// quem não tem nenhum registro aparece normal ("presente"); quem tem folga,
+// férias/licença/INSS, falta ou atestado aparece apagado, com uma etiqueta
+// dizendo o motivo. Tocar em qualquer colaborador (presente ou não) abre o
+// formulário pra lançar falta/atestado naquele dia.
+//
 // "Só registrar": diferente do Checklist de Setor, lançar uma falta ou
 // atestado aqui NÃO cria tarefa nem alerta ninguém sozinho — é só o
 // registro, que já entra na escala do colaborador (ver escalaApi.ts).
-
-const MESES = [
-  'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-  'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro',
-];
 
 const LABEL_TIPO: Record<TipoEscala, { texto: string; cor: string; fundo: string }> = {
   folga: { texto: 'Folga', cor: colors.gray600, fundo: colors.gray100 },
@@ -48,8 +53,27 @@ const LABEL_TIPO: Record<TipoEscala, { texto: string; cor: string; fundo: string
   atestado: { texto: 'Atestado', cor: '#B5750E', fundo: '#FBEBD4' },
 };
 
+const DIAS_SEMANA = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+const MESES_EXTENSO = [
+  'janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho',
+  'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro',
+];
+
+const hitSlopPadrao = { top: 10, bottom: 10, left: 10, right: 10 };
+
 function isoHoje(): string {
   const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+function isoParaData(iso: string): Date {
+  const [ano, mes, dia] = iso.split('-').map(Number);
+  return new Date(ano, mes - 1, dia);
+}
+
+function somarDias(iso: string, delta: number): string {
+  const d = isoParaData(iso);
+  d.setDate(d.getDate() + delta);
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
@@ -58,10 +82,14 @@ function formatarDataCurta(iso: string): string {
   return `${dia}/${mes}`;
 }
 
-function dataValida(iso: string): boolean {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(iso)) return false;
-  const d = new Date(iso + 'T00:00:00');
-  return !isNaN(d.getTime());
+function tituloDoDia(iso: string): string {
+  const d = isoParaData(iso);
+  const base = `${DIAS_SEMANA[d.getDay()]}, ${d.getDate()} de ${MESES_EXTENSO[d.getMonth()]}`;
+  const hoje = isoHoje();
+  if (iso === hoje) return `Hoje — ${base}`;
+  if (iso === somarDias(hoje, -1)) return `Ontem — ${base}`;
+  if (iso === somarDias(hoje, 1)) return `Amanhã — ${base}`;
+  return base;
 }
 
 export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () => void }) {
@@ -69,22 +97,18 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
   const souGerencia = !!usuarioAtual?.isAdmin;
   const setorFixo = !souGerencia ? usuarioAtual?.setor ?? null : null;
 
-  const hoje = new Date();
-  const [ano, setAno] = useState(hoje.getFullYear());
-  const [mes, setMes] = useState(hoje.getMonth() + 1); // 1-12
+  const [dataSelecionada, setDataSelecionada] = useState(isoHoje());
 
   const [todosColaboradores, setTodosColaboradores] = useState<ColaboradorLoja[]>([]);
   const [setorSelecionado, setSetorSelecionado] = useState<SetorKey | null>(setorFixo);
   const [carregandoColaboradores, setCarregandoColaboradores] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
 
-  const [resumoMes, setResumoMes] = useState<Map<string, RegistroEscala[]>>(new Map());
-  const [carregandoResumo, setCarregandoResumo] = useState(false);
+  const [registrosDoDia, setRegistrosDoDia] = useState<Map<string, RegistroEscala>>(new Map());
+  const [carregandoRegistros, setCarregandoRegistros] = useState(false);
   const [atualizando, setAtualizando] = useState(false);
 
-  const [colaboradorAberto, setColaboradorAberto] = useState<string | null>(null);
-  const [mostrarForm, setMostrarForm] = useState(false);
-  const [dataForm, setDataForm] = useState(isoHoje());
+  const [colaboradorAtivo, setColaboradorAtivo] = useState<ColaboradorLoja | null>(null);
   const [tipoForm, setTipoForm] = useState<'falta' | 'atestado'>('falta');
   const [observacaoForm, setObservacaoForm] = useState('');
   const [fotoUri, setFotoUri] = useState<string | null>(null);
@@ -126,51 +150,37 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
     [todosColaboradores, setorSelecionado]
   );
 
-  function carregarResumo() {
+  function carregarRegistros() {
     if (colaboradoresDoSetor.length === 0) {
-      setResumoMes(new Map());
+      setRegistrosDoDia(new Map());
       return;
     }
-    setCarregandoResumo(true);
-    buscarEscalaDeVariosNoMes(colaboradoresDoSetor.map((c) => c.id), ano, mes)
+    setCarregandoRegistros(true);
+    buscarEscalaDeVariosNoDia(colaboradoresDoSetor.map((c) => c.id), dataSelecionada)
       .then((registros) => {
-        const mapa = new Map<string, RegistroEscala[]>();
-        registros.forEach((r) => {
-          const lista = mapa.get(r.colaboradorLojaId) ?? [];
-          lista.push(r);
-          mapa.set(r.colaboradorLojaId, lista);
-        });
-        mapa.forEach((lista) => lista.sort((a, b) => (a.data < b.data ? -1 : 1)));
-        setResumoMes(mapa);
+        const mapa = new Map<string, RegistroEscala>();
+        registros.forEach((r) => mapa.set(r.colaboradorLojaId, r));
+        setRegistrosDoDia(mapa);
       })
-      .catch((e) => setErro(e?.message ?? 'Não consegui carregar a escala do mês.'))
-      .finally(() => setCarregandoResumo(false));
+      .catch((e) => setErro(e?.message ?? 'Não consegui carregar a escala do dia.'))
+      .finally(() => setCarregandoRegistros(false));
   }
 
   useEffect(() => {
-    carregarResumo();
-  }, [colaboradoresDoSetor, ano, mes]);
+    carregarRegistros();
+  }, [colaboradoresDoSetor, dataSelecionada]);
 
   if (!usuarioAtual) return null;
 
-  function trocarMes(delta: number) {
-    let novoMes = mes + delta;
-    let novoAno = ano;
-    if (novoMes > 12) { novoMes = 1; novoAno += 1; }
-    if (novoMes < 1) { novoMes = 12; novoAno -= 1; }
-    setMes(novoMes);
-    setAno(novoAno);
-    setColaboradorAberto(null);
-    setMostrarForm(false);
+  function trocarDia(delta: number) {
+    setDataSelecionada((atual) => somarDias(atual, delta));
   }
 
-  function alternarColaborador(id: string) {
-    setColaboradorAberto((atual) => (atual === id ? null : id));
-    setMostrarForm(false);
+  function abrirColaborador(c: ColaboradorLoja) {
+    setColaboradorAtivo(c);
+    setTipoForm('falta');
     setObservacaoForm('');
     setFotoUri(null);
-    setTipoForm('falta');
-    setDataForm(isoHoje());
   }
 
   function escolherFoto() {
@@ -203,35 +213,31 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
     if (uri) setFotoUri(uri);
   }
 
-  function salvarRegistro(colaborador: ColaboradorLoja) {
-    if (!dataValida(dataForm)) {
-      Alert.alert('Data inválida', 'Use o formato AAAA-MM-DD com uma data válida (ex: 2026-09-26).');
-      return;
-    }
+  function salvarRegistro() {
+    if (!colaboradorAtivo) return;
     if (tipoForm === 'atestado' && !fotoUri) {
       Alert.alert('Foto obrigatória', 'Anexe uma foto do atestado antes de salvar.');
       return;
     }
-    const registrosDoColaborador = resumoMes.get(colaborador.id) ?? [];
-    const existente = registrosDoColaborador.find((r) => r.data === dataForm);
+    const existente = registrosDoDia.get(colaboradorAtivo.id);
     if (existente && existente.tipo !== tipoForm) {
       Alert.alert(
         'Já existe um registro nesse dia',
-        `${formatarDataCurta(dataForm)} já está marcado como "${LABEL_TIPO[existente.tipo].texto}" para ${colaborador.nome}. Substituir por "${LABEL_TIPO[tipoForm].texto}"?`,
+        `${formatarDataCurta(dataSelecionada)} já está marcado como "${LABEL_TIPO[existente.tipo].texto}" para ${colaboradorAtivo.nome}. Substituir por "${LABEL_TIPO[tipoForm].texto}"?`,
         [
           { text: 'Cancelar', style: 'cancel' },
-          { text: 'Substituir', style: 'destructive', onPress: () => confirmarESalvar(colaborador) },
+          { text: 'Substituir', style: 'destructive', onPress: confirmarESalvar },
         ]
       );
       return;
     }
-    confirmarESalvar(colaborador);
+    confirmarESalvar();
   }
 
-  async function confirmarESalvar(colaborador: ColaboradorLoja) {
-    if (!usuarioAtual) return;
+  async function confirmarESalvar() {
+    if (!usuarioAtual || !colaboradorAtivo) return;
+    const colaborador = colaboradorAtivo;
     const tipoSalvo = tipoForm;
-    const dataSalva = dataForm;
     setSalvando(true);
     try {
       let fotoUrl: string | null = null;
@@ -240,19 +246,15 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
       }
       await registrarFaltaOuAtestado({
         colaboradorLojaId: colaborador.id,
-        data: dataSalva,
+        data: dataSelecionada,
         tipo: tipoSalvo,
         observacao: observacaoForm.trim() || null,
         fotoUrl,
         registradoPorNome: usuarioAtual.nome,
       });
-      carregarResumo();
-      setMostrarForm(false);
-      setObservacaoForm('');
-      setFotoUri(null);
-      setTipoForm('falta');
-      setDataForm(isoHoje());
-      Alert.alert('Registrado', `${LABEL_TIPO[tipoSalvo].texto} de ${colaborador.nome} em ${formatarDataCurta(dataSalva)} foi registrado.`);
+      carregarRegistros();
+      setColaboradorAtivo(null);
+      Alert.alert('Registrado', `${LABEL_TIPO[tipoSalvo].texto} de ${colaborador.nome} em ${formatarDataCurta(dataSelecionada)} foi registrado.`);
     } catch (e: any) {
       Alert.alert('Erro', e?.message ?? 'Não consegui salvar o registro.');
     } finally {
@@ -260,7 +262,11 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
     }
   }
 
-  function confirmarRemocao(registro: RegistroEscala, nomeColaborador: string) {
+  function confirmarRemocao() {
+    if (!colaboradorAtivo) return;
+    const registro = registrosDoDia.get(colaboradorAtivo.id);
+    if (!registro) return;
+    const nomeColaborador = colaboradorAtivo.nome;
     Alert.alert(
       'Remover registro',
       `Remover o lançamento de "${LABEL_TIPO[registro.tipo].texto}" de ${nomeColaborador} em ${formatarDataCurta(registro.data)}?`,
@@ -271,7 +277,10 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
           style: 'destructive',
           onPress: () => {
             removerRegistroEscala(registro.id)
-              .then(carregarResumo)
+              .then(() => {
+                carregarRegistros();
+                setColaboradorAtivo(null);
+              })
               .catch((e) => Alert.alert('Erro', e?.message ?? 'Não consegui remover o registro.'));
           },
         },
@@ -279,15 +288,7 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
     );
   }
 
-  function resumoDoColaborador(id: string): string {
-    const registros = resumoMes.get(id) ?? [];
-    if (registros.length === 0) return 'Nenhum registro esse mês';
-    const porTipo: Record<string, number> = {};
-    registros.forEach((r) => { porTipo[r.tipo] = (porTipo[r.tipo] ?? 0) + 1; });
-    return Object.entries(porTipo)
-      .map(([tipo, n]) => `${n} ${LABEL_TIPO[tipo as TipoEscala].texto.toLowerCase()}${n > 1 ? 's' : ''}`)
-      .join(' · ');
-  }
+  const registroAtivo = colaboradorAtivo ? registrosDoDia.get(colaboradorAtivo.id) ?? null : null;
 
   return (
     <View style={styles.flex}>
@@ -299,13 +300,18 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
         <View style={{ width: 50 }} />
       </View>
 
-      <View style={styles.mesNav}>
-        <TouchableOpacity onPress={() => trocarMes(-1)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Text style={styles.mesSeta}>‹</Text>
+      <View style={styles.diaNav}>
+        <TouchableOpacity onPress={() => trocarDia(-1)} hitSlop={hitSlopPadrao} style={styles.diaSetaBtn}>
+          <Text style={styles.diaSeta}>‹</Text>
         </TouchableOpacity>
-        <Text style={styles.mesTexto}>{MESES[mes - 1]} de {ano}</Text>
-        <TouchableOpacity onPress={() => trocarMes(1)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-          <Text style={styles.mesSeta}>›</Text>
+        <View style={styles.diaCentro}>
+          <Text style={styles.diaTitulo}>{tituloDoDia(dataSelecionada)}</Text>
+          <View style={styles.diaCalendarioCaixa}>
+            <SeletorDataValidade valor={dataSelecionada} onSelecionar={setDataSelecionada} />
+          </View>
+        </View>
+        <TouchableOpacity onPress={() => trocarDia(1)} hitSlop={hitSlopPadrao} style={styles.diaSetaBtn}>
+          <Text style={styles.diaSeta}>›</Text>
         </TouchableOpacity>
       </View>
 
@@ -334,7 +340,7 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
               <TouchableOpacity
                 key={s.key}
                 style={[styles.chip, setorSelecionado === s.key && styles.chipAtivo]}
-                onPress={() => { setSetorSelecionado(s.key); setColaboradorAberto(null); setMostrarForm(false); }}
+                onPress={() => setSetorSelecionado(s.key)}
               >
                 <Text style={[styles.chipTexto, setorSelecionado === s.key && styles.chipTextoAtivo]}>{s.nome}</Text>
               </TouchableOpacity>
@@ -351,134 +357,149 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
             </Text>
           </View>
         ) : (
-          colaboradoresDoSetor.map((c) => {
-            const aberto = colaboradorAberto === c.id;
-            const registros = resumoMes.get(c.id) ?? [];
-            return (
-              <View key={c.id} style={styles.colaboradorCard}>
-                <TouchableOpacity style={styles.colaboradorTopo} onPress={() => alternarColaborador(c.id)}>
+          <>
+            {carregandoRegistros && (
+              <ActivityIndicator size="small" color={colors.navy700} style={{ marginBottom: spacing.md }} />
+            )}
+            {colaboradoresDoSetor.map((c) => {
+              const registro = registrosDoDia.get(c.id);
+              const ausente = !!registro;
+              return (
+                <TouchableOpacity
+                  key={c.id}
+                  style={[styles.pessoaCard, ausente && styles.pessoaCardAusente]}
+                  onPress={() => abrirColaborador(c)}
+                  activeOpacity={0.7}
+                >
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.colaboradorNome}>{c.nome}</Text>
-                    <Text style={styles.colaboradorResumo}>
-                      {carregandoResumo ? 'Carregando…' : resumoDoColaborador(c.id)}
-                    </Text>
+                    <Text style={[styles.pessoaNome, ausente && styles.pessoaNomeAusente]}>{c.nome}</Text>
+                    {!!c.cargo && (
+                      <Text style={[styles.pessoaCargo, ausente && styles.pessoaCargoAusente]}>{c.cargo}</Text>
+                    )}
                   </View>
-                  <Text style={styles.colaboradorSeta}>{aberto ? '▲' : '▼'}</Text>
+                  {registro ? (
+                    <View style={[styles.tipoBadge, { backgroundColor: LABEL_TIPO[registro.tipo].fundo }]}>
+                      <Text style={[styles.tipoBadgeTexto, { color: LABEL_TIPO[registro.tipo].cor }]}>
+                        {LABEL_TIPO[registro.tipo].texto}
+                      </Text>
+                    </View>
+                  ) : (
+                    <View style={styles.presenteBadge}>
+                      <View style={styles.presenteDot} />
+                      <Text style={styles.presenteTexto}>Presente</Text>
+                    </View>
+                  )}
                 </TouchableOpacity>
-
-                {aberto && (
-                  <View style={styles.detalhe}>
-                    {registros.length > 0 && (
-                      <View style={styles.listaRegistros}>
-                        {registros.map((r) => (
-                          <View key={r.id} style={styles.registroRow}>
-                            <View style={{ flex: 1 }}>
-                              <View style={styles.registroTopo}>
-                                <Text style={styles.registroData}>{formatarDataCurta(r.data)}</Text>
-                                <View style={[styles.tipoBadge, { backgroundColor: LABEL_TIPO[r.tipo].fundo }]}>
-                                  <Text style={[styles.tipoBadgeTexto, { color: LABEL_TIPO[r.tipo].cor }]}>
-                                    {LABEL_TIPO[r.tipo].texto}
-                                  </Text>
-                                </View>
-                              </View>
-                              {!!r.registradoPorNome && (r.tipo === 'falta' || r.tipo === 'atestado') && (
-                                <Text style={styles.registroInfo}>Lançado por {r.registradoPorNome}</Text>
-                              )}
-                              {!!r.observacao && <Text style={styles.registroInfo}>{r.observacao}</Text>}
-                              {!!r.fotoUrl && (
-                                <Image source={{ uri: r.fotoUrl }} style={styles.registroFoto} resizeMode="cover" />
-                              )}
-                            </View>
-                            {(r.tipo === 'falta' || r.tipo === 'atestado') && (
-                              <TouchableOpacity onPress={() => confirmarRemocao(r, c.nome)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
-                                <Text style={styles.removerTexto}>Remover</Text>
-                              </TouchableOpacity>
-                            )}
-                          </View>
-                        ))}
-                      </View>
-                    )}
-
-                    {!mostrarForm ? (
-                      <TouchableOpacity style={styles.btnAbrirForm} onPress={() => setMostrarForm(true)}>
-                        <Text style={styles.btnAbrirFormTexto}>+ Registrar falta ou atestado</Text>
-                      </TouchableOpacity>
-                    ) : (
-                      <View style={styles.formCard}>
-                        <Text style={styles.formLabel}>Tipo</Text>
-                        <View style={styles.chipsWrap}>
-                          <TouchableOpacity
-                            style={[styles.chip, tipoForm === 'falta' && styles.chipAtivo]}
-                            onPress={() => setTipoForm('falta')}
-                          >
-                            <Text style={[styles.chipTexto, tipoForm === 'falta' && styles.chipTextoAtivo]}>Falta</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.chip, tipoForm === 'atestado' && styles.chipAtivo]}
-                            onPress={() => setTipoForm('atestado')}
-                          >
-                            <Text style={[styles.chipTexto, tipoForm === 'atestado' && styles.chipTextoAtivo]}>Atestado</Text>
-                          </TouchableOpacity>
-                        </View>
-
-                        <Text style={styles.formLabel}>Data</Text>
-                        <TextInput
-                          style={styles.input}
-                          placeholder="AAAA-MM-DD"
-                          value={dataForm}
-                          onChangeText={setDataForm}
-                          maxLength={10}
-                        />
-
-                        <Text style={styles.formLabel}>Observação (opcional)</Text>
-                        <TextInput
-                          style={[styles.input, styles.inputMultilinha]}
-                          placeholder="Detalhes, se precisar"
-                          value={observacaoForm}
-                          onChangeText={setObservacaoForm}
-                          multiline
-                        />
-
-                        <Text style={styles.formLabel}>
-                          Foto {tipoForm === 'atestado' ? 'do atestado (obrigatória)' : '(opcional)'}
-                        </Text>
-                        {fotoUri ? (
-                          <View style={styles.fotoPreviewLinha}>
-                            <Image source={{ uri: fotoUri }} style={styles.fotoPreview} />
-                            <TouchableOpacity onPress={() => setFotoUri(null)}>
-                              <Text style={styles.removerTexto}>Remover foto</Text>
-                            </TouchableOpacity>
-                          </View>
-                        ) : (
-                          <TouchableOpacity style={styles.btnFoto} onPress={escolherFoto}>
-                            <Text style={styles.btnFotoTexto}>📷 Anexar foto</Text>
-                          </TouchableOpacity>
-                        )}
-
-                        <View style={styles.formBotoes}>
-                          <TouchableOpacity
-                            style={styles.btnCancelar}
-                            onPress={() => { setMostrarForm(false); setObservacaoForm(''); setFotoUri(null); }}
-                          >
-                            <Text style={styles.btnCancelarTexto}>Cancelar</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity
-                            style={[styles.btnSalvar, salvando && styles.btnSalvarDesabilitado]}
-                            onPress={() => salvarRegistro(c)}
-                            disabled={salvando}
-                          >
-                            <Text style={styles.btnSalvarTexto}>{salvando ? 'Salvando…' : 'Salvar'}</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
-                    )}
-                  </View>
-                )}
-              </View>
-            );
-          })
+              );
+            })}
+          </>
         )}
       </ScrollView>
+
+      <Modal
+        visible={!!colaboradorAtivo}
+        animationType="slide"
+        transparent
+        onRequestClose={() => setColaboradorAtivo(null)}
+      >
+        <View style={styles.modalFundo}>
+          <View style={styles.modalCartao}>
+            <ScrollView contentContainerStyle={{ padding: spacing.xl }} keyboardShouldPersistTaps="handled">
+              {colaboradorAtivo && (
+                <>
+                  <View style={styles.modalTopo}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.modalNome}>{colaboradorAtivo.nome}</Text>
+                      <Text style={styles.modalData}>{tituloDoDia(dataSelecionada)}</Text>
+                    </View>
+                    <TouchableOpacity onPress={() => setColaboradorAtivo(null)} hitSlop={hitSlopPadrao}>
+                      <Text style={styles.modalFechar}>✕</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  {registroAtivo && (
+                    <View style={styles.modalStatusAtual}>
+                      <View style={styles.modalStatusTopo}>
+                        <View style={[styles.tipoBadge, { backgroundColor: LABEL_TIPO[registroAtivo.tipo].fundo }]}>
+                          <Text style={[styles.tipoBadgeTexto, { color: LABEL_TIPO[registroAtivo.tipo].cor }]}>
+                            {LABEL_TIPO[registroAtivo.tipo].texto}
+                          </Text>
+                        </View>
+                        {(registroAtivo.tipo === 'falta' || registroAtivo.tipo === 'atestado') && (
+                          <TouchableOpacity onPress={confirmarRemocao} hitSlop={hitSlopPadrao}>
+                            <Text style={styles.removerTexto}>Remover</Text>
+                          </TouchableOpacity>
+                        )}
+                      </View>
+                      {!!registroAtivo.registradoPorNome && (registroAtivo.tipo === 'falta' || registroAtivo.tipo === 'atestado') && (
+                        <Text style={styles.registroInfo}>Lançado por {registroAtivo.registradoPorNome}</Text>
+                      )}
+                      {!!registroAtivo.observacao && <Text style={styles.registroInfo}>{registroAtivo.observacao}</Text>}
+                      {!!registroAtivo.fotoUrl && (
+                        <Image source={{ uri: registroAtivo.fotoUrl }} style={styles.registroFoto} resizeMode="cover" />
+                      )}
+                    </View>
+                  )}
+
+                  <Text style={styles.formLabel}>Registrar falta ou atestado</Text>
+                  <View style={styles.chipsWrap}>
+                    <TouchableOpacity
+                      style={[styles.chip, tipoForm === 'falta' && styles.chipAtivo]}
+                      onPress={() => setTipoForm('falta')}
+                    >
+                      <Text style={[styles.chipTexto, tipoForm === 'falta' && styles.chipTextoAtivo]}>Falta</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.chip, tipoForm === 'atestado' && styles.chipAtivo]}
+                      onPress={() => setTipoForm('atestado')}
+                    >
+                      <Text style={[styles.chipTexto, tipoForm === 'atestado' && styles.chipTextoAtivo]}>Atestado</Text>
+                    </TouchableOpacity>
+                  </View>
+
+                  <Text style={styles.formLabel}>Observação (opcional)</Text>
+                  <TextInput
+                    style={[styles.input, styles.inputMultilinha]}
+                    placeholder="Detalhes, se precisar"
+                    value={observacaoForm}
+                    onChangeText={setObservacaoForm}
+                    multiline
+                  />
+
+                  <Text style={styles.formLabel}>
+                    Foto {tipoForm === 'atestado' ? 'do atestado (obrigatória)' : '(opcional)'}
+                  </Text>
+                  {fotoUri ? (
+                    <View style={styles.fotoPreviewLinha}>
+                      <Image source={{ uri: fotoUri }} style={styles.fotoPreview} />
+                      <TouchableOpacity onPress={() => setFotoUri(null)}>
+                        <Text style={styles.removerTexto}>Remover foto</Text>
+                      </TouchableOpacity>
+                    </View>
+                  ) : (
+                    <TouchableOpacity style={styles.btnFoto} onPress={escolherFoto}>
+                      <Text style={styles.btnFotoTexto}>📷 Anexar foto</Text>
+                    </TouchableOpacity>
+                  )}
+
+                  <View style={styles.formBotoes}>
+                    <TouchableOpacity style={styles.btnCancelar} onPress={() => setColaboradorAtivo(null)}>
+                      <Text style={styles.btnCancelarTexto}>Fechar</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity
+                      style={[styles.btnSalvar, salvando && styles.btnSalvarDesabilitado]}
+                      onPress={salvarRegistro}
+                      disabled={salvando}
+                    >
+                      <Text style={styles.btnSalvarTexto}>{salvando ? 'Salvando…' : 'Salvar'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -498,18 +519,20 @@ const styles = StyleSheet.create({
   },
   voltar: { color: colors.navy700, fontSize: 14, fontWeight: '600', width: 50 },
   titulo: { fontSize: 16, fontWeight: '700', color: colors.gray900 },
-  mesNav: {
+  diaNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    gap: spacing.lg,
     backgroundColor: colors.white,
     borderBottomWidth: 1,
     borderBottomColor: colors.gray100,
     paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
   },
-  mesSeta: { fontSize: 20, fontWeight: '700', color: colors.navy700, paddingHorizontal: spacing.md },
-  mesTexto: { fontSize: 14, fontWeight: '700', color: colors.gray900 },
+  diaSetaBtn: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
+  diaSeta: { fontSize: 20, fontWeight: '700', color: colors.navy700 },
+  diaCentro: { flex: 1, alignItems: 'center', gap: 6 },
+  diaTitulo: { fontSize: 13.5, fontWeight: '700', color: colors.gray900, textAlign: 'center' },
+  diaCalendarioCaixa: { width: 150 },
   erroBox: { backgroundColor: '#FBDEDC', borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
   erroTexto: { color: colors.red500, fontSize: 12.5 },
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginBottom: spacing.lg },
@@ -519,35 +542,46 @@ const styles = StyleSheet.create({
   chipTextoAtivo: { color: colors.white },
   vazio: { padding: spacing.xxl, alignItems: 'center' },
   vazioTexto: { color: colors.gray600, fontSize: 13, textAlign: 'center' },
-  colaboradorCard: { backgroundColor: colors.white, borderRadius: radius.lg, marginBottom: spacing.md, overflow: 'hidden' },
-  colaboradorTopo: { flexDirection: 'row', alignItems: 'center', padding: spacing.lg },
-  colaboradorNome: { fontSize: 14, fontWeight: '700', color: colors.gray900 },
-  colaboradorResumo: { fontSize: 12, color: colors.gray600, marginTop: 2 },
-  colaboradorSeta: { fontSize: 12, color: colors.gray400, marginLeft: spacing.sm },
-  detalhe: { paddingHorizontal: spacing.lg, paddingBottom: spacing.lg },
-  listaRegistros: { borderTopWidth: 1, borderTopColor: colors.gray100, paddingTop: spacing.md, marginBottom: spacing.md },
-  registroRow: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm, paddingVertical: 8 },
-  registroTopo: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  registroData: { fontSize: 12.5, fontWeight: '700', color: colors.gray900, width: 38 },
-  tipoBadge: { borderRadius: radius.full, paddingVertical: 2, paddingHorizontal: 9 },
+  pessoaCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.white,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
+    marginBottom: spacing.sm,
+  },
+  pessoaCardAusente: { backgroundColor: colors.gray50, borderWidth: 1, borderColor: colors.gray100 },
+  pessoaNome: { fontSize: 14, fontWeight: '700', color: colors.gray900 },
+  pessoaNomeAusente: { color: colors.gray400 },
+  pessoaCargo: { fontSize: 11.5, color: colors.gray600, marginTop: 2 },
+  pessoaCargoAusente: { color: colors.gray400 },
+  presenteBadge: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  presenteDot: { width: 8, height: 8, borderRadius: 999, backgroundColor: colors.green500 },
+  presenteTexto: { fontSize: 11.5, fontWeight: '700', color: colors.green500 },
+  tipoBadge: { borderRadius: radius.full, paddingVertical: 4, paddingHorizontal: 11 },
   tipoBadgeTexto: { fontSize: 10.5, fontWeight: '700' },
-  registroInfo: { fontSize: 11.5, color: colors.gray600, marginTop: 3 },
-  registroFoto: { width: 64, height: 64, borderRadius: radius.sm, marginTop: 6 },
+  registroInfo: { fontSize: 11.5, color: colors.gray600, marginTop: 6 },
+  registroFoto: { width: 64, height: 64, borderRadius: radius.sm, marginTop: 8 },
   removerTexto: { fontSize: 11.5, fontWeight: '700', color: colors.red500 },
-  btnAbrirForm: { alignItems: 'center', paddingVertical: 10, borderWidth: 1, borderColor: colors.navy700, borderRadius: radius.md, borderStyle: 'dashed' },
-  btnAbrirFormTexto: { color: colors.navy700, fontSize: 12.5, fontWeight: '700' },
-  formCard: { backgroundColor: colors.gray50, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.sm },
-  formLabel: { fontSize: 11.5, fontWeight: '700', color: colors.gray600, marginTop: spacing.md, marginBottom: 6, textTransform: 'uppercase' },
-  input: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: spacing.md, fontSize: 13, color: colors.gray900 },
+  formLabel: { fontSize: 11.5, fontWeight: '700', color: colors.gray600, marginTop: spacing.lg, marginBottom: 6, textTransform: 'uppercase' },
+  input: { backgroundColor: colors.gray50, borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, paddingVertical: 10, paddingHorizontal: spacing.md, fontSize: 13, color: colors.gray900 },
   inputMultilinha: { minHeight: 60, textAlignVertical: 'top' },
-  btnFoto: { alignItems: 'center', paddingVertical: 10, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md },
+  btnFoto: { alignItems: 'center', paddingVertical: 10, backgroundColor: colors.gray50, borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md },
   btnFotoTexto: { fontSize: 12.5, fontWeight: '700', color: colors.gray900 },
   fotoPreviewLinha: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   fotoPreview: { width: 64, height: 64, borderRadius: radius.sm },
-  formBotoes: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.lg },
+  formBotoes: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.xl },
   btnCancelar: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100, backgroundColor: colors.white },
   btnCancelarTexto: { fontSize: 12.5, fontWeight: '700', color: colors.gray600 },
   btnSalvar: { flex: 1, alignItems: 'center', paddingVertical: 11, borderRadius: radius.md, backgroundColor: colors.navy700 },
   btnSalvarDesabilitado: { opacity: 0.6 },
   btnSalvarTexto: { fontSize: 12.5, fontWeight: '700', color: colors.white },
+  modalFundo: { flex: 1, backgroundColor: 'rgba(18,27,74,0.45)', justifyContent: 'flex-end' },
+  modalCartao: { backgroundColor: colors.white, borderTopLeftRadius: radius.xl, borderTopRightRadius: radius.xl, maxHeight: '88%' },
+  modalTopo: { flexDirection: 'row', alignItems: 'flex-start', marginBottom: spacing.lg },
+  modalNome: { fontSize: 17, fontWeight: '800', color: colors.gray900 },
+  modalData: { fontSize: 12.5, color: colors.gray600, marginTop: 2 },
+  modalFechar: { fontSize: 16, color: colors.gray400, padding: 4 },
+  modalStatusAtual: { backgroundColor: colors.gray50, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.lg },
+  modalStatusTopo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
 });
