@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "737926111591",
+    "project_id": "ulva-678da",
+    "storage_bucket": "ulva-678da.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:737926111591:android:6ded9cc59a67cc006f4fc2",
+        "android_client_info": {
+          "package_name": "com.lucasalberto.gestaodeloja"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBTAYk8wrGobAx-SgXmrZtB_lCcxiW2fW4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

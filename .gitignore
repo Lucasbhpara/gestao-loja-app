@@ -13,3 +13,7 @@ web-build/
 .env*.local
 *.tsbuildinfo
 npm-debug.*
+
+# Chave de conta de serviço do Firebase (FCM V1) — só usada uma vez pra subir
+# no `eas credentials`, nunca deve ir pro Git.
+*firebase-adminsdk*.json
