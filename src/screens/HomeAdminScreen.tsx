@@ -20,9 +20,8 @@ import PainelResultadosScreen from './PainelResultadosScreen';
 import MapaLojaScreen from './MapaLojaScreen';
 import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
-import ChecklistAdminScreen from './ChecklistAdminScreen';
+import ChecklistHubScreen from './ChecklistHubScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
-import ChecklistSetorScreen from './ChecklistSetorScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 
 // Aba de chat com a IA visível só nesse login específico (Lucas), não pros
@@ -51,7 +50,6 @@ export default function HomeAdminScreen() {
     | 'jornalOfertas'
     | 'checklist'
     | 'colaboradores'
-    | 'checklistSetor'
     | 'escalaFaltas'
   >('home');
 
@@ -74,6 +72,9 @@ export default function HomeAdminScreen() {
 
   const [validades, setValidades] = useState<Validade[]>([]);
   const [carregandoValidades, setCarregandoValidades] = useState(true);
+  // "Produtos vencendo" agora é uma gaveta retrátil pra deixar a Home mais
+  // limpa — começa fechada, o administrador abre quando quiser conferir.
+  const [gavetaVencendoAberta, setGavetaVencendoAberta] = useState(false);
 
   useEffect(() => {
     if (!usuarioAtual) return;
@@ -96,6 +97,7 @@ export default function HomeAdminScreen() {
   const top5Vencendo = [...validades]
     .sort((a, b) => (a.dataValidade < b.dataValidade ? -1 : 1))
     .slice(0, 5);
+  const qtdUrgentes = validades.filter((v) => diasRestantes(v.dataValidade) < 5).length;
 
   if (tela === 'chatIA') {
     return <ChatIAScreen onVoltar={() => setTela('home')} />;
@@ -148,13 +150,10 @@ export default function HomeAdminScreen() {
     return <JornalOfertasScreen onVoltar={() => setTela('home')} />;
   }
   if (tela === 'checklist') {
-    return <ChecklistAdminScreen onVoltar={() => setTela('home')} />;
+    return <ChecklistHubScreen onVoltar={() => setTela('home')} />;
   }
   if (tela === 'colaboradores') {
     return <ColaboradoresScreen onVoltar={() => setTela('home')} />;
-  }
-  if (tela === 'checklistSetor') {
-    return <ChecklistSetorScreen onVoltar={() => setTela('home')} usuarioNome={usuarioAtual.nome} />;
   }
   if (tela === 'escalaFaltas') {
     return <EscalaFaltaAtestadoScreen onVoltar={() => setTela('home')} />;
@@ -182,45 +181,64 @@ export default function HomeAdminScreen() {
       </View>
 
       <View style={styles.section}>
-        <View style={styles.sectionHeaderRow}>
-          <Text style={styles.sectionTitle}>Produtos vencendo</Text>
-          {validades.length > 0 && (
-            <TouchableOpacity onPress={() => setTela('validade')}>
+        <TouchableOpacity
+          style={styles.gavetaCabecalho}
+          onPress={() => setGavetaVencendoAberta((v) => !v)}
+          activeOpacity={0.7}
+        >
+          <View style={styles.gavetaCabecalhoEsquerda}>
+            <Feather name="chevron-right" size={16} color={colors.gray600} style={gavetaVencendoAberta ? styles.gavetaSetaAberta : undefined} />
+            <Text style={styles.sectionTitle}>Produtos vencendo</Text>
+            {!carregandoValidades && validades.length > 0 && (
+              <View style={[styles.gavetaBadge, qtdUrgentes > 0 && styles.gavetaBadgeUrgente]}>
+                <Text style={[styles.gavetaBadgeTexto, qtdUrgentes > 0 && styles.gavetaBadgeTextoUrgente]}>
+                  {validades.length}
+                </Text>
+              </View>
+            )}
+          </View>
+          {gavetaVencendoAberta && validades.length > 0 && (
+            <TouchableOpacity onPress={() => setTela('validade')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
               <Text style={styles.verMaisTexto}>Ver todos ›</Text>
             </TouchableOpacity>
           )}
-        </View>
-        <View style={styles.listCard}>
-          {carregandoValidades ? (
-            <ActivityIndicator color={colors.navy700} style={{ paddingVertical: spacing.xl }} />
-          ) : top5Vencendo.length === 0 ? (
-            <Text style={styles.vazioProdutosTexto}>Nenhum produto com validade cadastrado ainda.</Text>
-          ) : (
-            top5Vencendo.map((v, i) => {
-              const dias = diasRestantes(v.dataValidade);
-              const status = statusPrazo(dias);
-              return (
-                <View key={v.id} style={[styles.row, i !== top5Vencendo.length - 1 && styles.rowBorder]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.rowTitle}>{dias < 5 ? '⚠ ' : ''}{v.produto}</Text>
-                    <Text style={styles.rowSubtitle}>Vence em {formatarData(v.dataValidade)}</Text>
+        </TouchableOpacity>
+
+        {gavetaVencendoAberta && (
+          <View style={[styles.listCard, { marginTop: spacing.md }]}>
+            {carregandoValidades ? (
+              <ActivityIndicator color={colors.navy700} style={{ paddingVertical: spacing.xl }} />
+            ) : top5Vencendo.length === 0 ? (
+              <Text style={styles.vazioProdutosTexto}>Nenhum produto com validade cadastrado ainda.</Text>
+            ) : (
+              top5Vencendo.map((v, i) => {
+                const dias = diasRestantes(v.dataValidade);
+                const status = statusPrazo(dias);
+                return (
+                  <View key={v.id} style={[styles.row, i !== top5Vencendo.length - 1 && styles.rowBorder]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowTitle}>{dias < 5 ? '⚠ ' : ''}{v.produto}</Text>
+                      <Text style={styles.rowSubtitle}>Vence em {formatarData(v.dataValidade)}</Text>
+                    </View>
+                    <View style={[styles.chipStatus, { backgroundColor: status.fundo }]}>
+                      <Text style={[styles.chipStatusTexto, { color: status.cor }]}>{status.texto}</Text>
+                    </View>
                   </View>
-                  <View style={[styles.chipStatus, { backgroundColor: status.fundo }]}>
-                    <Text style={[styles.chipStatusTexto, { color: status.cor }]}>{status.texto}</Text>
-                  </View>
-                </View>
-              );
-            })
-          )}
-        </View>
+                );
+              })
+            )}
+          </View>
+        )}
       </View>
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Ações rápidas</Text>
         <View style={styles.grid}>
           {[
+            // "Checklist" agora junta as duas ferramentas que antes eram abas
+            // separadas (rotina do dia + avaliação de setor) — ver
+            // ChecklistHubScreen.tsx.
             { label: 'Checklist', icone: 'check-square' as const, onPress: () => setTela('checklist') },
-            { label: 'Checklist de Setor', icone: 'clipboard' as const, onPress: () => setTela('checklistSetor') },
             // "Colaboradores" agora abre a tela de presença/falta por dia
             // (antiga "Faltas e Atestados"); a tela antiga de cadastro
             // (ColaboradoresScreen) ficou sem tile por enquanto — inativa,
@@ -291,6 +309,13 @@ const styles = StyleSheet.create({
   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.gray900 },
   verMaisTexto: { fontSize: 12.5, fontWeight: '700', color: colors.navy700 },
+  gavetaCabecalho: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
+  gavetaCabecalhoEsquerda: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  gavetaSetaAberta: { transform: [{ rotate: '90deg' }] },
+  gavetaBadge: { backgroundColor: colors.gray100, borderRadius: radius.full, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  gavetaBadgeUrgente: { backgroundColor: '#FBDEDC' },
+  gavetaBadgeTexto: { fontSize: 11, fontWeight: '700', color: colors.gray600 },
+  gavetaBadgeTextoUrgente: { color: colors.red500 },
   listCard: { backgroundColor: colors.white, borderRadius: radius.lg, paddingHorizontal: spacing.lg },
   vazioProdutosTexto: { fontSize: 12.5, color: colors.gray600, paddingVertical: spacing.lg, textAlign: 'center' },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 12 },

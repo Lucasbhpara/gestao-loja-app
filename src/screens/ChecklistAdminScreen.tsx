@@ -16,7 +16,18 @@ import {
 // vão aparecer pra cada setor marcar como feito, todo dia, na aba
 // "Checklist" do colaborador. Também mostra de relance o que já foi feito
 // hoje, item por item.
-export default function ChecklistAdminScreen({ onVoltar }: { onVoltar: () => void }) {
+export default function ChecklistAdminScreen({
+  onVoltar,
+  embutido,
+}: {
+  onVoltar?: () => void;
+  // true quando essa tela vive dentro da aba "Rotina do dia" do
+  // ChecklistHubScreen (ver esse arquivo) — nesse caso o Hub já desenha o
+  // cabeçalho "‹ Voltar / Checklist", então aqui a gente esconde o próprio
+  // cabeçalho (mantendo só o botão "+ Novo" numa faixa mais discreta) pra
+  // não duplicar.
+  embutido?: boolean;
+}) {
   const { usuarioAtual } = useAuth();
   const [itens, setItens] = useState<ChecklistItem[]>([]);
   const [statusHoje, setStatusHoje] = useState<Map<string, { concluidoPorNome: string; concluidoEm: string }>>(new Map());
@@ -106,15 +117,24 @@ export default function ChecklistAdminScreen({ onVoltar }: { onVoltar: () => voi
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Checklist</Text>
-        <TouchableOpacity onPress={() => setMostrarForm((v) => !v)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.novoItem}>{mostrarForm ? 'Cancelar' : '+ Novo'}</Text>
-        </TouchableOpacity>
-      </View>
+      {embutido ? (
+        <View style={styles.acaoEmbutidaRow}>
+          <Text style={styles.acaoEmbutidaTitulo}>Itens da rotina</Text>
+          <TouchableOpacity onPress={() => setMostrarForm((v) => !v)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={styles.novoItem}>{mostrarForm ? 'Cancelar' : '+ Novo'}</Text>
+          </TouchableOpacity>
+        </View>
+      ) : (
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={styles.voltar}>‹ Voltar</Text>
+          </TouchableOpacity>
+          <Text style={styles.titulo}>Checklist</Text>
+          <TouchableOpacity onPress={() => setMostrarForm((v) => !v)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={styles.novoItem}>{mostrarForm ? 'Cancelar' : '+ Novo'}</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       <ScrollView
         style={styles.flex}
@@ -221,6 +241,14 @@ const styles = StyleSheet.create({
   voltar: { color: colors.navy700, fontSize: 15, fontWeight: '600' },
   titulo: { fontSize: 16, fontWeight: '700', color: colors.navy900 },
   novoItem: { color: colors.navy700, fontSize: 14, fontWeight: '700' },
+  acaoEmbutidaRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: spacing.lg,
+    paddingTop: spacing.lg,
+  },
+  acaoEmbutidaTitulo: { fontSize: 13, fontWeight: '700', color: colors.gray600 },
   formCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.lg },
   formLabel: { fontSize: 11, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.4, color: colors.gray600, marginTop: spacing.md, marginBottom: 6 },
   input: { backgroundColor: colors.gray50, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: 13, color: colors.gray900 },

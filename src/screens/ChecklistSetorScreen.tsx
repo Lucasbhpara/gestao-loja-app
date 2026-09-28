@@ -26,6 +26,10 @@ import {
 // pro encarregado do setor — ver avaliacaoSetorApi.ts / tarefasApi.ts.
 
 function nomeDoSetor(key: SetorKey): string {
+  // 'area_externa' é marcador especial (ver employees.ts) — não é setor de
+  // colaborador de verdade, então não está na lista `setores` e precisa de
+  // um nome de exibição à parte aqui.
+  if (key === 'area_externa') return 'Área Externa';
   return setores.find((s) => s.key === key)?.nome ?? key;
 }
 
@@ -41,7 +45,19 @@ function formatarDataHora(iso: string): string {
   return d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 }
 
-export default function ChecklistSetorScreen({ onVoltar, usuarioNome }: { onVoltar: () => void; usuarioNome: string }) {
+export default function ChecklistSetorScreen({
+  onVoltar,
+  usuarioNome,
+  embutido,
+}: {
+  onVoltar?: () => void;
+  usuarioNome: string;
+  // true quando essa tela vive dentro da aba "Avaliação de Setor" do
+  // ChecklistHubScreen (ver esse arquivo) — nesse caso quem desenha o
+  // cabeçalho "‹ Voltar / Checklist" é o Hub, então aqui a gente esconde o
+  // próprio cabeçalho pra não duplicar.
+  embutido?: boolean;
+}) {
   const [carregando, setCarregando] = useState(true);
   const [atualizando, setAtualizando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -101,13 +117,15 @@ export default function ChecklistSetorScreen({ onVoltar, usuarioNome }: { onVolt
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Checklist de Setor</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      {!embutido && (
+        <View style={styles.header}>
+          <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={styles.voltar}>‹ Voltar</Text>
+          </TouchableOpacity>
+          <Text style={styles.titulo}>Checklist de Setor</Text>
+          <View style={{ width: 50 }} />
+        </View>
+      )}
 
       <ScrollView
         style={styles.flex}
@@ -115,8 +133,9 @@ export default function ChecklistSetorScreen({ onVoltar, usuarioNome }: { onVolt
         refreshControl={<RefreshControl refreshing={atualizando} onRefresh={() => { setAtualizando(true); carregar(); }} />}
       >
         <Text style={styles.explicacao}>
-          Avalie qualquer setor, em qualquer dia. Ao finalizar, as não conformidades encontradas viram
-          automaticamente uma tarefa muito importante para o encarregado do setor resolver com foto.
+          Avalie qualquer setor (inclusive a Área Externa), em qualquer dia. Ao finalizar, as não
+          conformidades encontradas viram automaticamente uma tarefa muito importante para o
+          encarregado do setor resolver com foto.
         </Text>
 
         {erro && (
@@ -189,7 +208,7 @@ function AvaliacaoForm({
   const [finalizando, setFinalizando] = useState(false);
 
   useEffect(() => {
-    Promise.all([buscarPerguntasAtivas(), buscarRespostasDaAvaliacao(avaliacao.id)])
+    Promise.all([buscarPerguntasAtivas(setor), buscarRespostasDaAvaliacao(avaliacao.id)])
       .then(([listaPerguntas, listaRespostas]) => {
         setPerguntas(listaPerguntas);
         const mapa = new Map<string, AvaliacaoResposta>();
@@ -205,7 +224,7 @@ function AvaliacaoForm({
       })
       .catch((e) => setErro(e?.message ?? 'Não consegui carregar as perguntas.'))
       .finally(() => setCarregando(false));
-  }, [avaliacao.id]);
+  }, [avaliacao.id, setor]);
 
   async function responder(pergunta: AvaliacaoPergunta, valor: RespostaValor) {
     setSalvandoPerguntaId(pergunta.id);

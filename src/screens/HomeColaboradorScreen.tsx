@@ -81,6 +81,9 @@ export default function HomeColaboradorScreen() {
   const [avisosUrgentes, setAvisosUrgentes] = useState<Aviso[]>([]);
   const [validadesProximas, setValidadesProximas] = useState<Validade[]>([]);
   const [carregandoResumo, setCarregandoResumo] = useState(true);
+  // "Produtos vencendo" agora é uma gaveta retrátil pra deixar a Home mais
+  // limpa — começa fechada, o colaborador abre quando quiser conferir.
+  const [gavetaVencendoAberta, setGavetaVencendoAberta] = useState(false);
 
   function carregarTarefas() {
     if (!usuarioAtual) return;
@@ -272,29 +275,46 @@ export default function HomeColaboradorScreen() {
 
       {!carregandoResumo && validadesProximas.length > 0 && (
         <View style={styles.section}>
-          <View style={styles.sectionHeaderRow}>
-            <Text style={styles.sectionTitle}>Produtos vencendo</Text>
-            <TouchableOpacity onPress={() => setTela('validade')}>
-              <Text style={styles.verMaisTexto}>Ver todos ›</Text>
-            </TouchableOpacity>
-          </View>
-          <View style={styles.listCard}>
-            {validadesProximas.map((v, i) => {
-              const dias = diasRestantes(v.dataValidade);
-              const status = statusPrazo(dias);
-              return (
-                <View key={v.id} style={[styles.row, i !== validadesProximas.length - 1 && styles.rowBorder]}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.rowTitle}>{dias < 5 ? '⚠ ' : ''}{v.produto}</Text>
-                    <Text style={styles.rowSubtitle}>Vence em {formatarData(v.dataValidade)}</Text>
+          <TouchableOpacity
+            style={styles.gavetaCabecalho}
+            onPress={() => setGavetaVencendoAberta((v) => !v)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.gavetaCabecalhoEsquerda}>
+              <Feather name="chevron-right" size={16} color={colors.gray600} style={gavetaVencendoAberta ? styles.gavetaSetaAberta : undefined} />
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Produtos vencendo</Text>
+              <View style={[styles.gavetaBadge, validadesProximas.some((v) => diasRestantes(v.dataValidade) < 5) && styles.gavetaBadgeUrgente]}>
+                <Text style={[styles.gavetaBadgeTexto, validadesProximas.some((v) => diasRestantes(v.dataValidade) < 5) && styles.gavetaBadgeTextoUrgente]}>
+                  {validadesProximas.length}
+                </Text>
+              </View>
+            </View>
+            {gavetaVencendoAberta && (
+              <TouchableOpacity onPress={() => setTela('validade')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={styles.verMaisTexto}>Ver todos ›</Text>
+              </TouchableOpacity>
+            )}
+          </TouchableOpacity>
+
+          {gavetaVencendoAberta && (
+            <View style={[styles.listCard, { marginTop: spacing.md }]}>
+              {validadesProximas.map((v, i) => {
+                const dias = diasRestantes(v.dataValidade);
+                const status = statusPrazo(dias);
+                return (
+                  <View key={v.id} style={[styles.row, i !== validadesProximas.length - 1 && styles.rowBorder]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowTitle}>{dias < 5 ? '⚠ ' : ''}{v.produto}</Text>
+                      <Text style={styles.rowSubtitle}>Vence em {formatarData(v.dataValidade)}</Text>
+                    </View>
+                    <View style={[styles.chipStatus, { backgroundColor: status.fundo }]}>
+                      <Text style={[styles.chipStatusTexto, { color: status.cor }]}>{status.texto}</Text>
+                    </View>
                   </View>
-                  <View style={[styles.chipStatus, { backgroundColor: status.fundo }]}>
-                    <Text style={[styles.chipStatusTexto, { color: status.cor }]}>{status.texto}</Text>
-                  </View>
-                </View>
-              );
-            })}
-          </View>
+                );
+              })}
+            </View>
+          )}
         </View>
       )}
 
@@ -406,6 +426,13 @@ const styles = StyleSheet.create({
   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.gray900, marginBottom: spacing.md },
   verMaisTexto: { fontSize: 12.5, fontWeight: '700', color: colors.navy700 },
+  gavetaCabecalho: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
+  gavetaCabecalhoEsquerda: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  gavetaSetaAberta: { transform: [{ rotate: '90deg' }] },
+  gavetaBadge: { backgroundColor: colors.gray100, borderRadius: radius.full, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
+  gavetaBadgeUrgente: { backgroundColor: '#FBDEDC' },
+  gavetaBadgeTexto: { fontSize: 11, fontWeight: '700', color: colors.gray600 },
+  gavetaBadgeTextoUrgente: { color: colors.red500 },
   listCard: { backgroundColor: colors.white, borderRadius: radius.lg, paddingHorizontal: spacing.lg },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 12 },
   rowUrgente: { paddingVertical: 12 },

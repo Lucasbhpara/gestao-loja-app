@@ -24,7 +24,13 @@ export type SetorKey =
   // na lista `setores` abaixo). Usado só pra marcar um PRODUTO como visível
   // em todas as abas de setor de uma vez (ex.: Validade), pra não precisar
   // cadastrar o mesmo item várias vezes.
-  | 'todos';
+  | 'todos'
+  // Marcador especial igual o 'todos' acima (não é setor de colaborador,
+  // não entra na lista `setores`) — usado só pelo Checklist de Setor pra
+  // avaliar o entorno da loja (doca, estacionamento, fachada) como se fosse
+  // mais um "setor" a auditar, mesmo não tendo colaborador nenhum lotado
+  // nele. Ver SETORES_CHECKLIST em avaliacaoSetorApi.ts.
+  | 'area_externa';
 
 export interface Setor {
   key: SetorKey;

@@ -3,23 +3,45 @@ import { SetorKey } from './employees';
 
 // Checklist de Setor (ULVA) — avaliação diária de conformidade, feita pelo
 // gerente, setor por setor, sem roteiro fixo de dia (qualquer um dos 6
-// setores pode ser avaliado em qualquer dia). Ao finalizar, gera uma tarefa
-// marcada como "muito importante" pro encarregado do setor, que só consegue
-// concluí-la anexando uma foto (regra geral de tarefas, ver tarefasApi.ts).
+// setores internos, mais a Área Externa, pode ser avaliado em qualquer
+// dia). Ao finalizar, gera uma tarefa marcada como "muito importante" pro
+// encarregado do setor, que só consegue concluí-la anexando uma foto (regra
+// geral de tarefas, ver tarefasApi.ts).
 //
 // Tabelas próprias do ULVA: avaliacao_perguntas / avaliacoes_setor /
 // avaliacao_respostas. Não confundir com as tabelas checklist_* do ALCATÉIA
-// (outro app, mesmo projeto Supabase) nem com a Checklist simples já
-// existente aqui (checklist_itens / checklist_marcacoes — rotina fixa por
-// turno, sem foto/pontuação).
+// (outro app, mesmo projeto Supabase) nem com a rotina diária simples que
+// vive nas mesmas tabelas (checklist_itens / checklist_marcacoes — sem
+// foto/pontuação) — as duas hoje ficam juntas na mesma aba "Checklist" da
+// Home (ver ChecklistHubScreen.tsx), mas continuam sendo ferramentas
+// separadas por baixo do capô.
 
-export const SETORES_CHECKLIST: SetorKey[] = ['mercearia', 'acougue', 'flv', 'frios', 'padaria', 'deposito'];
+// 'area_externa' é o marcador especial de employees.ts (SetorKey) — não é
+// setor de colaborador de verdade, existe só pra dar pra avaliar o entorno
+// da loja (doca, estacionamento, fachada) aqui no Checklist de Setor. Uma
+// não conformidade encontrada aqui vira tarefa sem setor de colaborador
+// nenhum atrelado, então só aparece pro administrador em "Tarefas" (não
+// aparece nas "Prioridades de hoje" de ninguém, já que ninguém tem esse
+// setor) — ver nomeDoSetor em ChecklistSetorScreen.tsx.
+export const SETORES_CHECKLIST: SetorKey[] = [
+  'mercearia',
+  'acougue',
+  'flv',
+  'frios',
+  'padaria',
+  'deposito',
+  'area_externa',
+];
 
 export interface AvaliacaoPergunta {
   id: string;
   texto: string;
   ordem: number;
   ativo: boolean;
+  // null = pergunta genérica de loja (aparece pros 6 setores internos,
+  // comportamento original). Um valor específico (hoje só 'area_externa')
+  // restringe a pergunta só àquele setor — ver buscarPerguntasAtivas.
+  setor: SetorKey | null;
 }
 
 export type RespostaValor = 'sim' | 'nao' | 'na';
@@ -50,7 +72,7 @@ export interface AvaliacaoSetor {
 }
 
 function linhaParaPergunta(l: any): AvaliacaoPergunta {
-  return { id: l.id, texto: l.texto, ordem: l.ordem, ativo: l.ativo };
+  return { id: l.id, texto: l.texto, ordem: l.ordem, ativo: l.ativo, setor: l.setor };
 }
 
 function linhaParaAvaliacao(l: any): AvaliacaoSetor {
@@ -84,12 +106,15 @@ function linhaParaResposta(l: any): AvaliacaoResposta {
 
 // --- Perguntas (leitura pelo app; edição fica pelo portal) ------------------
 
-export async function buscarPerguntasAtivas(): Promise<AvaliacaoPergunta[]> {
-  const { data, error } = await supabase
-    .from('avaliacao_perguntas')
-    .select('*')
-    .eq('ativo', true)
-    .order('ordem', { ascending: true });
+// Pra 'area_externa', as perguntas são exclusivas dela (não faz sentido
+// perguntar sobre câmara fria ou gôndola no estacionamento) — só entram as
+// que têm `setor = 'area_externa'`. Pros 6 setores de loja, continua igual
+// a antes: só as perguntas genéricas (`setor` nulo), que valem pra
+// qualquer um deles.
+export async function buscarPerguntasAtivas(setor: SetorKey): Promise<AvaliacaoPergunta[]> {
+  let query = supabase.from('avaliacao_perguntas').select('*').eq('ativo', true);
+  query = setor === 'area_externa' ? query.eq('setor', 'area_externa') : query.is('setor', null);
+  const { data, error } = await query.order('ordem', { ascending: true });
   if (error) throw error;
   return (data ?? []).map(linhaParaPergunta);
 }
