@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { colors, radius, spacing } from '../theme/colors';
 import { setores, SetorKey } from '../data/employees';
@@ -401,11 +401,18 @@ function AvaliacaoForm({
                         onBlur={() => salvarJustificativa(pergunta, justificativas.get(pergunta.id) ?? '')}
                         multiline
                       />
-                      <TouchableOpacity style={styles.btnFoto} onPress={() => escolherFoto(pergunta)}>
-                        <Text style={styles.btnFotoTexto}>
-                          {resposta?.fotoUrl ? '📷 Foto anexada — trocar' : '📷 Anexar foto da não conformidade'}
-                        </Text>
-                      </TouchableOpacity>
+                      {resposta?.fotoUrl ? (
+                        <View style={styles.fotoPreviewLinha}>
+                          <Image source={{ uri: resposta.fotoUrl }} style={styles.fotoPreview} />
+                          <TouchableOpacity onPress={() => escolherFoto(pergunta)}>
+                            <Text style={styles.btnFotoTexto}>📷 Trocar foto</Text>
+                          </TouchableOpacity>
+                        </View>
+                      ) : (
+                        <TouchableOpacity style={styles.btnFoto} onPress={() => escolherFoto(pergunta)}>
+                          <Text style={styles.btnFotoTexto}>📷 Anexar foto da não conformidade</Text>
+                        </TouchableOpacity>
+                      )}
                     </View>
                   )}
                 </View>
@@ -471,6 +478,8 @@ const styles = StyleSheet.create({
   inputErro: { borderWidth: 1, borderColor: colors.red500 },
   btnFoto: { marginTop: spacing.sm, alignSelf: 'flex-start' },
   btnFotoTexto: { fontSize: 12, fontWeight: '700', color: colors.navy700 },
+  fotoPreviewLinha: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm },
+  fotoPreview: { width: 64, height: 64, borderRadius: radius.sm },
   rodape: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.gray100, padding: spacing.lg },
   btnFinalizar: { backgroundColor: colors.navy700, borderRadius: radius.md, paddingVertical: 14, alignItems: 'center' },
   btnFinalizarDesabilitado: { backgroundColor: colors.gray100 },

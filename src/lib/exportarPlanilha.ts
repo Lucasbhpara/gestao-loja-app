@@ -21,7 +21,12 @@ export async function exportarContagemXlsx(nomeArquivo: string, linhas: Record<s
 
   // Só importa os módulos nativos quando realmente precisa deles — eles não
   // existem na versão web.
-  const FileSystem = await import('expo-file-system');
+  // Usa o import 'expo-file-system/legacy': no SDK 57 o pacote
+  // 'expo-file-system' normal trocou pra uma API baseada em classes (File/
+  // Directory) e não tem mais writeAsStringAsync/EncodingType/cacheDirectory
+  // — só o caminho "legacy" mantém essas funções (mesmo comportamento de
+  // antes, só o import que muda).
+  const FileSystem = await import('expo-file-system/legacy');
   const Sharing = await import('expo-sharing');
 
   const base64 = XLSX.write(livro, { type: 'base64', bookType: 'xlsx' }) as string;

@@ -27,7 +27,11 @@ export async function baixarArquivo(url: string, nomeArquivo: string): Promise<v
 
   // Só importa os módulos nativos quando realmente precisa deles — eles não
   // existem na versão web.
-  const FileSystem = await import('expo-file-system');
+  // Import 'expo-file-system/legacy': no SDK 57 o 'expo-file-system' normal
+  // trocou pra uma API baseada em classes (File/Directory) e não tem mais
+  // cacheDirectory/downloadAsync — só o caminho "legacy" mantém essas
+  // funções (mesmo comportamento de antes, só o import que muda).
+  const FileSystem = await import('expo-file-system/legacy');
   const Sharing = await import('expo-sharing');
 
   const caminho = `${FileSystem.cacheDirectory}${nomeArquivo}`;
