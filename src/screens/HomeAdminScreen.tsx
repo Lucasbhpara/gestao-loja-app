@@ -17,6 +17,7 @@ import ConferenciaScreen from './ConferenciaScreen';
 import PedidosScreen from './PedidosScreen';
 import EstoqueLojaScreen from './EstoqueLojaScreen';
 import PainelResultadosScreen from './PainelResultadosScreen';
+import VendasScreen from './VendasScreen';
 import MapaLojaScreen from './MapaLojaScreen';
 import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
@@ -45,6 +46,7 @@ export default function HomeAdminScreen() {
     | 'pedidos'
     | 'estoqueLoja'
     | 'painelResultados'
+    | 'vendas'
     | 'mapaLoja'
     | 'pontasExtras'
     | 'jornalOfertas'
@@ -139,6 +141,9 @@ export default function HomeAdminScreen() {
     // opção (ver HomeColaboradorScreen), então o acesso já é restrito. O
     // seletor de setor (FLV, Açougue, ...) fica dentro do próprio painel.
     return <PainelResultadosScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'vendas') {
+    return <VendasScreen onVoltar={() => setTela('home')} />;
   }
   if (tela === 'mapaLoja') {
     return <MapaLojaScreen onVoltar={() => setTela('home')} />;
@@ -254,6 +259,7 @@ export default function HomeAdminScreen() {
             { label: 'Conferência', icone: 'clipboard' as const, onPress: () => setTela('conferencias') },
             { label: 'Pedidos', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') },
             { label: 'Painel Resultados', icone: 'bar-chart-2' as const, onPress: () => setTela('painelResultados') },
+            { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },
             { label: 'Mapa da Loja', icone: 'map' as const, onPress: () => setTela('mapaLoja') },
             { label: 'Pontas e Pontos Extras', icone: 'layers' as const, onPress: () => setTela('pontasExtras') },
             // Jornal de Ofertas: tile removido — o balão flutuante
