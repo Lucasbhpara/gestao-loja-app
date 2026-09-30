@@ -6,9 +6,10 @@ on:
       profile:
         description: 'Perfil do eas.json pra usar na build'
         required: true
-        default: 'production'
+        default: 'playstore'
         type: choice
         options:
+          - playstore
           - production
           - preview
 
@@ -47,12 +48,15 @@ jobs:
           EOF
 
       - name: Gerar o build do Android (local)
-        run: eas build --platform android --profile ${{ inputs.profile }} --local --non-interactive --output ${{ github.workspace }}/app-release.apk
+        run: |
+          if [ "${{ inputs.profile }}" = "playstore" ]; then EXT=aab; else EXT=apk; fi
+          echo "EXT=$EXT" >> "$GITHUB_ENV"
+          eas build --platform android --profile ${{ inputs.profile }} --local --non-interactive --output ${{ github.workspace }}/app-release.$EXT
         env:
           EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
 
-      - name: Publicar o APK gerado
+      - name: Publicar o arquivo gerado
         uses: actions/upload-artifact@v4
         with:
-          name: app-release-apk-${{ inputs.profile }}
-          path: ${{ github.workspace }}/app-release.apk
+          name: app-release-${{ inputs.profile }}
+          path: ${{ github.workspace }}/app-release.${{ env.EXT }}
