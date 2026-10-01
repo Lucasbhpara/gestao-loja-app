@@ -6,6 +6,7 @@ export interface ItemEstoqueLoja {
   produto: string;
   codigoBarras: string | null;
   quantidade: number;
+  precoVenda: number | null;
   dataPlanilha: string;
 }
 
@@ -16,6 +17,7 @@ function linhaParaItem(l: any): ItemEstoqueLoja {
     produto: l.produto,
     codigoBarras: l.codigo_barras,
     quantidade: Number(l.quantidade),
+    precoVenda: l.preco_venda === null || l.preco_venda === undefined ? null : Number(l.preco_venda),
     dataPlanilha: l.data_planilha,
   };
 }
