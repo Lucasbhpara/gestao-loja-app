@@ -10,6 +10,11 @@ function formatarQuantidade(q: number): string {
   return String(Math.round(q * 1000) / 1000);
 }
 
+function formatarPreco(preco: number | null): string | null {
+  if (preco === null) return null;
+  return `R$ ${preco.toFixed(2).replace('.', ',')}`;
+}
+
 function formatarData(iso: string | null): string {
   if (!iso) return '';
   const [ano, mes, dia] = iso.split('-');
@@ -170,9 +175,14 @@ export default function EstoqueLojaScreen({ onVoltar }: { onVoltar: () => void }
             <View key={item.id} style={styles.itemCard}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.itemCardProduto}>{item.produto}</Text>
-                <Text style={styles.itemCardCodigo}>{item.codigoInterno}</Text>
+                <Text style={styles.itemCardCodigo}>Cód. interno {item.codigoInterno}</Text>
               </View>
-              <Text style={styles.itemCardQtd}>{formatarQuantidade(item.quantidade)}</Text>
+              <View style={{ alignItems: 'flex-end' }}>
+                {formatarPreco(item.precoVenda) && (
+                  <Text style={styles.itemCardPreco}>{formatarPreco(item.precoVenda)}</Text>
+                )}
+                <Text style={styles.itemCardQtd}>{formatarQuantidade(item.quantidade)} un.</Text>
+              </View>
             </View>
           ))
         )}
@@ -255,5 +265,6 @@ const styles = StyleSheet.create({
   },
   itemCardProduto: { fontSize: 13, fontWeight: '600', color: colors.gray900 },
   itemCardCodigo: { fontSize: 10.5, color: colors.gray400, marginTop: 2, fontWeight: '600' },
-  itemCardQtd: { fontSize: 13, fontWeight: '700', color: colors.navy700 },
+  itemCardPreco: { fontSize: 14, fontWeight: '700', color: colors.navy700 },
+  itemCardQtd: { fontSize: 11.5, color: colors.gray600, fontWeight: '600', marginTop: 2 },
 });
