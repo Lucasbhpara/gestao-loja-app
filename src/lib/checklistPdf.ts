@@ -1,4 +1,3 @@
-
 import * as Print from 'expo-print';
 import { AvaliacaoPergunta, AvaliacaoResposta, AvaliacaoSetor } from '../data/avaliacaoSetorApi';
 
@@ -21,6 +20,17 @@ function escapeHtml(texto: string): string {
 function formatarDataHoraPdf(iso: string): string {
   const d = new Date(iso);
   return d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+function localizacaoHtml(avaliacao: AvaliacaoSetor): string {
+  if (avaliacao.localizacaoLat == null || avaliacao.localizacaoLng == null) return '';
+  const lat = avaliacao.localizacaoLat;
+  const lng = avaliacao.localizacaoLng;
+  const linkMaps = `https://www.google.com/maps?q=${lat},${lng}`;
+  const textoLocal = avaliacao.localizacaoEndereco
+    ? escapeHtml(avaliacao.localizacaoEndereco)
+    : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
+  return `<div class="localizacao">📍 ${textoLocal} — <a href="${linkMaps}">ver no mapa</a></div>`;
 }
 
 function corFaixa(pct: number): string {
@@ -85,7 +95,9 @@ export function montarHtmlChecklist(dados: {
         * { box-sizing: border-box; }
         body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #1A2340; padding: 24px 28px; }
         h1 { font-size: 20px; margin: 0 0 4px; }
-        .subtitulo { font-size: 12px; color: #666; margin-bottom: 18px; }
+        .subtitulo { font-size: 12px; color: #666; margin-bottom: 4px; }
+        .localizacao { font-size: 11.5px; color: #666; margin-bottom: 18px; }
+        .localizacao a { color: #1A2340; }
         .resumo { display: flex; gap: 10px; margin-bottom: 22px; flex-wrap: wrap; }
         .resumo-box { flex: 1; min-width: 110px; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; }
         .resumo-rotulo { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.4px; }
@@ -107,6 +119,7 @@ export function montarHtmlChecklist(dados: {
     <body>
       <h1>Checklist de Setor — ${escapeHtml(nomeSetor)}</h1>
       <div class="subtitulo">ULVA · Avaliado por ${escapeHtml(avaliacao.gerenteNome)} · finalizado em ${avaliacao.finalizadaEm ? formatarDataHoraPdf(avaliacao.finalizadaEm) : '—'}</div>
+      ${localizacaoHtml(avaliacao)}
 
       <div class="resumo">
         <div class="resumo-box">
@@ -121,6 +134,12 @@ export function montarHtmlChecklist(dados: {
           <div class="resumo-rotulo">Não conformidades</div>
           <div class="resumo-valor" style="color:${(avaliacao.naoConformidades ?? 0) > 0 ? '#C5392F' : '#2C8F5E'};">${avaliacao.naoConformidades ?? 0}</div>
         </div>
+        ${avaliacao.passosContados !== null && avaliacao.passosContados !== undefined
+          ? `<div class="resumo-box">
+              <div class="resumo-rotulo">Passos dados</div>
+              <div class="resumo-valor">🚶 ${avaliacao.passosContados}</div>
+            </div>`
+          : ''}
       </div>
 
       ${itensHtml}
