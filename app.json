@@ -20,13 +20,20 @@
         "android.permission.CAMERA",
         "android.permission.RECORD_AUDIO",
         "android.permission.CAMERA",
-        "android.permission.RECORD_AUDIO"
+        "android.permission.RECORD_AUDIO",
+        "android.permission.ACTIVITY_RECOGNITION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_FINE_LOCATION"
       ]
     },
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.lucasalberto.gestaodeloja",
-      "icon": "./assets/icon.png"
+      "icon": "./assets/icon.png",
+      "infoPlist": {
+        "NSMotionUsageDescription": "Usamos o contador de passos do celular pra registrar quantos passos foram dados durante o Checklist de Setor.",
+        "NSLocationWhenInUseUsageDescription": "Usamos a localização pra registrar onde o Checklist de Setor foi feito."
+      }
     },
     "web": {
       "favicon": "./assets/icon.png",
@@ -64,6 +71,12 @@
         {
           "photosPermission": "Precisamos acessar suas fotos pra anexar uma imagem no Mural de Avisos.",
           "cameraPermission": "Precisamos da câmera pra tirar uma foto pro Mural de Avisos."
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Usamos a localização pra registrar onde o Checklist de Setor foi feito."
         }
       ],
       "expo-video"
