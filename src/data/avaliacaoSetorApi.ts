@@ -69,6 +69,17 @@ export interface AvaliacaoSetor {
   naoConformidades: number | null;
   aproveitamento: number | null;
   tarefaId: string | null;
+  // Passos contados pelo pedômetro do celular entre iniciar e finalizar o
+  // checklist (ver Pedometer em ChecklistSetorScreen.tsx) — null quando o
+  // celular não tem o sensor ou quando a permissão foi negada.
+  passosContados: number | null;
+  // Localização capturada no momento em que o checklist foi iniciado (ver
+  // expo-location em ChecklistSetorScreen.tsx) — null se a permissão foi
+  // negada. localizacaoEndereco vem do reverse geocode (pode ser null mesmo
+  // com lat/lng preenchidos, se o reverse geocode falhar).
+  localizacaoLat: number | null;
+  localizacaoLng: number | null;
+  localizacaoEndereco: string | null;
 }
 
 function linhaParaPergunta(l: any): AvaliacaoPergunta {
@@ -88,6 +99,10 @@ function linhaParaAvaliacao(l: any): AvaliacaoSetor {
     naoConformidades: l.nao_conformidades,
     aproveitamento: l.aproveitamento === null ? null : Number(l.aproveitamento),
     tarefaId: l.tarefa_id,
+    passosContados: l.passos_contados,
+    localizacaoLat: l.localizacao_lat,
+    localizacaoLng: l.localizacao_lng,
+    localizacaoEndereco: l.localizacao_endereco,
   };
 }
 
@@ -171,6 +186,24 @@ export async function iniciarAvaliacao(setor: SetorKey, gerenteNome: string): Pr
   return linhaParaAvaliacao(data);
 }
 
+// Salva a localização capturada no início do checklist — separado de
+// iniciarAvaliacao porque pegar o GPS é assíncrono (pede permissão, espera o
+// fix) e não deve travar a abertura da tela; ver ChecklistSetorScreen.tsx.
+export async function salvarLocalizacaoAvaliacao(
+  avaliacaoId: string,
+  localizacao: { lat: number; lng: number; endereco: string | null }
+): Promise<void> {
+  const { error } = await supabase
+    .from('avaliacoes_setor')
+    .update({
+      localizacao_lat: localizacao.lat,
+      localizacao_lng: localizacao.lng,
+      localizacao_endereco: localizacao.endereco,
+    })
+    .eq('id', avaliacaoId);
+  if (error) throw error;
+}
+
 export async function buscarRespostasDaAvaliacao(avaliacaoId: string): Promise<AvaliacaoResposta[]> {
   const { data, error } = await supabase
     .from('avaliacao_respostas')
@@ -220,6 +253,9 @@ export async function finalizarAvaliacao(dados: {
   setor: SetorKey;
   nomeSetor: string;
   gerenteNome: string;
+  // Opcional — só vem preenchido quando o Pedometer conseguiu contar
+  // (celular com sensor + permissão concedida).
+  passosContados?: number | null;
 }): Promise<AvaliacaoSetor> {
   const respostas = await buscarRespostasDaAvaliacao(dados.avaliacaoId);
 
@@ -265,6 +301,7 @@ export async function finalizarAvaliacao(dados: {
       nao_conformidades: naoConformes.length,
       aproveitamento,
       tarefa_id: tarefaId,
+      passos_contados: dados.passosContados ?? null,
     })
     .eq('id', dados.avaliacaoId)
     .select()
