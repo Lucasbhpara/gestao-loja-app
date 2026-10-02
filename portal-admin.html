@@ -686,6 +686,11 @@ let estado = {
   checklistPerguntas: [],
   checklistAvaliacoes: [],
   checklistNaoConformidades: [],
+  // Detalhe de uma avaliação (Checklist de Setor) aberta pra visualização
+  // completa + impressão — ver abrirAvaliacaoChecklist/renderizarAvaliacaoChecklistDetalhe.
+  checklistDetalheAvaliacao: null,
+  checklistDetalheRespostas: [],
+  checklistDetalheTarefa: null,
   // Rotina do dia (checklist_itens/checklist_marcacoes) — itens fixos por
   // turno que o colaborador marca como feito no app, comunicando direto com
   // a aba "Checklist" ▸ "Rotina do dia" (ver ChecklistAdminScreen.tsx).
@@ -4985,13 +4990,13 @@ function cardEvolucaoSetor(setorKey) {
   const ultima = avaliacoesSetor[avaliacoesSetor.length - 1];
   const banda = ultima ? bandaAproveitamento(Number(ultima.aproveitamento)) : null;
   return (
-    '<div class="item-card">' +
+    '<div class="item-card' + (ultima ? ' linha-clicavel' : '') + '"' + (ultima ? ' onclick="abrirAvaliacaoChecklist(\'' + ultima.id + '\')"' : '') + '>' +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:10px;">' +
         '<div style="font-size:13.5px;font-weight:700;">' + nomeSetor(setorKey) + '</div>' +
         (banda ? '<span class="pill ' + banda.classe + '">' + ultima.aproveitamento + '% · ' + banda.texto + '</span>' : '') +
       '</div>' +
       svgEvolucaoSetor(pontos) +
-      (ultima ? '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Última avaliação: ' + formatarDataHora(ultima.finalizada_em) + '</div>' : '') +
+      (ultima ? '<div style="font-size:11px;color:var(--text-muted);margin-top:8px;">Última avaliação: ' + formatarDataHora(ultima.finalizada_em) + ' · clique pra ver tudo</div>' : '') +
     '</div>'
   );
 }
@@ -5026,7 +5031,7 @@ function statsChecklistDashboard() {
 function tabelaEvolucaoCompleta() {
   const linhas = [...estado.checklistAvaliacoes].reverse().map((a) => {
     const banda = bandaAproveitamento(Number(a.aproveitamento || 0));
-    return '<tr>' +
+    return '<tr class="linha-clicavel" onclick="abrirAvaliacaoChecklist(\'' + a.id + '\')">' +
       '<td><span class="pill">' + nomeSetor(a.setor) + '</span></td>' +
       '<td>' + formatarDataHora(a.finalizada_em) + '</td>' +
       '<td>' + a.gerente_nome + '</td>' +
@@ -5034,7 +5039,91 @@ function tabelaEvolucaoCompleta() {
       '<td style="text-align:center;">' + (a.nao_conformidades || 0) + '</td>' +
     '</tr>';
   }).join('');
-  return '<div class="tabela-wrap"><table><thead><tr><th>Setor</th><th>Finalizado em</th><th>Gerente</th><th>Aproveitamento</th><th style="text-align:center;">Não conformidades</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+  return '<div class="tabela-wrap"><table><thead><tr><th>Setor</th><th>Finalizado em</th><th>Gerente</th><th>Aproveitamento</th><th style="text-align:center;">Não conformidades</th></tr></thead><tbody>' + linhas + '</tbody></table></div>' +
+    '<div class="celula-vazio" style="text-align:left;padding-top:10px;">Clique numa linha pra ver o checklist completo (e imprimir/exportar em PDF).</div>';
+}
+
+// --- Detalhe de uma avaliação (visualização completa + impressão) ----------
+
+async function abrirAvaliacaoChecklist(id) {
+  const { data: avaliacao, error } = await sb.from('avaliacoes_setor').select('*').eq('id', id).single();
+  if (error) { mostrarToast('Não consegui abrir o checklist: ' + error.message, 'erro'); return; }
+  const { data: respostas, error: erroResp } = await sb
+    .from('avaliacao_respostas')
+    .select('*')
+    .eq('avaliacao_id', id)
+    .order('respondida_em', { ascending: true });
+  if (erroResp) { mostrarToast('Não consegui abrir o checklist: ' + erroResp.message, 'erro'); return; }
+
+  let tarefaResolucao = null;
+  if (avaliacao.tarefa_id) {
+    const { data: tarefa } = await sb.from('tarefas').select('*').eq('id', avaliacao.tarefa_id).maybeSingle();
+    if (tarefa && tarefa.concluida) tarefaResolucao = tarefa;
+  }
+
+  estado.checklistDetalheAvaliacao = avaliacao;
+  estado.checklistDetalheRespostas = respostas || [];
+  estado.checklistDetalheTarefa = tarefaResolucao;
+  renderizarAvaliacaoChecklistDetalhe();
+}
+
+function fecharAvaliacaoChecklist() {
+  estado.checklistDetalheAvaliacao = null;
+  estado.checklistDetalheRespostas = [];
+  estado.checklistDetalheTarefa = null;
+  renderizarChecklistSetor();
+}
+
+function renderizarAvaliacaoChecklistDetalhe() {
+  const a = estado.checklistDetalheAvaliacao;
+  const respostas = estado.checklistDetalheRespostas;
+  const tarefa = estado.checklistDetalheTarefa;
+  const banda = bandaAproveitamento(Number(a.aproveitamento || 0));
+
+  const boxesResumo =
+    '<div class="box"><div class="rotulo">Aproveitamento</div><div class="valor" style="color:var(--' + (banda.classe === 'verde' ? 'green' : banda.classe === 'laranja' ? 'orange' : 'red') + ');">' + a.aproveitamento + '%</div></div>' +
+    '<div class="box"><div class="rotulo">Pontos</div><div class="valor">' + a.pontos_realizados + ' / ' + a.pontos_possiveis + '</div></div>' +
+    '<div class="box"><div class="rotulo">Não conformidades</div><div class="valor" style="color:' + ((a.nao_conformidades || 0) > 0 ? 'var(--red)' : 'var(--green)') + ';">' + (a.nao_conformidades || 0) + '</div></div>' +
+    '<div class="box"><div class="rotulo">Status da tarefa</div><div class="valor" style="font-size:13.5px;">' + (!a.tarefa_id ? 'Sem pendência' : tarefa ? 'Resolvida' : 'Em aberto') + '</div></div>';
+
+  const itensHtml = respostas.map((r, i) => {
+    const pill = r.resposta === 'sim'
+      ? '<span class="pill verde">Sim</span>'
+      : r.resposta === 'nao'
+        ? '<span class="pill vermelho">Não</span>'
+        : '<span class="pill">N/A</span>';
+    const destaque = r.resposta === 'nao';
+    return (
+      '<div class="item-card" style="margin-bottom:12px;' + (destaque ? 'border-color:var(--red);' : '') + '">' +
+        '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:12px;">' +
+          '<div style="flex:1;font-size:13.5px;font-weight:600;">' + (i + 1) + '. ' + r.pergunta_texto + '</div>' +
+          pill +
+        '</div>' +
+        (r.justificativa ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:8px;"><b>Justificativa:</b> ' + r.justificativa + '</div>' : '') +
+        (r.foto_url ? '<div style="margin-top:10px;"><img src="' + r.foto_url + '" style="max-width:260px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block;"></div>' : '') +
+      '</div>'
+    );
+  }).join('');
+
+  const resolucaoHtml = !a.tarefa_id ? '' :
+    '<h3 style="font-size:15px;margin:28px 0 14px;">Resolução das não conformidades</h3>' +
+    (tarefa
+      ? '<div class="item-card" style="border-color:var(--green);">' +
+          '<div style="font-size:13px;"><b>Resolvida por:</b> ' + tarefa.concluida_por_nome + '</div>' +
+          '<div style="font-size:13px;margin-top:4px;"><b>Em:</b> ' + formatarDataHora(tarefa.concluida_em) + '</div>' +
+          (tarefa.foto_url ? '<div style="margin-top:10px;"><img src="' + tarefa.foto_url + '" style="max-width:260px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block;"></div>' : '') +
+        '</div>'
+      : '<div class="celula-vazio">Ainda não resolvida pelo encarregado do setor.</div>');
+
+  document.getElementById('conteudo-principal').innerHTML =
+    '<div class="toolbar-imprimir nao-imprimir">' +
+      '<button class="btn-acao secundario" onclick="fecharAvaliacaoChecklist()">‹ Voltar</button>' +
+      '<button class="btn-acao" onclick="window.print()">🖨️ Imprimir / Exportar PDF</button>' +
+    '</div>' +
+    cabecalho('Checklist de Setor — ' + nomeSetor(a.setor), 'Avaliado por ' + a.gerente_nome + ' · finalizado em ' + formatarDataHora(a.finalizada_em)) +
+    '<div class="resumo-perdas">' + boxesResumo + '</div>' +
+    itensHtml +
+    resolucaoHtml;
 }
 
 // "Recidivência" = a mesma não conformidade (mesmo texto de pergunta) se
