@@ -6,6 +6,8 @@ import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { setores } from '../data/employees';
 import { Tarefa, buscarTarefasDoSetor, concluirTarefa, enviarFotoTarefa } from '../data/tarefasApi';
+import { buscarAvaliacaoPorId, buscarRespostasDaAvaliacao } from '../data/avaliacaoSetorApi';
+import { imprimirChecklist, montarHtmlChecklist } from '../lib/checklistPdf';
 import { Aviso, buscarAvisosDoSetor } from '../data/avisosApi';
 import { Validade, buscarValidadesDoSetor } from '../data/validadeApi';
 import { diasRestantes, formatarData, statusPrazo } from '../lib/validadeUtils';
@@ -215,10 +217,46 @@ export default function HomeColaboradorScreen() {
       const fotoUrl = await enviarFotoTarefa(uri);
       await concluirTarefa(tarefa.id, usuarioAtual.nome, fotoUrl);
       setTarefas((prev) => prev.filter((t) => t.id !== tarefa.id));
+
+      // Tarefa veio de um Checklist de Setor (não conformidade) — oferece
+      // exportar o checklist completo + a resolução em PDF.
+      if (tarefa.avaliacaoId) {
+        Alert.alert('Tarefa concluída', 'Deseja exportar o checklist resolvido em PDF?', [
+          { text: 'Agora não', style: 'cancel' },
+          {
+            text: 'Exportar PDF',
+            onPress: () => exportarChecklistResolvidoPdf(tarefa.avaliacaoId!, usuarioAtual.nome, fotoUrl),
+          },
+        ]);
+      }
     } catch (e: any) {
       setErroTarefas(e?.message ?? 'Não consegui concluir a tarefa.');
     } finally {
       setConcluindo(null);
+    }
+  }
+
+  async function exportarChecklistResolvidoPdf(avaliacaoId: string, concluidaPorNome: string, fotoUrl: string) {
+    try {
+      const [avaliacao, respostas] = await Promise.all([
+        buscarAvaliacaoPorId(avaliacaoId),
+        buscarRespostasDaAvaliacao(avaliacaoId),
+      ]);
+      if (!avaliacao) {
+        Alert.alert('Não consegui exportar', 'Não achei o checklist original.');
+        return;
+      }
+      const nomeSetorAvaliacao =
+        avaliacao.setor === 'area_externa' ? 'Área Externa' : setores.find((s) => s.key === avaliacao.setor)?.nome ?? avaliacao.setor;
+      const html = montarHtmlChecklist({
+        avaliacao,
+        nomeSetor: nomeSetorAvaliacao,
+        respostas,
+        resolucao: { concluidaPorNome, concluidaEm: new Date().toISOString(), fotoUrl },
+      });
+      await imprimirChecklist(html);
+    } catch (e: any) {
+      Alert.alert('Não consegui exportar o PDF', e?.message ?? 'Tente novamente.');
     }
   }
 
