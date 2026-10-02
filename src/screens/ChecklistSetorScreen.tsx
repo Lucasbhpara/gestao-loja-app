@@ -18,6 +18,7 @@ import {
   iniciarAvaliacao,
   salvarResposta,
 } from '../data/avaliacaoSetorApi';
+import { imprimirChecklist, montarHtmlChecklist } from '../lib/checklistPdf';
 
 // Checklist de Setor — avaliação diária de conformidade, só pra gerência
 // (quem abre essa tela já é filtrado como admin/gerente lá na Home). Sem
@@ -320,6 +321,22 @@ function AvaliacaoForm({
   });
   const podeFinalizar = perguntas.length > 0 && totalRespondidas === perguntas.length && naoSemJustificativa.length === 0;
 
+  async function exportarPdf(resultado: AvaliacaoSetor) {
+    try {
+      const respostasOrdenadas = perguntas
+        .map((p) => respostas.get(p.id))
+        .filter((r): r is AvaliacaoResposta => !!r);
+      const html = montarHtmlChecklist({
+        avaliacao: resultado,
+        nomeSetor: nomeDoSetor(setor),
+        respostas: respostasOrdenadas,
+      });
+      await imprimirChecklist(html);
+    } catch (e: any) {
+      Alert.alert('Não consegui exportar o PDF', e?.message ?? 'Tente novamente.');
+    }
+  }
+
   async function finalizar() {
     if (!podeFinalizar) return;
     Alert.alert(
@@ -344,7 +361,10 @@ function AvaliacaoForm({
                   (resultado.naoConformidades
                     ? `${resultado.naoConformidades} não conformidade(s) — uma tarefa importante foi enviada ao encarregado do setor.`
                     : 'Nenhuma não conformidade encontrada. 🎉'),
-                [{ text: 'OK', onPress: onVoltar }]
+                [
+                  { text: 'Exportar PDF', onPress: () => exportarPdf(resultado).then(onVoltar) },
+                  { text: 'OK', onPress: onVoltar },
+                ]
               );
             } catch (e: any) {
               setErro(e?.message ?? 'Não consegui finalizar o checklist.');
