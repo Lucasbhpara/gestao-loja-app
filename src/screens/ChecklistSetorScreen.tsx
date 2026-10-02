@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, Image, ActivityIndicator, RefreshControl, Alert, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import { Pedometer } from 'expo-sensors';
+import * as Location from 'expo-location';
 import { colors, radius, spacing } from '../theme/colors';
 import { setores, SetorKey } from '../data/employees';
 import {
@@ -16,6 +18,7 @@ import {
   enviarFotoNaoConformidade,
   finalizarAvaliacao,
   iniciarAvaliacao,
+  salvarLocalizacaoAvaliacao,
   salvarResposta,
 } from '../data/avaliacaoSetorApi';
 import { imprimirChecklist, montarHtmlChecklist } from '../lib/checklistPdf';
@@ -208,6 +211,69 @@ function AvaliacaoForm({
   const [salvandoPerguntaId, setSalvandoPerguntaId] = useState<string | null>(null);
   const [finalizando, setFinalizando] = useState(false);
 
+  // Contagem de passos do celular enquanto o checklist está sendo feito
+  // (sensor nativo via Pedometer) — null enquanto não sabemos se dá pra
+  // contar, e continua null se o celular não tiver o sensor ou a permissão
+  // for negada. Ver finalizar() pra onde isso é salvo.
+  const [passos, setPassos] = useState<number | null>(null);
+
+  useEffect(() => {
+    let inscricao: { remove: () => void } | null = null;
+    (async () => {
+      try {
+        const disponivel = await Pedometer.isAvailableAsync();
+        if (!disponivel) return;
+        if (Platform.OS === 'ios') {
+          const permissao = await Pedometer.requestPermissionsAsync();
+          if (!permissao.granted) return;
+        }
+        setPassos(0);
+        inscricao = Pedometer.watchStepCount((resultado) => setPassos(resultado.steps));
+      } catch {
+        // Sem sensor, sem permissão, ou qualquer outro erro — segue o
+        // checklist normalmente sem contar passos.
+      }
+    })();
+    return () => inscricao?.remove();
+  }, []);
+
+  // Localização capturada uma vez, no momento em que o checklist é aberto —
+  // pede permissão, pega o fix de GPS e tenta converter em endereço legível
+  // (reverse geocode). Salva direto no banco assim que tiver, pra não
+  // depender de o gerente ficar com a tela aberta até o fim.
+  useEffect(() => {
+    (async () => {
+      try {
+        const permissao = await Location.requestForegroundPermissionsAsync();
+        if (!permissao.granted) return;
+        const posicao = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        let endereco: string | null = null;
+        try {
+          const [resultado] = await Location.reverseGeocodeAsync({
+            latitude: posicao.coords.latitude,
+            longitude: posicao.coords.longitude,
+          });
+          if (resultado) {
+            endereco = [resultado.street, resultado.subregion || resultado.city, resultado.region]
+              .filter(Boolean)
+              .join(', ');
+          }
+        } catch {
+          // Sem conexão ou serviço de geocode indisponível — segue só com
+          // lat/lng, sem endereço legível.
+        }
+        await salvarLocalizacaoAvaliacao(avaliacao.id, {
+          lat: posicao.coords.latitude,
+          lng: posicao.coords.longitude,
+          endereco,
+        });
+      } catch {
+        // Sem permissão, GPS desligado, ou qualquer outro erro — segue o
+        // checklist normalmente sem localização.
+      }
+    })();
+  }, [avaliacao.id]);
+
   useEffect(() => {
     Promise.all([buscarPerguntasAtivas(setor), buscarRespostasDaAvaliacao(avaliacao.id)])
       .then(([listaPerguntas, listaRespostas]) => {
@@ -354,6 +420,7 @@ function AvaliacaoForm({
                 setor,
                 nomeSetor: nomeDoSetor(setor),
                 gerenteNome: usuarioNome,
+                passosContados: passos,
               });
               Alert.alert(
                 'Checklist finalizado',
@@ -391,7 +458,10 @@ function AvaliacaoForm({
       ) : (
         <>
           <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 120 }}>
-            <Text style={styles.progresso}>{totalRespondidas} de {perguntas.length} respondidas</Text>
+            <Text style={styles.progresso}>
+              {totalRespondidas} de {perguntas.length} respondidas
+              {passos !== null ? ` · 🚶 ${passos} passo(s)` : ''}
+            </Text>
 
             {erro && (
               <View style={styles.erroBox}>
