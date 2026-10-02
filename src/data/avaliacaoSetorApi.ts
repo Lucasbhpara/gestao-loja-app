@@ -137,6 +137,15 @@ export async function buscarUltimasAvaliacoesPorSetor(): Promise<Map<SetorKey, A
   return mapa;
 }
 
+// Busca uma avaliação específica pelo id — usado pra montar o PDF depois que
+// o encarregado resolve as não conformidades (ver HomeColaboradorScreen.tsx),
+// já que a tarefa só guarda o avaliacao_id, não os dados completos.
+export async function buscarAvaliacaoPorId(id: string): Promise<AvaliacaoSetor | null> {
+  const { data, error } = await supabase.from('avaliacoes_setor').select('*').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data ? linhaParaAvaliacao(data) : null;
+}
+
 // Uma avaliação em andamento nesse setor (pra retomar caso o app tenha
 // fechado no meio do preenchimento), se existir.
 export async function buscarAvaliacaoEmAndamento(setor: SetorKey): Promise<AvaliacaoSetor | null> {
