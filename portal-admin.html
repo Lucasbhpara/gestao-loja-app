@@ -5084,7 +5084,8 @@ function renderizarAvaliacaoChecklistDetalhe() {
     '<div class="box"><div class="rotulo">Aproveitamento</div><div class="valor" style="color:var(--' + (banda.classe === 'verde' ? 'green' : banda.classe === 'laranja' ? 'orange' : 'red') + ');">' + a.aproveitamento + '%</div></div>' +
     '<div class="box"><div class="rotulo">Pontos</div><div class="valor">' + a.pontos_realizados + ' / ' + a.pontos_possiveis + '</div></div>' +
     '<div class="box"><div class="rotulo">Não conformidades</div><div class="valor" style="color:' + ((a.nao_conformidades || 0) > 0 ? 'var(--red)' : 'var(--green)') + ';">' + (a.nao_conformidades || 0) + '</div></div>' +
-    '<div class="box"><div class="rotulo">Status da tarefa</div><div class="valor" style="font-size:13.5px;">' + (!a.tarefa_id ? 'Sem pendência' : tarefa ? 'Resolvida' : 'Em aberto') + '</div></div>';
+    '<div class="box"><div class="rotulo">Status da tarefa</div><div class="valor" style="font-size:13.5px;">' + (!a.tarefa_id ? 'Sem pendência' : tarefa ? 'Resolvida' : 'Em aberto') + '</div></div>' +
+    (a.passos_contados != null ? '<div class="box"><div class="rotulo">Passos dados</div><div class="valor">🚶 ' + a.passos_contados + '</div></div>' : '');
 
   const itensHtml = respostas.map((r, i) => {
     const pill = r.resposta === 'sim'
@@ -5115,12 +5116,19 @@ function renderizarAvaliacaoChecklistDetalhe() {
         '</div>'
       : '<div class="celula-vazio">Ainda não resolvida pelo encarregado do setor.</div>');
 
+  const localizacaoHtml = (a.localizacao_lat == null || a.localizacao_lng == null) ? '' :
+    '<div style="font-size:12.5px;color:var(--text-muted);margin:-6px 0 14px;">📍 ' +
+      (a.localizacao_endereco || (a.localizacao_lat.toFixed(5) + ', ' + a.localizacao_lng.toFixed(5))) +
+      ' — <a href="https://www.google.com/maps?q=' + a.localizacao_lat + ',' + a.localizacao_lng + '" target="_blank" style="color:var(--navy-700);">ver no mapa</a>' +
+    '</div>';
+
   document.getElementById('conteudo-principal').innerHTML =
     '<div class="toolbar-imprimir nao-imprimir">' +
       '<button class="btn-acao secundario" onclick="fecharAvaliacaoChecklist()">‹ Voltar</button>' +
       '<button class="btn-acao" onclick="window.print()">🖨️ Imprimir / Exportar PDF</button>' +
     '</div>' +
     cabecalho('Checklist de Setor — ' + nomeSetor(a.setor), 'Avaliado por ' + a.gerente_nome + ' · finalizado em ' + formatarDataHora(a.finalizada_em)) +
+    localizacaoHtml +
     '<div class="resumo-perdas">' + boxesResumo + '</div>' +
     itensHtml +
     resolucaoHtml;
