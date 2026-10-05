@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Estação de Etiquetas · ULVA</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
+<style>
+  :root{
+    --bg:#f7f5f0; --surface:#ffffff; --fg:#1c1b19; --muted:#6b6558;
+    --accent:#d9480f; --accent-ink:#ffffff; --success:#2f9e44; --success-ink:#ffffff;
+    --border:#e5e0d5; --tile-shadow: 0 1px 2px rgba(28,27,25,.06), 0 8px 24px rgba(28,27,25,.08);
+    --font-display:'Archivo',system-ui,sans-serif; --font-mono:'IBM Plex Mono',ui-monospace,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0; padding:0;}
+  body{background:var(--bg); color:var(--fg); font-family:var(--font-display); padding:16px; min-height:100vh;}
+  .wrap{max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:20px;}
+
+  .topbar{display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;}
+  .topbar h1{font-size:19px; font-weight:800; margin:0; letter-spacing:-.01em;}
+  .count-pill{display:inline-flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:6px 12px; font-size:12.5px; font-weight:600; color:var(--muted);}
+  .count-pill b{font-family:var(--font-mono); color:var(--fg); font-size:13px;}
+
+  .scan-card{background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:24px; box-shadow:var(--tile-shadow); display:flex; flex-direction:column; align-items:center; gap:16px; text-align:center;}
+  .scan-label{font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);}
+  .product-name{font-size:15px; font-weight:600; min-height:1.2em;}
+
+  .barcode-tile{background:#ffffff; border-radius:12px; padding:18px 14px 10px; width:100%; max-width:420px; display:flex; justify-content:center;}
+  .barcode-tile svg{width:100%; height:auto; max-height:150px;}
+  .code-digits{font-family:var(--font-mono); font-weight:700; font-size:clamp(20px,6vw,30px); letter-spacing:.04em; font-variant-numeric:tabular-nums;}
+
+  .confirm-btn{width:100%; max-width:420px; border:none; border-radius:14px; padding:16px 20px; font-family:var(--font-display); font-size:16px; font-weight:800; background:var(--success); color:var(--success-ink); cursor:pointer; transition:transform .1s ease, opacity .15s ease;}
+  .confirm-btn:active{transform:scale(.98);}
+  .confirm-btn:disabled{opacity:.5; cursor:default;}
+  .skip-link{background:none; border:none; color:var(--muted); font-family:var(--font-display); font-size:12.5px; font-weight:600; text-decoration:underline; cursor:pointer; padding:4px;}
+
+  .empty-state{display:flex; flex-direction:column; align-items:center; gap:8px; padding:36px 16px; color:var(--muted);}
+  .empty-state .big{font-size:40px;}
+  .empty-state p{margin:0; font-size:13.5px; max-width:260px;}
+
+  .queue{display:flex; flex-direction:column; gap:8px;}
+  .queue-title{font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); padding-inline:2px;}
+  .queue-row{display:flex; align-items:center; justify-content:space-between; gap:10px; background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:10px 14px;}
+  .queue-row .code{font-family:var(--font-mono); font-weight:600; font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
+  .queue-row .when{font-size:11px; color:var(--muted); flex-shrink:0;}
+
+  .toast{position:fixed; left:50%; bottom:20px; transform:translateX(-50%) translateY(20px); background:var(--fg); color:var(--bg); font-size:13px; font-weight:600; padding:10px 18px; border-radius:999px; opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease;}
+  .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
+
+  .conn-dot{width:7px; height:7px; border-radius:50%; background:var(--muted); display:inline-block;}
+  .conn-dot.ok{background:var(--success);}
+  .conn-dot.err{background:var(--accent);}
+
+  footer{text-align:center; font-size:11px; color:var(--muted); padding-top:8px;}
+</style>
+</head>
+<body>
+
+<div class="wrap">
+  <div class="topbar">
+    <h1>Estação de Etiquetas</h1>
+    <span class="count-pill"><span class="conn-dot" id="connDot"></span> <b id="pendingCount">—</b> pendente(s)</span>
+  </div>
+
+  <div class="scan-card" id="scanCard">
+    <div class="scan-label">Aponte o leitor pra este código</div>
+    <div class="product-name" id="productName"></div>
+    <div class="barcode-tile"><svg id="barcode"></svg></div>
+    <div class="code-digits" id="codeDigits">—</div>
+    <button class="confirm-btn" id="confirmBtn">Bipei! Próximo código</button>
+    <button class="skip-link" id="skipBtn">pular este por enquanto</button>
+  </div>
+
+  <div class="empty-state" id="emptyState" hidden>
+    <div class="big">📭</div>
+    <p>Nenhum código esperando agora. Assim que alguém bipar um produto no celular, ele aparece aqui.</p>
+  </div>
+
+  <div class="queue">
+    <div class="queue-title">Na fila</div>
+    <div id="queueList"></div>
+  </div>
+
+  <footer>by Lucas Alberto</footer>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function(){
+  var SUPABASE_URL = 'https://llstmcmgormolhbnszap.supabase.co';
+  var SUPABASE_KEY = 'sb_publishable_Kk5u4REY7PUWKMpx9wlZnA_BXgfqrxF';
+  var HEADERS = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
+
+  var state = { items: [], skippedIds: [], busy: false };
+
+  var el = {
+    connDot: document.getElementById('connDot'),
+    pendingCount: document.getElementById('pendingCount'),
+    scanCard: document.getElementById('scanCard'),
+    emptyState: document.getElementById('emptyState'),
+    productName: document.getElementById('productName'),
+    codeDigits: document.getElementById('codeDigits'),
+    confirmBtn: document.getElementById('confirmBtn'),
+    skipBtn: document.getElementById('skipBtn'),
+    queueList: document.getElementById('queueList'),
+    toast: document.getElementById('toast'),
+  };
+
+  function showToast(msg){
+    el.toast.textContent = msg;
+    el.toast.classList.add('show');
+    setTimeout(function(){ el.toast.classList.remove('show'); }, 1800);
+  }
+
+  function detectFormat(code){
+    if (/^\d{13}$/.test(code)) return 'EAN13';
+    if (/^\d{8}$/.test(code)) return 'EAN8';
+    if (/^\d{12}$/.test(code)) return 'UPC';
+    return 'CODE128';
+  }
+
+  function renderBarcode(code){
+    var svg = document.getElementById('barcode');
+    var opts = { width: 2.4, height: 90, displayValue: false, margin: 0, background: '#ffffff', lineColor: '#000000' };
+    try {
+      JsBarcode(svg, code, Object.assign({ format: detectFormat(code) }, opts));
+    } catch (e) {
+      try { JsBarcode(svg, code, Object.assign({ format: 'CODE128' }, opts)); }
+      catch (e2) { svg.innerHTML = ''; }
+    }
+  }
+
+  function currentItem(){
+    for (var i = 0; i < state.items.length; i++){
+      if (state.skippedIds.indexOf(state.items[i].id) === -1) return state.items[i];
+    }
+    return null;
+  }
+
+  function render(){
+    el.pendingCount.textContent = state.items.length;
+    el.connDot.className = 'conn-dot ok';
+
+    var item = currentItem();
+    if (!item){
+      el.scanCard.hidden = true;
+      el.emptyState.hidden = false;
+    } else {
+      el.scanCard.hidden = false;
+      el.emptyState.hidden = true;
+      el.productName.textContent = item.product_name || '';
+      el.codeDigits.textContent = item.barcode;
+      renderBarcode(item.barcode);
+    }
+
+    var rest = state.items.filter(function(i){ return !item || i.id !== item.id; }).slice(0, 5);
+    el.queueList.innerHTML = '';
+    rest.forEach(function(i){
+      var row = document.createElement('div');
+      row.className = 'queue-row';
+      var t = new Date(i.created_at);
+      row.innerHTML = '<span class="code">' + i.barcode + (i.product_name ? ' · ' + i.product_name : '') + '</span>' +
+        '<span class="when">' + t.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) + '</span>';
+      el.queueList.appendChild(row);
+    });
+  }
+
+  function fetchPending(){
+    var url = SUPABASE_URL + '/rest/v1/barcode_collection?select=id,barcode,status,product_name,created_at,priority&status=eq.pending&order=priority.desc,created_at.asc&limit=30';
+    fetch(url, { headers: HEADERS })
+      .then(function(r){ if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
+      .then(function(data){
+        var ids = data.map(function(d){ return d.id; });
+        state.skippedIds = state.skippedIds.filter(function(id){ return ids.indexOf(id) !== -1; });
+        state.items = data;
+        render();
+      })
+      .catch(function(){
+        el.connDot.className = 'conn-dot err';
+      });
+  }
+
+  function markDone(){
+    var item = currentItem();
+    if (!item || state.busy) return;
+    state.busy = true;
+    el.confirmBtn.disabled = true;
+    el.confirmBtn.textContent = 'Confirmando…';
+
+    fetch(SUPABASE_URL + '/rest/v1/barcode_collection?id=eq.' + item.id, {
+      method: 'PATCH',
+      headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, HEADERS),
+      body: JSON.stringify({ status: 'completed', completed_at: new Date().toISOString() })
+    })
+    .then(function(r){
+      if (!r.ok) throw new Error('http ' + r.status);
+      showToast('Código ' + item.barcode + ' concluído');
+      state.items = state.items.filter(function(i){ return i.id !== item.id; });
+      render();
+    })
+    .catch(function(){
+      showToast('Não consegui confirmar, tenta de novo');
+    })
+    .finally(function(){
+      state.busy = false;
+      el.confirmBtn.disabled = false;
+      el.confirmBtn.textContent = 'Bipei! Próximo código';
+    });
+  }
+
+  function skipCurrent(){
+    var item = currentItem();
+    if (!item) return;
+    state.skippedIds.push(item.id);
+    render();
+  }
+
+  el.confirmBtn.addEventListener('click', markDone);
+  el.skipBtn.addEventListener('click', skipCurrent);
+
+  fetchPending();
+  setInterval(fetchPending, 2500);
+})();
+</script>
+</body>
+</html>
