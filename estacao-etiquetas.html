@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Estação de Etiquetas · ULVA</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
- <script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
 <style>
   :root{
     --bg:#f7f5f0; --surface:#ffffff; --fg:#1c1b19; --muted:#6b6558;
@@ -14,7 +14,7 @@
     --font-display:'Archivo',system-ui,sans-serif; --font-mono:'IBM Plex Mono',ui-monospace,monospace;
   }
   *{box-sizing:border-box}
-    [hidden]{display:none !important;}
+  [hidden]{display:none !important;}
   html,body{margin:0; padding:0;}
   body{background:var(--bg); color:var(--fg); font-family:var(--font-display); padding:16px; min-height:100vh;}
   .wrap{max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:20px;}
@@ -29,7 +29,7 @@
   .product-name{font-size:15px; font-weight:600; min-height:1.2em;}
 
   .barcode-tile{background:#ffffff; border-radius:12px; padding:18px 14px 10px; width:100%; max-width:420px; display:flex; justify-content:center;}
-     .barcode-tile svg{display:block; max-width:100%;}
+  .barcode-tile svg{display:block; max-width:100%;}
   .code-digits{font-family:var(--font-mono); font-weight:700; font-size:clamp(20px,6vw,30px); letter-spacing:.04em; font-variant-numeric:tabular-nums;}
 
   .confirm-btn{width:100%; max-width:420px; border:none; border-radius:14px; padding:16px 20px; font-family:var(--font-display); font-size:16px; font-weight:800; background:var(--success); color:var(--success-ink); cursor:pointer; transition:transform .1s ease, opacity .15s ease;}
@@ -125,11 +125,12 @@
 
   function renderBarcode(code){
     var svg = document.getElementById('barcode');
+    svg.innerHTML = '';
     var opts = { width: 2.4, height: 90, displayValue: false, margin: 0, background: '#ffffff', lineColor: '#000000' };
     try {
-      JsBarcode(svg, code, Object.assign({ format: detectFormat(code) }, opts));
+      JsBarcode('#barcode', code, Object.assign({ format: detectFormat(code) }, opts));
     } catch (e) {
-      try { JsBarcode(svg, code, Object.assign({ format: 'CODE128' }, opts)); }
+      try { JsBarcode('#barcode', code, Object.assign({ format: 'CODE128' }, opts)); }
       catch (e2) { svg.innerHTML = ''; }
     }
   }
