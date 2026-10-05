@@ -5,7 +5,6 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Estação de Etiquetas · ULVA</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@500;600;700;800&family=IBM+Plex+Mono:wght@500;600;700&display=swap">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/JsBarcode/3.11.5/JsBarcode.all.min.js"></script>
 <style>
   :root{
     --bg:#f7f5f0; --surface:#ffffff; --fg:#1c1b19; --muted:#6b6558;
@@ -29,7 +28,7 @@
   .product-name{font-size:15px; font-weight:600; min-height:1.2em;}
 
   .barcode-tile{background:#ffffff; border-radius:12px; padding:18px 14px 10px; width:100%; max-width:420px; display:flex; justify-content:center;}
-  .barcode-tile svg{display:block; max-width:100%;}
+  .barcode-tile svg{width:100%; height:auto; max-height:150px; display:block;}
   .code-digits{font-family:var(--font-mono); font-weight:700; font-size:clamp(20px,6vw,30px); letter-spacing:.04em; font-variant-numeric:tabular-nums;}
 
   .confirm-btn{width:100%; max-width:420px; border:none; border-radius:14px; padding:16px 20px; font-family:var(--font-display); font-size:16px; font-weight:800; background:var(--success); color:var(--success-ink); cursor:pointer; transition:transform .1s ease, opacity .15s ease;}
@@ -95,6 +94,83 @@
   var SUPABASE_KEY = 'sb_publishable_Kk5u4REY7PUWKMpx9wlZnA_BXgfqrxF';
   var HEADERS = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
 
+  // ---- Gerador de código de barras EAN-13 / EAN-8 / UPC-A, 100% local (sem depender de site externo) ----
+  var L_CODE = ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+  var G_CODE = ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
+  var R_CODE = ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'];
+  var PARITY = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+
+  function ean13Pattern(code){
+    var parity = PARITY[+code[0]];
+    var bits = '101';
+    for (var i = 0; i < 6; i++){
+      var d = +code[1 + i];
+      bits += (parity[i] === 'L' ? L_CODE[d] : G_CODE[d]);
+    }
+    bits += '01010';
+    for (var i = 0; i < 6; i++){
+      bits += R_CODE[+code[7 + i]];
+    }
+    bits += '101';
+    return bits;
+  }
+
+  function ean8Pattern(code){
+    var bits = '101';
+    for (var i = 0; i < 4; i++){ bits += L_CODE[+code[i]]; }
+    bits += '01010';
+    for (var i = 0; i < 4; i++){ bits += R_CODE[+code[4 + i]]; }
+    bits += '101';
+    return bits;
+  }
+
+  function drawBars(svg, bits){
+    var ns = 'http://www.w3.org/2000/svg';
+    var moduleWidth = 2.2;
+    var height = 90;
+    var totalWidth = bits.length * moduleWidth;
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    svg.setAttribute('viewBox', '0 0 ' + totalWidth + ' ' + height);
+    svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+    var bg = document.createElementNS(ns, 'rect');
+    bg.setAttribute('x', 0); bg.setAttribute('y', 0);
+    bg.setAttribute('width', totalWidth); bg.setAttribute('height', height);
+    bg.setAttribute('fill', '#ffffff');
+    svg.appendChild(bg);
+    var x = 0;
+    for (var i = 0; i < bits.length; i++){
+      if (bits[i] === '1'){
+        var rect = document.createElementNS(ns, 'rect');
+        rect.setAttribute('x', x);
+        rect.setAttribute('y', 0);
+        rect.setAttribute('width', moduleWidth);
+        rect.setAttribute('height', height);
+        rect.setAttribute('fill', '#000000');
+        svg.appendChild(rect);
+      }
+      x += moduleWidth;
+    }
+  }
+
+  function renderBarcode(code){
+    var svg = document.getElementById('barcode');
+    while (svg.firstChild) svg.removeChild(svg.firstChild);
+    var digits = String(code).replace(/\D/g, '');
+    try {
+      if (digits.length === 13){
+        drawBars(svg, ean13Pattern(digits));
+      } else if (digits.length === 12){
+        drawBars(svg, ean13Pattern('0' + digits));
+      } else if (digits.length === 8){
+        drawBars(svg, ean8Pattern(digits));
+      }
+      // outros formatos: sem desenho de barras, só o número grande mesmo (ainda digitável manualmente)
+    } catch (e){
+      while (svg.firstChild) svg.removeChild(svg.firstChild);
+    }
+  }
+  // ---- fim do gerador de código de barras ----
+
   var state = { items: [], skippedIds: [], busy: false };
 
   var el = {
@@ -114,25 +190,6 @@
     el.toast.textContent = msg;
     el.toast.classList.add('show');
     setTimeout(function(){ el.toast.classList.remove('show'); }, 1800);
-  }
-
-  function detectFormat(code){
-    if (/^\d{13}$/.test(code)) return 'EAN13';
-    if (/^\d{8}$/.test(code)) return 'EAN8';
-    if (/^\d{12}$/.test(code)) return 'UPC';
-    return 'CODE128';
-  }
-
-  function renderBarcode(code){
-    var svg = document.getElementById('barcode');
-    svg.innerHTML = '';
-    var opts = { width: 2.4, height: 90, displayValue: false, margin: 0, background: '#ffffff', lineColor: '#000000' };
-    try {
-      JsBarcode('#barcode', code, Object.assign({ format: detectFormat(code) }, opts));
-    } catch (e) {
-      try { JsBarcode('#barcode', code, Object.assign({ format: 'CODE128' }, opts)); }
-      catch (e2) { svg.innerHTML = ''; }
-    }
   }
 
   function currentItem(){
