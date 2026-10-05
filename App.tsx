@@ -8,6 +8,7 @@ import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import CreatePasswordScreen from './src/screens/CreatePasswordScreen';
 import HomeColaboradorScreen from './src/screens/HomeColaboradorScreen';
 import HomeAdminScreen from './src/screens/HomeAdminScreen';
+import PrecificacaoScreen from './src/screens/PrecificacaoScreen';
 import JornalOfertasFlutuante from './src/components/JornalOfertasFlutuante';
 import Rodape from './src/components/Rodape';
 import { colors } from './src/theme/colors';

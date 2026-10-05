@@ -23,6 +23,7 @@ import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
 import ChecklistScreen from './ChecklistScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
+import PrecificacaoScreen from './PrecificacaoScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 
 const FRASES_DO_DIA = [
@@ -54,6 +55,7 @@ export default function HomeColaboradorScreen() {
     | 'jornalOfertas'
     | 'checklist'
     | 'colaboradores'
+    | 'precificacao'
     | 'escalaFaltas'
   >('home');
 
@@ -173,6 +175,9 @@ export default function HomeColaboradorScreen() {
   if (tela === 'colaboradores') {
     return <ColaboradoresScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'precificacao') {
+    return <PrecificacaoScreen onVoltar={() => setTela('home')} />;
+  }
   if (tela === 'escalaFaltas') {
     return <EscalaFaltaAtestadoScreen onVoltar={() => setTela('home')} />;
   }
@@ -288,7 +293,7 @@ export default function HomeColaboradorScreen() {
         </View>
 
         <View style={styles.quoteCard}>
-          <Text style={styles.quoteText}>“{frase}”</Text>
+          <Text style={styles.quoteText}>"{frase}"</Text>
           <Text style={styles.quoteAuthor}>Frase do dia</Text>
         </View>
       </View>
@@ -414,6 +419,7 @@ export default function HomeColaboradorScreen() {
                 // A tela antiga de cadastro (ColaboradoresScreen) ficou sem
                 // tile por enquanto — inativa, mas o código continua aqui.
                 { label: 'Colaboradores', icone: 'users' as const, chave: 'escalaFaltas', onPress: () => setTela('escalaFaltas') },
+                { label: 'Precificação', icone: 'tag' as const, chave: 'precificacao', onPress: () => setTela('precificacao') },
                 { label: 'Perdas e Desperdício', icone: 'trending-down' as const, chave: 'perdas', onPress: () => setTela('perdas') },
                 { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
                 { label: 'Inventário', icone: 'package' as const, chave: null, onPress: undefined },
