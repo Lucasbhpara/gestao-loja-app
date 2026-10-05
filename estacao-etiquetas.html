@@ -23,13 +23,15 @@
   .count-pill{display:inline-flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:6px 12px; font-size:12.5px; font-weight:600; color:var(--muted);}
   .count-pill b{font-family:var(--font-mono); color:var(--fg); font-size:13px;}
 
-  .scan-card{background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:24px; box-shadow:var(--tile-shadow); display:flex; flex-direction:column; align-items:center; gap:16px; text-align:center;}
+  .scan-card{background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:24px; box-shadow:var(--tile-shadow); display:flex; flex-direction:column; align-items:center; gap:14px; text-align:center;}
   .scan-label{font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);}
-  .product-name{font-size:15px; font-weight:600; min-height:1.2em;}
+  .product-name{font-size:16px; font-weight:700; line-height:1.3; min-height:1.2em;}
+  .price-tag{font-family:var(--font-mono); font-size:15px; font-weight:700; color:var(--success); background:#eaf7ee; border-radius:999px; padding:4px 12px;}
 
   .barcode-tile{background:#ffffff; border-radius:12px; padding:18px 14px 10px; width:100%; max-width:420px; display:flex; justify-content:center;}
   .barcode-tile svg{width:100%; height:auto; max-height:150px; display:block;}
   .code-digits{font-family:var(--font-mono); font-weight:700; font-size:clamp(20px,6vw,30px); letter-spacing:.04em; font-variant-numeric:tabular-nums;}
+  .code-tipo{font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted);}
 
   .confirm-btn{width:100%; max-width:420px; border:none; border-radius:14px; padding:16px 20px; font-family:var(--font-display); font-size:16px; font-weight:800; background:var(--success); color:var(--success-ink); cursor:pointer; transition:transform .1s ease, opacity .15s ease;}
   .confirm-btn:active{transform:scale(.98);}
@@ -67,8 +69,10 @@
   <div class="scan-card" id="scanCard">
     <div class="scan-label">Aponte o leitor pra este código</div>
     <div class="product-name" id="productName"></div>
+    <div class="price-tag" id="priceTag" hidden></div>
     <div class="barcode-tile"><svg id="barcode"></svg></div>
     <div class="code-digits" id="codeDigits">—</div>
+    <div class="code-tipo" id="codeTipo"></div>
     <button class="confirm-btn" id="confirmBtn">Bipei! Próximo código</button>
     <button class="skip-link" id="skipBtn">pular este por enquanto</button>
   </div>
@@ -94,13 +98,29 @@
   var SUPABASE_KEY = 'sb_publishable_Kk5u4REY7PUWKMpx9wlZnA_BXgfqrxF';
   var HEADERS = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
 
-  // ---- Gerador de código de barras EAN-13 / EAN-8 / UPC-A, 100% local (sem depender de site externo) ----
+  // ================= Gerador de código de barras (100% local) =================
+  // EAN-13 / EAN-8 / UPC-A para códigos padrão de indústria,
+  // CODE128 para os códigos internos de pesáveis (ex.: 67195 = banana caturra).
+
   var L_CODE = ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
   var G_CODE = ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
   var R_CODE = ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'];
   var PARITY = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
 
-  function ean13Pattern(code){
+  // Tabela padrão do CODE128: 107 padrões (0-105 com 11 módulos, stop com 13)
+  var C128 = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213',
+  '221312','231212','112232','122132','122231','113222','123122','123221','223211','221132',
+  '221231','213212','223112','312131','311222','321122','321221','312212','322112','322211',
+  '212123','212321','232121','111323','131123','131321','112313','132113','132311','211313',
+  '231113','231311','112133','112331','132131','113123','113321','133121','313121','211331',
+  '231131','213113','213311','213131','311123','311321','331121','312113','312311','332111',
+  '314111','221411','431111','111224','111422','121124','121421','141122','141221','112214',
+  '112412','122114','122411','142112','142211','241211','221114','413111','241112','134111',
+  '111242','121142','121241','114212','124112','124211','411212','421112','421211','212141',
+  '214121','412121','111143','111341','131141','114113','114311','411113','411311','113141',
+  '114131','311141','411131','211412','211214','211232','2331112'];
+
+  function ean13Bits(code){
     var parity = PARITY[+code[0]];
     var bits = '101';
     for (var i = 0; i < 6; i++){
@@ -108,68 +128,90 @@
       bits += (parity[i] === 'L' ? L_CODE[d] : G_CODE[d]);
     }
     bits += '01010';
-    for (var i = 0; i < 6; i++){
-      bits += R_CODE[+code[7 + i]];
-    }
-    bits += '101';
-    return bits;
+    for (var j = 0; j < 6; j++){ bits += R_CODE[+code[7 + j]]; }
+    return bits + '101';
   }
 
-  function ean8Pattern(code){
+  function ean8Bits(code){
     var bits = '101';
     for (var i = 0; i < 4; i++){ bits += L_CODE[+code[i]]; }
     bits += '01010';
-    for (var i = 0; i < 4; i++){ bits += R_CODE[+code[4 + i]]; }
-    bits += '101';
+    for (var j = 0; j < 4; j++){ bits += R_CODE[+code[4 + j]]; }
+    return bits + '101';
+  }
+
+  // CODE128 conjunto B — aceita qualquer tamanho, inclusive códigos ímpares
+  function code128Bits(texto){
+    var valores = [104]; // Start B
+    for (var i = 0; i < texto.length; i++){
+      valores.push(texto.charCodeAt(i) - 32);
+    }
+    var soma = 104;
+    for (var k = 1; k < valores.length; k++){ soma += valores[k] * k; }
+    valores.push(soma % 103); // dígito verificador
+    valores.push(106);        // Stop
+    var bits = '';
+    for (var v = 0; v < valores.length; v++){
+      var padrao = C128[valores[v]];
+      var barra = true;
+      for (var p = 0; p < padrao.length; p++){
+        var largura = +padrao[p];
+        for (var w = 0; w < largura; w++){ bits += barra ? '1' : '0'; }
+        barra = !barra;
+      }
+    }
     return bits;
   }
 
-  function drawBars(svg, bits){
+  function desenharBarras(svg, bits, alturaModulo){
     var ns = 'http://www.w3.org/2000/svg';
-    var moduleWidth = 2.2;
-    var height = 90;
-    var totalWidth = bits.length * moduleWidth;
+    var larguraModulo = 2.2;
+    var altura = alturaModulo || 90;
+    var larguraTotal = bits.length * larguraModulo;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    svg.setAttribute('viewBox', '0 0 ' + totalWidth + ' ' + height);
+    svg.setAttribute('viewBox', '0 0 ' + larguraTotal + ' ' + altura);
     svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-    var bg = document.createElementNS(ns, 'rect');
-    bg.setAttribute('x', 0); bg.setAttribute('y', 0);
-    bg.setAttribute('width', totalWidth); bg.setAttribute('height', height);
-    bg.setAttribute('fill', '#ffffff');
-    svg.appendChild(bg);
+    var fundo = document.createElementNS(ns, 'rect');
+    fundo.setAttribute('x', 0); fundo.setAttribute('y', 0);
+    fundo.setAttribute('width', larguraTotal); fundo.setAttribute('height', altura);
+    fundo.setAttribute('fill', '#ffffff');
+    svg.appendChild(fundo);
     var x = 0;
     for (var i = 0; i < bits.length; i++){
       if (bits[i] === '1'){
-        var rect = document.createElementNS(ns, 'rect');
-        rect.setAttribute('x', x);
-        rect.setAttribute('y', 0);
-        rect.setAttribute('width', moduleWidth);
-        rect.setAttribute('height', height);
-        rect.setAttribute('fill', '#000000');
-        svg.appendChild(rect);
+        var r = document.createElementNS(ns, 'rect');
+        r.setAttribute('x', x); r.setAttribute('y', 0);
+        r.setAttribute('width', larguraModulo); r.setAttribute('height', altura);
+        r.setAttribute('fill', '#000000');
+        svg.appendChild(r);
       }
-      x += moduleWidth;
+      x += larguraModulo;
     }
   }
 
   function renderBarcode(code){
     var svg = document.getElementById('barcode');
     while (svg.firstChild) svg.removeChild(svg.firstChild);
-    var digits = String(code).replace(/\D/g, '');
+    var texto = String(code).trim();
+    var digitos = texto.replace(/\D/g, '');
+    var tipo = '';
     try {
-      if (digits.length === 13){
-        drawBars(svg, ean13Pattern(digits));
-      } else if (digits.length === 12){
-        drawBars(svg, ean13Pattern('0' + digits));
-      } else if (digits.length === 8){
-        drawBars(svg, ean8Pattern(digits));
+      if (digitos.length === 13 && digitos === texto){
+        desenharBarras(svg, ean13Bits(digitos)); tipo = 'EAN-13';
+      } else if (digitos.length === 12 && digitos === texto){
+        desenharBarras(svg, ean13Bits('0' + digitos)); tipo = 'UPC-A';
+      } else if (digitos.length === 8 && digitos === texto){
+        desenharBarras(svg, ean8Bits(digitos)); tipo = 'EAN-8';
+      } else {
+        desenharBarras(svg, code128Bits(texto)); tipo = 'CODE128';
       }
-      // outros formatos: sem desenho de barras, só o número grande mesmo (ainda digitável manualmente)
     } catch (e){
       while (svg.firstChild) svg.removeChild(svg.firstChild);
+      tipo = '';
     }
+    return tipo;
   }
-  // ---- fim do gerador de código de barras ----
+  // =========================== fim do gerador ===========================
 
   var state = { items: [], skippedIds: [], busy: false };
 
@@ -179,7 +221,9 @@
     scanCard: document.getElementById('scanCard'),
     emptyState: document.getElementById('emptyState'),
     productName: document.getElementById('productName'),
+    priceTag: document.getElementById('priceTag'),
     codeDigits: document.getElementById('codeDigits'),
+    codeTipo: document.getElementById('codeTipo'),
     confirmBtn: document.getElementById('confirmBtn'),
     skipBtn: document.getElementById('skipBtn'),
     queueList: document.getElementById('queueList'),
@@ -190,6 +234,13 @@
     el.toast.textContent = msg;
     el.toast.classList.add('show');
     setTimeout(function(){ el.toast.classList.remove('show'); }, 1800);
+  }
+
+  function formatarPreco(v){
+    if (v === null || v === undefined || v === '') return null;
+    var n = Number(v);
+    if (isNaN(n)) return null;
+    return 'R$ ' + n.toFixed(2).replace('.', ',');
   }
 
   function currentItem(){
@@ -211,8 +262,15 @@
       el.scanCard.hidden = false;
       el.emptyState.hidden = true;
       el.productName.textContent = item.product_name || '';
+      var preco = formatarPreco(item.preco_venda);
+      if (preco){
+        el.priceTag.textContent = 'Preço atual: ' + preco;
+        el.priceTag.hidden = false;
+      } else {
+        el.priceTag.hidden = true;
+      }
       el.codeDigits.textContent = item.barcode;
-      renderBarcode(item.barcode);
+      el.codeTipo.textContent = renderBarcode(item.barcode);
     }
 
     var rest = state.items.filter(function(i){ return !item || i.id !== item.id; }).slice(0, 5);
@@ -221,14 +279,19 @@
       var row = document.createElement('div');
       row.className = 'queue-row';
       var t = new Date(i.created_at);
-      row.innerHTML = '<span class="code">' + i.barcode + (i.product_name ? ' · ' + i.product_name : '') + '</span>' +
-        '<span class="when">' + t.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'}) + '</span>';
+      var span1 = document.createElement('span');
+      span1.className = 'code';
+      span1.textContent = i.barcode + (i.product_name ? ' · ' + i.product_name : '');
+      var span2 = document.createElement('span');
+      span2.className = 'when';
+      span2.textContent = t.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
+      row.appendChild(span1); row.appendChild(span2);
       el.queueList.appendChild(row);
     });
   }
 
   function fetchPending(){
-    var url = SUPABASE_URL + '/rest/v1/barcode_collection?select=id,barcode,status,product_name,created_at,priority&status=eq.pending&order=priority.desc,created_at.asc&limit=30';
+    var url = SUPABASE_URL + '/rest/v1/barcode_collection?select=id,barcode,status,product_name,preco_venda,created_at,priority&status=eq.pending&order=priority.desc,created_at.asc&limit=30';
     fetch(url, { headers: HEADERS })
       .then(function(r){ if (!r.ok) throw new Error('http ' + r.status); return r.json(); })
       .then(function(data){
