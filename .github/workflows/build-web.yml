@@ -42,6 +42,9 @@ jobs:
 
       - name: Publicar o Portal Admin junto (fica em /portal-admin.html)
         run: cp portal-admin.html dist/portal-admin.html
+        
+      - name: Publicar a Estação de Etiquetas junto (fica em /estacao-etiquetas.html)
+        run: cp estacao-etiquetas.html dist/estacao-etiquetas.html
 
       - name: Preparar o GitHub Pages
         uses: actions/configure-pages@v5
