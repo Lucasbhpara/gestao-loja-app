@@ -18,11 +18,29 @@
   body{background:var(--bg); color:var(--fg); font-family:var(--font-display); padding:16px; min-height:100vh;}
   .wrap{max-width:640px; margin:0 auto; display:flex; flex-direction:column; gap:20px;}
 
-  .topbar{display:flex; align-items:baseline; justify-content:space-between; gap:12px; flex-wrap:wrap;}
+  /* ── Mode chooser ───────────────────────────────── */
+  .mode-screen{position:fixed;inset:0;background:var(--bg);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:24px;z-index:100;padding:24px;}
+  .mode-screen h2{font-size:22px;font-weight:800;margin:0;text-align:center;}
+  .mode-screen p{font-size:13.5px;color:var(--muted);margin:0;text-align:center;max-width:300px;}
+  .mode-btns{display:flex;flex-direction:column;gap:14px;width:100%;max-width:320px;}
+  .mode-btn{border:none;border-radius:16px;padding:20px 24px;font-family:var(--font-display);font-size:17px;font-weight:800;cursor:pointer;display:flex;align-items:center;gap:12px;justify-content:center;transition:transform .1s;}
+  .mode-btn:active{transform:scale(.97);}
+  .mode-btn-auto{background:var(--success);color:var(--success-ink);}
+  .mode-btn-manual{background:var(--surface);color:var(--fg);border:2px solid var(--border);}
+
+  /* ── Topbar ─────────────────────────────────────── */
+  .topbar{display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;}
   .topbar h1{font-size:19px; font-weight:800; margin:0; letter-spacing:-.01em;}
+  .topbar-right{display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
   .count-pill{display:inline-flex; align-items:center; gap:6px; background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:6px 12px; font-size:12.5px; font-weight:600; color:var(--muted);}
   .count-pill b{font-family:var(--font-mono); color:var(--fg); font-size:13px;}
+  .mode-toggle{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:11.5px;font-weight:700;cursor:pointer;color:var(--muted);white-space:nowrap;}
+  .mode-toggle:hover{background:var(--border);}
+  .history-btn{background:var(--surface);border:1px solid var(--border);border-radius:999px;padding:5px 12px;font-size:11.5px;font-weight:700;cursor:pointer;color:var(--muted);display:flex;align-items:center;gap:5px;white-space:nowrap;}
+  .history-btn:hover{background:var(--border);}
+  .history-badge{background:var(--success);color:#fff;border-radius:999px;padding:1px 7px;font-size:11px;font-weight:800;}
 
+  /* ── Scan card ──────────────────────────────────── */
   .scan-card{background:var(--surface); border:1px solid var(--border); border-radius:20px; padding:24px; box-shadow:var(--tile-shadow); display:flex; flex-direction:column; align-items:center; gap:14px; text-align:center;}
   .scan-label{font-size:11.5px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--muted);}
   .product-name{font-size:16px; font-weight:700; line-height:1.3; min-height:1.2em;}
@@ -33,11 +51,21 @@
   .code-digits{font-family:var(--font-mono); font-weight:700; font-size:clamp(20px,6vw,30px); letter-spacing:.04em; font-variant-numeric:tabular-nums;}
   .code-tipo{font-size:10.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:var(--muted);}
 
+  /* ── Progress bar (auto mode) ───────────────────── */
+  .progress-track{width:100%;max-width:420px;height:4px;border-radius:2px;background:var(--border);overflow:hidden;}
+  .progress-bar{height:4px;border-radius:2px;background:var(--success);width:0%;transition:none;}
+
+  /* ── Buttons ────────────────────────────────────── */
   .confirm-btn{width:100%; max-width:420px; border:none; border-radius:14px; padding:16px 20px; font-family:var(--font-display); font-size:16px; font-weight:800; background:var(--success); color:var(--success-ink); cursor:pointer; transition:transform .1s ease, opacity .15s ease;}
   .confirm-btn:active{transform:scale(.98);}
   .confirm-btn:disabled{opacity:.5; cursor:default;}
-  .skip-link{background:none; border:none; color:var(--muted); font-family:var(--font-display); font-size:12.5px; font-weight:600; text-decoration:underline; cursor:pointer; padding:4px;}
+  .confirm-btn.canceling{background:#e07b2c;}
 
+  .action-row{display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;}
+  .skip-link{background:none; border:none; color:var(--muted); font-family:var(--font-display); font-size:12.5px; font-weight:600; text-decoration:underline; cursor:pointer; padding:4px;}
+  .back-link{background:none; border:none; color:var(--muted); font-family:var(--font-display); font-size:12.5px; font-weight:600; text-decoration:underline; cursor:pointer; padding:4px;}
+
+  /* ── Empty / queue ──────────────────────────────── */
   .empty-state{display:flex; flex-direction:column; align-items:center; gap:8px; padding:36px 16px; color:var(--muted);}
   .empty-state .big{font-size:40px;}
   .empty-state p{margin:0; font-size:13.5px; max-width:260px;}
@@ -48,9 +76,30 @@
   .queue-row .code{font-family:var(--font-mono); font-weight:600; font-size:13px; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;}
   .queue-row .when{font-size:11px; color:var(--muted); flex-shrink:0;}
 
-  .toast{position:fixed; left:50%; bottom:20px; transform:translateX(-50%) translateY(20px); background:var(--fg); color:var(--bg); font-size:13px; font-weight:600; padding:10px 18px; border-radius:999px; opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease;}
+  /* ── Drawer overlay ─────────────────────────────── */
+  .drawer-overlay{position:fixed;inset:0;background:rgba(28,27,25,.35);z-index:200;opacity:0;pointer-events:none;transition:opacity .25s ease;}
+  .drawer-overlay.open{opacity:1;pointer-events:all;}
+
+  .drawer{position:fixed;top:0;right:0;height:100vh;width:320px;max-width:95vw;background:var(--surface);box-shadow:-4px 0 24px rgba(28,27,25,.14);z-index:201;display:flex;flex-direction:column;transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);}
+  .drawer.open{transform:translateX(0);}
+  .drawer-header{display:flex;align-items:center;justify-content:space-between;padding:18px 16px 14px;border-bottom:1px solid var(--border);}
+  .drawer-title{font-size:15px;font-weight:800;margin:0;}
+  .drawer-close{background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);padding:4px;}
+  .drawer-list{flex:1;overflow-y:auto;padding:12px 0;}
+  .drawer-empty{padding:32px 16px;text-align:center;color:var(--muted);font-size:13px;}
+  .hist-row{padding:12px 16px;border-bottom:1px solid var(--border);display:flex;flex-direction:column;gap:6px;}
+  .hist-row-top{display:flex;align-items:baseline;justify-content:space-between;gap:8px;}
+  .hist-code{font-family:var(--font-mono);font-weight:700;font-size:13px;}
+  .hist-time{font-size:11px;color:var(--muted);}
+  .hist-name{font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .hist-resend{background:none;border:1px solid var(--border);border-radius:8px;padding:5px 10px;font-size:11.5px;font-weight:700;cursor:pointer;color:var(--muted);margin-top:2px;align-self:flex-start;}
+  .hist-resend:hover{background:var(--bg);}
+
+  /* ── Toast ──────────────────────────────────────── */
+  .toast{position:fixed; left:50%; bottom:20px; transform:translateX(-50%) translateY(20px); background:var(--fg); color:var(--bg); font-size:13px; font-weight:600; padding:10px 18px; border-radius:999px; opacity:0; pointer-events:none; transition:opacity .2s ease, transform .2s ease; z-index:300;}
   .toast.show{opacity:1; transform:translateX(-50%) translateY(0);}
 
+  /* ── Misc ────────────────────────────────────────── */
   .conn-dot{width:7px; height:7px; border-radius:50%; background:var(--muted); display:inline-block;}
   .conn-dot.ok{background:var(--success);}
   .conn-dot.err{background:var(--accent);}
@@ -60,10 +109,37 @@
 </head>
 <body>
 
-<div class="wrap">
+<!-- ── Mode chooser screen ─────────────────────────── -->
+<div class="mode-screen" id="modeScreen">
+  <h2>Estação de Etiquetas</h2>
+  <p>Escolha como quer confirmar os códigos</p>
+  <div class="mode-btns">
+    <button class="mode-btn mode-btn-auto" id="chooseAuto">▶&nbsp;&nbsp;AUTOMÁTICO<br><small style="font-size:12px;font-weight:600;opacity:.85">Confirma sozinho após 5 segundos</small></button>
+    <button class="mode-btn mode-btn-manual" id="chooseManual">✋&nbsp;&nbsp;MANUAL<br><small style="font-size:12px;font-weight:600;opacity:.6">Clica no botão para confirmar</small></button>
+  </div>
+</div>
+
+<!-- ── Drawer overlay ─────────────────────────────── -->
+<div class="drawer-overlay" id="drawerOverlay"></div>
+<div class="drawer" id="histDrawer">
+  <div class="drawer-header">
+    <p class="drawer-title">📋 Histórico da sessão</p>
+    <button class="drawer-close" id="drawerClose">✕</button>
+  </div>
+  <div class="drawer-list" id="histList">
+    <div class="drawer-empty">Nenhum item confirmado ainda.</div>
+  </div>
+</div>
+
+<!-- ── Main app ───────────────────────────────────── -->
+<div class="wrap" id="appWrap" hidden>
   <div class="topbar">
     <h1>Estação de Etiquetas</h1>
-    <span class="count-pill"><span class="conn-dot" id="connDot"></span> <b id="pendingCount">—</b> pendente(s)</span>
+    <div class="topbar-right">
+      <button class="mode-toggle" id="modeToggle">Modo: —</button>
+      <button class="history-btn" id="histBtn">📋 <span id="histLabel">Histórico</span></button>
+      <span class="count-pill"><span class="conn-dot" id="connDot"></span> <b id="pendingCount">—</b> pendente(s)</span>
+    </div>
   </div>
 
   <div class="scan-card" id="scanCard">
@@ -73,8 +149,14 @@
     <div class="barcode-tile"><svg id="barcode"></svg></div>
     <div class="code-digits" id="codeDigits">—</div>
     <div class="code-tipo" id="codeTipo"></div>
+    <div class="progress-track" id="progressTrack" hidden>
+      <div class="progress-bar" id="progressBar"></div>
+    </div>
     <button class="confirm-btn" id="confirmBtn">Bipei! Próximo código</button>
-    <button class="skip-link" id="skipBtn">pular este por enquanto</button>
+    <div class="action-row">
+      <button class="back-link" id="backBtn" hidden>← Voltar</button>
+      <button class="skip-link" id="skipBtn">pular este por enquanto</button>
+    </div>
   </div>
 
   <div class="empty-state" id="emptyState" hidden>
@@ -98,16 +180,14 @@
   var SUPABASE_KEY = 'sb_publishable_Kk5u4REY7PUWKMpx9wlZnA_BXgfqrxF';
   var HEADERS = { apikey: SUPABASE_KEY, Authorization: 'Bearer ' + SUPABASE_KEY };
 
-  // ================= Gerador de código de barras (100% local) =================
-  // EAN-13 / EAN-8 / UPC-A para códigos padrão de indústria,
-  // CODE128 para os códigos internos de pesáveis (ex.: 67195 = banana caturra).
-
+  /* ──────────────────────────────────────────────────
+     Barcode generators (100% local)
+  ────────────────────────────────────────────────── */
   var L_CODE = ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
   var G_CODE = ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
   var R_CODE = ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'];
   var PARITY = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
 
-  // Tabela padrão do CODE128: 107 padrões (0-105 com 11 módulos, stop com 13)
   var C128 = ['212222','222122','222221','121223','121322','131222','122213','122312','132212','221213',
   '221312','231212','112232','122132','122231','113222','123122','123221','223211','221132',
   '221231','213212','223112','312131','311222','321122','321221','312212','322112','322211',
@@ -140,16 +220,13 @@
     return bits + '101';
   }
 
-  // CODE128 conjunto B — aceita qualquer tamanho, inclusive códigos ímpares
   function code128Bits(texto){
-    var valores = [104]; // Start B
-    for (var i = 0; i < texto.length; i++){
-      valores.push(texto.charCodeAt(i) - 32);
-    }
+    var valores = [104];
+    for (var i = 0; i < texto.length; i++){ valores.push(texto.charCodeAt(i) - 32); }
     var soma = 104;
     for (var k = 1; k < valores.length; k++){ soma += valores[k] * k; }
-    valores.push(soma % 103); // dígito verificador
-    valores.push(106);        // Stop
+    valores.push(soma % 103);
+    valores.push(106);
     var bits = '';
     for (var v = 0; v < valores.length; v++){
       var padrao = C128[valores[v]];
@@ -163,10 +240,10 @@
     return bits;
   }
 
-  function desenharBarras(svg, bits, alturaModulo){
+  function desenharBarras(svg, bits){
     var ns = 'http://www.w3.org/2000/svg';
     var larguraModulo = 2.2;
-    var altura = alturaModulo || 90;
+    var altura = 90;
     var larguraTotal = bits.length * larguraModulo;
     while (svg.firstChild) svg.removeChild(svg.firstChild);
     svg.setAttribute('viewBox', '0 0 ' + larguraTotal + ' ' + altura);
@@ -196,26 +273,48 @@
     var digitos = texto.replace(/\D/g, '');
     var tipo = '';
     try {
-      if (digitos.length === 13 && digitos === texto){
-        desenharBarras(svg, ean13Bits(digitos)); tipo = 'EAN-13';
-      } else if (digitos.length === 12 && digitos === texto){
-        desenharBarras(svg, ean13Bits('0' + digitos)); tipo = 'UPC-A';
-      } else if (digitos.length === 8 && digitos === texto){
-        desenharBarras(svg, ean8Bits(digitos)); tipo = 'EAN-8';
-      } else {
-        desenharBarras(svg, code128Bits(texto)); tipo = 'CODE128';
-      }
-    } catch (e){
-      while (svg.firstChild) svg.removeChild(svg.firstChild);
-      tipo = '';
-    }
+      if (digitos.length === 13 && digitos === texto){ desenharBarras(svg, ean13Bits(digitos)); tipo = 'EAN-13'; }
+      else if (digitos.length === 12 && digitos === texto){ desenharBarras(svg, ean13Bits('0' + digitos)); tipo = 'UPC-A'; }
+      else if (digitos.length === 8 && digitos === texto){ desenharBarras(svg, ean8Bits(digitos)); tipo = 'EAN-8'; }
+      else { desenharBarras(svg, code128Bits(texto)); tipo = 'CODE128'; }
+    } catch(e){ while (svg.firstChild) svg.removeChild(svg.firstChild); tipo = ''; }
     return tipo;
   }
-  // =========================== fim do gerador ===========================
 
-  var state = { items: [], skippedIds: [], busy: false };
+  /* ──────────────────────────────────────────────────
+     State
+  ────────────────────────────────────────────────── */
+  var state = {
+    items: [],
+    skippedIds: [],
+    skippedStack: [],   // stack de ids pulados (para o botão ← Voltar)
+    busy: false,
+    mode: null,         // 'auto' | 'manual'
+    history: [],        // itens confirmados nesta sessão
+    drawerOpen: false,
+
+    // auto timer
+    autoTimer: null,
+    autoStartTime: null,
+    autoItemId: null,
+    autoRaf: null,
+    autoCancelledForItem: null,  // id do item que teve o timer cancelado manualmente
+  };
+
+  var AUTO_DURATION = 5000;
 
   var el = {
+    modeScreen: document.getElementById('modeScreen'),
+    chooseAuto: document.getElementById('chooseAuto'),
+    chooseManual: document.getElementById('chooseManual'),
+    appWrap: document.getElementById('appWrap'),
+    modeToggle: document.getElementById('modeToggle'),
+    histBtn: document.getElementById('histBtn'),
+    histLabel: document.getElementById('histLabel'),
+    drawerOverlay: document.getElementById('drawerOverlay'),
+    histDrawer: document.getElementById('histDrawer'),
+    drawerClose: document.getElementById('drawerClose'),
+    histList: document.getElementById('histList'),
     connDot: document.getElementById('connDot'),
     pendingCount: document.getElementById('pendingCount'),
     scanCard: document.getElementById('scanCard'),
@@ -224,12 +323,18 @@
     priceTag: document.getElementById('priceTag'),
     codeDigits: document.getElementById('codeDigits'),
     codeTipo: document.getElementById('codeTipo'),
+    progressTrack: document.getElementById('progressTrack'),
+    progressBar: document.getElementById('progressBar'),
     confirmBtn: document.getElementById('confirmBtn'),
+    backBtn: document.getElementById('backBtn'),
     skipBtn: document.getElementById('skipBtn'),
     queueList: document.getElementById('queueList'),
     toast: document.getElementById('toast'),
   };
 
+  /* ──────────────────────────────────────────────────
+     Helpers
+  ────────────────────────────────────────────────── */
   function showToast(msg){
     el.toast.textContent = msg;
     el.toast.classList.add('show');
@@ -250,46 +355,179 @@
     return null;
   }
 
+  /* ──────────────────────────────────────────────────
+     Auto timer
+  ────────────────────────────────────────────────── */
+  function stopAutoTimer(){
+    if (state.autoTimer){ clearTimeout(state.autoTimer); state.autoTimer = null; }
+    if (state.autoRaf){ cancelAnimationFrame(state.autoRaf); state.autoRaf = null; }
+    state.autoStartTime = null;
+    state.autoItemId = null;
+    el.progressBar.style.width = '0%';
+    el.progressBar.style.transition = 'none';
+  }
+
+  function tickProgress(){
+    if (!state.autoStartTime) return;
+    var elapsed = Date.now() - state.autoStartTime;
+    var pct = Math.min(100, (elapsed / AUTO_DURATION) * 100);
+    el.progressBar.style.width = pct + '%';
+    var remaining = Math.ceil((AUTO_DURATION - elapsed) / 1000);
+    el.confirmBtn.textContent = 'Confirmando em ' + remaining + 's… (cancelar)';
+    if (elapsed < AUTO_DURATION){
+      state.autoRaf = requestAnimationFrame(tickProgress);
+    }
+  }
+
+  function startAutoTimer(item){
+    stopAutoTimer();
+    if (!item) return;
+    if (state.autoCancelledForItem === item.id) return; // foi cancelado manualmente pra esse item
+    state.autoStartTime = Date.now();
+    state.autoItemId = item.id;
+    el.progressTrack.hidden = false;
+    el.progressBar.style.width = '0%';
+    el.confirmBtn.classList.add('canceling');
+    state.autoRaf = requestAnimationFrame(tickProgress);
+    state.autoTimer = setTimeout(function(){
+      if (state.autoItemId === item.id && !state.busy){
+        stopAutoTimer();
+        el.confirmBtn.classList.remove('canceling');
+        el.confirmBtn.textContent = 'Bipei! Próximo código';
+        markDone();
+      }
+    }, AUTO_DURATION);
+  }
+
+  function cancelAutoTimer(){
+    stopAutoTimer();
+    state.autoCancelledForItem = state.autoItemId || (currentItem() ? currentItem().id : null);
+    el.progressTrack.hidden = true;
+    el.confirmBtn.classList.remove('canceling');
+    el.confirmBtn.textContent = 'Bipei! Próximo código';
+    showToast('Timer cancelado — confirme manualmente');
+  }
+
+  /* ──────────────────────────────────────────────────
+     History drawer
+  ────────────────────────────────────────────────── */
+  function updateHistBtn(){
+    var count = state.history.length;
+    el.histLabel.innerHTML = 'Histórico' + (count > 0 ? ' <span class="history-badge">' + count + '</span>' : '');
+  }
+
+  function renderHistDrawer(){
+    el.histList.innerHTML = '';
+    if (state.history.length === 0){
+      el.histList.innerHTML = '<div class="drawer-empty">Nenhum item confirmado ainda.</div>';
+      return;
+    }
+    state.history.slice().reverse().forEach(function(h){
+      var row = document.createElement('div');
+      row.className = 'hist-row';
+      var top = document.createElement('div'); top.className = 'hist-row-top';
+      var code = document.createElement('span'); code.className = 'hist-code'; code.textContent = h.barcode;
+      var time = document.createElement('span'); time.className = 'hist-time';
+      var d = new Date(h.confirmed_at);
+      time.textContent = d.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+      top.appendChild(code); top.appendChild(time);
+      var name = document.createElement('div'); name.className = 'hist-name';
+      name.textContent = h.product_name || '(sem nome)';
+      var btn = document.createElement('button'); btn.className = 'hist-resend';
+      btn.textContent = '↩ Reenviar à fila';
+      (function(histItem){ btn.addEventListener('click', function(){ reenviarItem(histItem); }); })(h);
+      row.appendChild(top); row.appendChild(name); row.appendChild(btn);
+      el.histList.appendChild(row);
+    });
+  }
+
+  function openDrawer(){
+    state.drawerOpen = true;
+    renderHistDrawer();
+    el.drawerOverlay.classList.add('open');
+    el.histDrawer.classList.add('open');
+  }
+
+  function closeDrawer(){
+    state.drawerOpen = false;
+    el.drawerOverlay.classList.remove('open');
+    el.histDrawer.classList.remove('open');
+  }
+
+  function reenviarItem(h){
+    fetch(SUPABASE_URL + '/rest/v1/barcode_collection?id=eq.' + h.id, {
+      method: 'PATCH',
+      headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, HEADERS),
+      body: JSON.stringify({ status: 'pending', completed_at: null })
+    })
+    .then(function(r){
+      if (!r.ok) throw new Error('http ' + r.status);
+      state.history = state.history.filter(function(i){ return i.id !== h.id; });
+      updateHistBtn();
+      renderHistDrawer();
+      showToast('Código ' + h.barcode + ' reenviado à fila');
+      fetchPending();
+    })
+    .catch(function(){ showToast('Não foi possível reenviar'); });
+  }
+
+  /* ──────────────────────────────────────────────────
+     Render main UI
+  ────────────────────────────────────────────────── */
   function render(){
     el.pendingCount.textContent = state.items.length;
     el.connDot.className = 'conn-dot ok';
-
     var item = currentItem();
+
     if (!item){
       el.scanCard.hidden = true;
       el.emptyState.hidden = false;
+      stopAutoTimer();
+      el.progressTrack.hidden = true;
+      el.confirmBtn.classList.remove('canceling');
+      el.confirmBtn.textContent = 'Bipei! Próximo código';
     } else {
       el.scanCard.hidden = false;
       el.emptyState.hidden = true;
       el.productName.textContent = item.product_name || '';
       var preco = formatarPreco(item.preco_venda);
-      if (preco){
-        el.priceTag.textContent = 'Preço atual: ' + preco;
-        el.priceTag.hidden = false;
-      } else {
-        el.priceTag.hidden = true;
-      }
+      if (preco){ el.priceTag.textContent = 'Preço atual: ' + preco; el.priceTag.hidden = false; }
+      else { el.priceTag.hidden = true; }
       el.codeDigits.textContent = item.barcode;
       el.codeTipo.textContent = renderBarcode(item.barcode);
+
+      // auto mode: start timer if item changed or not yet started for this item
+      if (state.mode === 'auto' && state.autoItemId !== item.id && state.autoCancelledForItem !== item.id){
+        startAutoTimer(item);
+      } else if (state.mode === 'manual'){
+        el.progressTrack.hidden = true;
+        el.confirmBtn.classList.remove('canceling');
+        el.confirmBtn.textContent = 'Bipei! Próximo código';
+      }
     }
 
+    // back button: show only if there's something in the skipped stack
+    el.backBtn.hidden = state.skippedStack.length === 0;
+
+    // queue
     var rest = state.items.filter(function(i){ return !item || i.id !== item.id; }).slice(0, 5);
     el.queueList.innerHTML = '';
     rest.forEach(function(i){
       var row = document.createElement('div');
       row.className = 'queue-row';
       var t = new Date(i.created_at);
-      var span1 = document.createElement('span');
-      span1.className = 'code';
+      var span1 = document.createElement('span'); span1.className = 'code';
       span1.textContent = i.barcode + (i.product_name ? ' · ' + i.product_name : '');
-      var span2 = document.createElement('span');
-      span2.className = 'when';
+      var span2 = document.createElement('span'); span2.className = 'when';
       span2.textContent = t.toLocaleTimeString('pt-BR', {hour:'2-digit',minute:'2-digit'});
       row.appendChild(span1); row.appendChild(span2);
       el.queueList.appendChild(row);
     });
   }
 
+  /* ──────────────────────────────────────────────────
+     Supabase fetch
+  ────────────────────────────────────────────────── */
   function fetchPending(){
     var url = SUPABASE_URL + '/rest/v1/barcode_collection?select=id,barcode,status,product_name,preco_venda,created_at,priority&status=eq.pending&order=priority.desc,created_at.asc&limit=30';
     fetch(url, { headers: HEADERS })
@@ -297,21 +535,34 @@
       .then(function(data){
         var ids = data.map(function(d){ return d.id; });
         state.skippedIds = state.skippedIds.filter(function(id){ return ids.indexOf(id) !== -1; });
+        state.skippedStack = state.skippedStack.filter(function(id){ return ids.indexOf(id) !== -1; });
+
+        var prevItem = currentItem();
         state.items = data;
+        var newItem = currentItem();
+
+        // If the top item changed (new item arrived at front), restart auto timer
+        if (state.mode === 'auto' && newItem && (!prevItem || prevItem.id !== newItem.id)){
+          state.autoCancelledForItem = null; // reset cancel flag when item changes
+          startAutoTimer(newItem);
+        }
+
         render();
       })
-      .catch(function(){
-        el.connDot.className = 'conn-dot err';
-      });
+      .catch(function(){ el.connDot.className = 'conn-dot err'; });
   }
 
+  /* ──────────────────────────────────────────────────
+     Actions
+  ────────────────────────────────────────────────── */
   function markDone(){
     var item = currentItem();
     if (!item || state.busy) return;
     state.busy = true;
     el.confirmBtn.disabled = true;
     el.confirmBtn.textContent = 'Confirmando…';
-
+    stopAutoTimer();
+    el.progressTrack.hidden = true;
     fetch(SUPABASE_URL + '/rest/v1/barcode_collection?id=eq.' + item.id, {
       method: 'PATCH',
       headers: Object.assign({ 'Content-Type': 'application/json', Prefer: 'return=minimal' }, HEADERS),
@@ -320,15 +571,31 @@
     .then(function(r){
       if (!r.ok) throw new Error('http ' + r.status);
       showToast('Código ' + item.barcode + ' concluído');
+      // add to history
+      state.history.push({
+        id: item.id,
+        barcode: item.barcode,
+        product_name: item.product_name || '',
+        confirmed_at: new Date().toISOString()
+      });
+      updateHistBtn();
+      // remove from list
       state.items = state.items.filter(function(i){ return i.id !== item.id; });
+      state.skippedIds = state.skippedIds.filter(function(id){ return id !== item.id; });
+      state.skippedStack = state.skippedStack.filter(function(id){ return id !== item.id; });
+      state.autoCancelledForItem = null;
       render();
+      // auto: start timer for next item
+      if (state.mode === 'auto'){
+        var next = currentItem();
+        if (next) startAutoTimer(next);
+      }
     })
-    .catch(function(){
-      showToast('Não consegui confirmar, tenta de novo');
-    })
+    .catch(function(){ showToast('Não consegui confirmar, tenta de novo'); })
     .finally(function(){
       state.busy = false;
       el.confirmBtn.disabled = false;
+      el.confirmBtn.classList.remove('canceling');
       el.confirmBtn.textContent = 'Bipei! Próximo código';
     });
   }
@@ -336,15 +603,92 @@
   function skipCurrent(){
     var item = currentItem();
     if (!item) return;
-    state.skippedIds.push(item.id);
+    stopAutoTimer();
+    state.autoCancelledForItem = null;
+    if (state.skippedIds.indexOf(item.id) === -1) state.skippedIds.push(item.id);
+    if (state.skippedStack.indexOf(item.id) === -1) state.skippedStack.push(item.id);
+    el.progressTrack.hidden = true;
+    el.confirmBtn.classList.remove('canceling');
+    el.confirmBtn.textContent = 'Bipei! Próximo código';
     render();
+    // start timer for new current item
+    if (state.mode === 'auto'){
+      var next = currentItem();
+      if (next) startAutoTimer(next);
+    }
   }
 
-  el.confirmBtn.addEventListener('click', markDone);
-  el.skipBtn.addEventListener('click', skipCurrent);
+  function goBack(){
+    if (state.skippedStack.length === 0) return;
+    var lastSkipped = state.skippedStack.pop();
+    // remove from skippedIds so it becomes current again
+    state.skippedIds = state.skippedIds.filter(function(id){ return id !== lastSkipped; });
+    // move it to front of items list
+    var found = null;
+    state.items = state.items.filter(function(i){ if (i.id === lastSkipped){ found = i; return false; } return true; });
+    if (found) state.items.unshift(found);
+    stopAutoTimer();
+    state.autoCancelledForItem = null;
+    render();
+    if (state.mode === 'auto'){
+      var next = currentItem();
+      if (next) startAutoTimer(next);
+    }
+  }
 
-  fetchPending();
-  setInterval(fetchPending, 2500);
+  /* ──────────────────────────────────────────────────
+     Mode setup
+  ────────────────────────────────────────────────── */
+  function applyMode(mode){
+    state.mode = mode;
+    el.modeToggle.textContent = 'Modo: ' + (mode === 'auto' ? 'Automático' : 'Manual');
+    if (mode === 'manual'){
+      stopAutoTimer();
+      el.progressTrack.hidden = true;
+      el.confirmBtn.classList.remove('canceling');
+      el.confirmBtn.textContent = 'Bipei! Próximo código';
+      state.autoCancelledForItem = null;
+    } else {
+      state.autoCancelledForItem = null;
+      var item = currentItem();
+      if (item) startAutoTimer(item);
+    }
+  }
+
+  function enterApp(mode){
+    el.modeScreen.hidden = true;
+    el.appWrap.hidden = false;
+    applyMode(mode);
+    fetchPending();
+    setInterval(fetchPending, 2500);
+  }
+
+  /* ──────────────────────────────────────────────────
+     Confirm button — dual behavior
+  ────────────────────────────────────────────────── */
+  el.confirmBtn.addEventListener('click', function(){
+    if (state.mode === 'auto' && state.autoTimer){
+      // timer running — cancel it
+      cancelAutoTimer();
+    } else {
+      markDone();
+    }
+  });
+
+  el.skipBtn.addEventListener('click', skipCurrent);
+  el.backBtn.addEventListener('click', goBack);
+
+  el.chooseAuto.addEventListener('click', function(){ enterApp('auto'); });
+  el.chooseManual.addEventListener('click', function(){ enterApp('manual'); });
+
+  el.modeToggle.addEventListener('click', function(){
+    var newMode = state.mode === 'auto' ? 'manual' : 'auto';
+    applyMode(newMode);
+  });
+
+  el.histBtn.addEventListener('click', openDrawer);
+  el.drawerClose.addEventListener('click', closeDrawer);
+  el.drawerOverlay.addEventListener('click', closeDrawer);
 })();
 </script>
 </body>
