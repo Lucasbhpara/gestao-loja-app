@@ -141,7 +141,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
   const qtdFiltros = caminho.length + (dias !== FAIXA_MAIS_30 ? 1 : 0) + (!soComEstoque ? 1 : 0) + (mostrarOcultos ? 1 : 0);
   const periodoTexto =
     base?.periodoInicio && base.periodoFim
-      ? `Vendas de ${formatarDataCurta(base.periodoInicio)} a ${formatarDataCurta(base.periodoFim)}`
+      ? `Vendas de ${formatarDataCurta(base.periodoInicio)} a ${formatarDataCurta(base.periodoFim)}${base.estoqueData ? ` · estoque de ${formatarDataCurta(base.estoqueData)}` : ''}`
       : 'Sem vendas carregadas';
 
   return (

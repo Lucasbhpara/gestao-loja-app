@@ -3224,17 +3224,26 @@ async function giroCarregarBase(forcar) {
   if (!forcar && estado.giroBase && Date.now() - estado.giroBase.carregadoEm < 600000) return estado.giroBase;
   const [giro, classes, ini, fim] = await Promise.all([
     giroBuscarTudo('giro_produtos', 'codigo_produto,nome_produto,setor,subsetor,categoria,subcategoria,custo_medio,dias_com_venda,ultima_venda,venda_total_periodo', 'codigo_produto'),
-    giroBuscarTudo('produtos_classes', 'codigo_produto,qtd', 'codigo_produto'),
+    giroBuscarTudo('estoque_loja_itens', 'codigo_interno,quantidade,preco_custo,data_planilha', 'id'),
     sb.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: true }).limit(1),
     sb.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: false }).limit(1),
   ]);
   const periodoInicio = (ini.data && ini.data[0] && ini.data[0].data_venda) || null;
   const periodoFim = (fim.data && fim.data[0] && fim.data[0].data_venda) || null;
-  const estoque = new Map(classes.map((c) => [c.codigo_produto, Number(c.qtd || 0)]));
+  // Estoque = o mesmo do "Estoque Loja" (atualizado pelo botão "Atualizar estoque (planilha)").
+  const estoque = new Map();
+  let estoqueData = null;
+  classes.forEach((e) => {
+    const cod = String(e.codigo_interno || '').trim();
+    if (!cod) return;
+    if (e.data_planilha && (!estoqueData || e.data_planilha > estoqueData)) estoqueData = e.data_planilha;
+    if (!estoque.has(cod)) estoque.set(cod, { qtd: Number(e.quantidade || 0), custo: e.preco_custo != null ? Number(e.preco_custo) : null });
+  });
   const limpa = (s, p) => ((s || '').trim() || p);
   const produtos = giro.map((g) => {
-    const est = estoque.get(g.codigo_produto) || 0;
-    const custo = Number(g.custo_medio || 0);
+    const el = estoque.get(g.codigo_produto);
+    const est = el ? el.qtd : 0;
+    const custo = el && el.custo > 0 ? el.custo : Number(g.custo_medio || 0);
     const setor = limpa(g.setor, 'SEM SETOR');
     const subcategoria = limpa(g.subcategoria, 'SEM SUBCATEGORIA');
     const ultima = g.ultima_venda || null;
@@ -3248,7 +3257,7 @@ async function giroCarregarBase(forcar) {
       ocultoPorSetor: GIRO_SETORES_FORA.includes(setor) || GIRO_SUBCAT_FORA.includes(subcategoria),
     };
   });
-  estado.giroBase = { produtos, periodoInicio, periodoFim, carregadoEm: Date.now() };
+  estado.giroBase = { produtos, periodoInicio, periodoFim, estoqueData, carregadoEm: Date.now() };
   return estado.giroBase;
 }
 
@@ -3412,7 +3421,8 @@ function renderizarGiro() {
     '</tbody></table></div>' +
     (produtos.length > f.limite ? '<div style="text-align:center;margin-top:12px;"><button class="btn-acao secundario" onclick="estado.giroFiltro.limite+=200;renderizarGiro()">Mostrar mais (' + (produtos.length - f.limite).toLocaleString('pt-BR') + ' restantes)</button></div>' : '');
 
-  const periodo = base.periodoInicio ? 'Vendas de ' + giroData(base.periodoInicio) + ' a ' + giroData(base.periodoFim) + ' · "dias parado" contados até ' + giroData(base.periodoFim) : 'Nenhuma venda carregada';
+  const periodo = (base.periodoInicio ? 'Vendas de ' + giroData(base.periodoInicio) + ' a ' + giroData(base.periodoFim) : 'Nenhuma venda carregada') +
+    (base.estoqueData ? ' · estoque do Estoque Loja de ' + giroData(base.estoqueData) : '');
   document.getElementById('conteudo-principal').innerHTML =
     cabecalho('Giro de Produtos', periodo) + barra + ativos + painel + resumo + tabela;
 
