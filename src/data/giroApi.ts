@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
+import PAI_FILHO from './paiFilho.json';
 
 // =============================================================================
 // Giro de Produtos — quais produtos estão sem venda ou parados.
@@ -35,7 +36,8 @@ export interface ProdutoGiro {
   ultimaVenda: string | null; // yyyy-mm-dd
   diasParado: number | null; // null = sem nenhuma venda no período
   vendaPeriodo: number;
-  ocultoPorSetor: boolean; // setor/subcategoria que nunca é de venda (insumo, embalagem)
+  ocultoPorSetor: boolean;
+  ajustePaiFilho?: string; // texto curto quando o estoque foi corrigido pela regra pai/filho // setor/subcategoria que nunca é de venda (insumo, embalagem)
 }
 
 export interface BaseGiro {
@@ -122,6 +124,22 @@ export async function carregarBaseGiro(forcar = false): Promise<BaseGiro> {
     }
   }
 
+  // Códigos pai e filho (aprovados na planilha de correção de 09/10): o pai é
+  // o código que entra na nota e o filho o que é vendido. Enquanto o acerto não
+  // é lançado no sistema da loja, o Giro "transfere" do pai para o filho o que
+  // falta para zerar o negativo do filho (1 un filho = fator un do pai).
+  const ajustes = new Map<string, string>();
+  for (const [pai, filho, fator] of PAI_FILHO as [string, string, number][]) {
+    const ep = estoquePorCodigo.get(pai);
+    const ef = estoquePorCodigo.get(filho);
+    if (!ep || !ef || ef.qtd >= 0 || ep.qtd <= 0 || !(fator > 0)) continue;
+    const lanca = Math.min(-ef.qtd, ep.qtd / fator);
+    ef.qtd += lanca;
+    ep.qtd -= lanca * fator;
+    ajustes.set(pai, 'estoque ajustado pelos códigos filhos');
+    ajustes.set(filho, 'estoque ajustado pelo código pai');
+  }
+
   const produtos: ProdutoGiro[] = giro.map((g) => {
     const el = estoquePorCodigo.get(g.codigo_produto);
     const estoque = el?.qtd ?? 0;
@@ -146,6 +164,23 @@ export async function carregarBaseGiro(forcar = false): Promise<BaseGiro> {
       ocultoPorSetor: SETORES_FORA_DE_VENDA.includes(setor) || SUBCATEGORIAS_FORA_DE_VENDA.includes(subcategoria),
     };
   });
+
+  // O pai "vende" através dos filhos: herda a última venda deles.
+  const porCodigo = new Map(produtos.map((p) => [p.codigo, p]));
+  for (const [pai, filho] of PAI_FILHO as [string, string, number][]) {
+    const p = porCodigo.get(pai);
+    const f = porCodigo.get(filho);
+    if (!p || !f) continue;
+    if (f.ultimaVenda && (!p.ultimaVenda || f.ultimaVenda > p.ultimaVenda)) {
+      p.ultimaVenda = f.ultimaVenda;
+      p.diasParado = periodoFim ? diasEntre(f.ultimaVenda, periodoFim) : null;
+    }
+    p.diasComVenda = Math.max(p.diasComVenda, f.diasComVenda);
+  }
+  for (const p of produtos) {
+    const a = ajustes.get(p.codigo);
+    if (a) p.ajustePaiFilho = a;
+  }
 
   cache = { produtos, periodoInicio, periodoFim, estoqueData, carregadoEm: Date.now() };
   return cache;
