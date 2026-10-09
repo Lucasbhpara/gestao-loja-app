@@ -32,6 +32,8 @@ import PrecificacaoScreen from './PrecificacaoScreen';
 // demais administradores. Identificado pela matrícula (e não pelo id),
 // porque o id muda de formato ao migrar para o Supabase.
 const MATRICULA_DONO_DA_ABA_IA = '7990353';
+// Giro de Produtos: por enquanto só Lucas e Rodrigo.
+const MATRICULAS_GIRO = ['7990353', '9728010'];
 
 export default function HomeAdminScreen() {
   const { usuarioAtual, logout, usandoNuvem } = useAuth();
@@ -287,8 +289,8 @@ export default function HomeAdminScreen() {
             { label: 'Painel Resultados', icone: 'bar-chart-2' as const, onPress: () => setTela('painelResultados') },
             { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },
             // Produtos sem venda / parados, por setor → subcategoria.
-            // Por enquanto só o Lucas vê (fase de teste) — pra liberar pros
-            // demais admins, é só tirar o filtro "somenteDono" logo abaixo.
+            // Por enquanto só Lucas e Rodrigo (MATRICULAS_GIRO) — pra liberar
+            // pros demais admins, é só tirar o "somenteDono".
             { label: 'Giro de Produtos', icone: 'refresh-cw' as const, onPress: () => setTela('giro'), somenteDono: true },
             { label: 'Mapa da Loja', icone: 'map' as const, onPress: () => setTela('mapaLoja') },
             { label: 'Pontas e Pontos Extras', icone: 'layers' as const, onPress: () => setTela('pontasExtras') },
@@ -297,7 +299,7 @@ export default function HomeAdminScreen() {
             // qualquer tela, então essa aba ficava redundante.
             { label: 'Sobre', icone: 'info' as const, onPress: () => setTela('sobre') },
           ]
-            .filter((acao: { somenteDono?: boolean }) => !acao.somenteDono || usuarioAtual.matricula === MATRICULA_DONO_DA_ABA_IA)
+            .filter((acao: { somenteDono?: boolean }) => !acao.somenteDono || MATRICULAS_GIRO.includes(String(usuarioAtual.matricula)))
             .map((acao) => (
             <TouchableOpacity key={acao.label} style={styles.tile} onPress={acao.onPress} disabled={!acao.onPress}>
               <View style={styles.tileDot}>
