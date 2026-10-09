@@ -524,6 +524,7 @@
         <button class="nav-item" data-pagina="vendas" onclick="irPara('vendas')"><span class="dot"></span>Vendas</button>
         <button class="nav-item" data-pagina="vendas-comparativo" onclick="irPara('vendas-comparativo')"><span class="dot"></span>Comparativo de Vendas</button>
         <button class="nav-item" id="nav-giro-produtos" style="display:none" data-pagina="giro-produtos" onclick="irPara('giro-produtos')"><span class="dot"></span>🔄 Giro de Produtos</button>
+        <button class="nav-item" id="nav-importar-vendas" style="display:none" data-pagina="importar-vendas" onclick="irPara('importar-vendas')"><span class="dot"></span>📥 Importar vendas (Falcon)</button>
         <button class="nav-item" data-pagina="painel-resultados" onclick="irPara('painel-resultados')"><span class="dot"></span>Painel Resultados</button>
         <button class="nav-item" data-pagina="conferencias" onclick="irPara('conferencias')"><span class="dot"></span>Conferência (FLV)</button>
         <button class="nav-item" data-pagina="inventario" onclick="irPara('inventario')"><span class="dot"></span>Inventário</button>
@@ -750,6 +751,7 @@ async function fazerLogin() {
     document.getElementById('sidebar-funcao').textContent = encontrado.funcao;
     // Giro de Produtos: por enquanto só o Lucas (fase de teste).
     document.getElementById('nav-giro-produtos').style.display = encontrado.matricula === '7990353' ? '' : 'none';
+    document.getElementById('nav-importar-vendas').style.display = encontrado.matricula === '7990353' ? '' : 'none';
     irPara('equipe');
   } catch (e) {
     erroBox.innerHTML = '<div class="login-erro">Não consegui conectar: ' + (e.message || 'tenta de novo.') + '</div>';
@@ -779,7 +781,7 @@ function iniciais(nome) {
 const GAVETA_POR_PAGINA = {
   equipe: 'colaboradores', escala: 'colaboradores',
   avisos: 'avisos', ocorrencias: 'avisos',
-  perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'painel-resultados': 'indicadores',
+  perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
   pedidos: 'operacao', 'estoque-loja': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'operacao', 'pontas-extras': 'operacao',
 };
@@ -825,6 +827,7 @@ async function irPara(pagina) {
     else if (pagina === 'vendas') await paginaVendas();
     else if (pagina === 'vendas-comparativo') await paginaVendasComparativo();
     else if (pagina === 'giro-produtos') await paginaGiroProdutos();
+    else if (pagina === 'importar-vendas') await paginaImportarVendas();
     else if (pagina === 'painel-resultados') await paginaPainelResultados();
     else if (pagina === 'acessos') await paginaAcessos();
     else if (pagina === 'mapa-loja') await paginaMapaLoja();
@@ -3221,17 +3224,26 @@ async function giroCarregarBase(forcar) {
   if (!forcar && estado.giroBase && Date.now() - estado.giroBase.carregadoEm < 600000) return estado.giroBase;
   const [giro, classes, ini, fim] = await Promise.all([
     giroBuscarTudo('giro_produtos', 'codigo_produto,nome_produto,setor,subsetor,categoria,subcategoria,custo_medio,dias_com_venda,ultima_venda,venda_total_periodo', 'codigo_produto'),
-    giroBuscarTudo('produtos_classes', 'codigo_produto,qtd', 'codigo_produto'),
+    giroBuscarTudo('estoque_loja_itens', 'codigo_interno,quantidade,preco_custo,data_planilha', 'id'),
     sb.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: true }).limit(1),
     sb.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: false }).limit(1),
   ]);
   const periodoInicio = (ini.data && ini.data[0] && ini.data[0].data_venda) || null;
   const periodoFim = (fim.data && fim.data[0] && fim.data[0].data_venda) || null;
-  const estoque = new Map(classes.map((c) => [c.codigo_produto, Number(c.qtd || 0)]));
+  // Estoque = o mesmo do "Estoque Loja" (atualizado pelo botão "Atualizar estoque (planilha)").
+  const estoque = new Map();
+  let estoqueData = null;
+  classes.forEach((e) => {
+    const cod = String(e.codigo_interno || '').trim();
+    if (!cod) return;
+    if (e.data_planilha && (!estoqueData || e.data_planilha > estoqueData)) estoqueData = e.data_planilha;
+    if (!estoque.has(cod)) estoque.set(cod, { qtd: Number(e.quantidade || 0), custo: e.preco_custo != null ? Number(e.preco_custo) : null });
+  });
   const limpa = (s, p) => ((s || '').trim() || p);
   const produtos = giro.map((g) => {
-    const est = estoque.get(g.codigo_produto) || 0;
-    const custo = Number(g.custo_medio || 0);
+    const el = estoque.get(g.codigo_produto);
+    const est = el ? el.qtd : 0;
+    const custo = el && el.custo > 0 ? el.custo : Number(g.custo_medio || 0);
     const setor = limpa(g.setor, 'SEM SETOR');
     const subcategoria = limpa(g.subcategoria, 'SEM SUBCATEGORIA');
     const ultima = g.ultima_venda || null;
@@ -3245,7 +3257,7 @@ async function giroCarregarBase(forcar) {
       ocultoPorSetor: GIRO_SETORES_FORA.includes(setor) || GIRO_SUBCAT_FORA.includes(subcategoria),
     };
   });
-  estado.giroBase = { produtos, periodoInicio, periodoFim, carregadoEm: Date.now() };
+  estado.giroBase = { produtos, periodoInicio, periodoFim, estoqueData, carregadoEm: Date.now() };
   return estado.giroBase;
 }
 
@@ -3258,7 +3270,10 @@ function giroDiasSemVenda(p) {
   return total ? total + '+' : '—';
 }
 
-function giroProblema(p, dias) { return p.ultimaVenda === null || (p.diasParado !== null && p.diasParado >= dias); }
+// Faixas de dias sem venda: 7/14/30 = "até N dias" (1..N); 31 = mais de 30 (inclui sem venda no período).
+const GIRO_FAIXAS = [[7, 'Até 7 dias sem venda'], [14, 'Até 14 dias sem venda'], [30, 'Até 30 dias sem venda'], [31, 'Mais de 30 dias (inclui sem venda)']];
+function giroParado(p, dias) { return p.diasParado !== null && (dias >= 31 ? p.diasParado > 30 : p.diasParado >= 1 && p.diasParado <= dias); }
+function giroProblema(p, dias) { return (dias >= 31 && p.ultimaVenda === null) || giroParado(p, dias); }
 
 function giroFiltrados() {
   const f = estado.giroFiltro;
@@ -3275,8 +3290,8 @@ function giroResumir(lista, dias, grupo) {
   const r = { grupo: grupo || 'TOTAL', produtos: 0, semVenda: 0, parados: 0, custoParado: 0, venda: 0 };
   lista.forEach((p) => {
     r.produtos++; r.venda += p.vendaPeriodo;
-    if (p.ultimaVenda === null) r.semVenda++;
-    else if (p.diasParado >= dias) r.parados++;
+    if (p.ultimaVenda === null) { if (dias >= 31) r.semVenda++; }
+    else if (giroParado(p, dias)) r.parados++;
     if (giroProblema(p, dias)) r.custoParado += p.custoEstoque;
   });
   return r;
@@ -3304,7 +3319,8 @@ async function paginaGiroProdutos() {
     document.getElementById('conteudo-principal').innerHTML = cabecalho('Giro de Produtos', '') + '<div class="celula-vazio">Página em teste — ainda não liberada.</div>';
     return;
   }
-  estado.giroFiltro = estado.giroFiltro || { caminho: [], dias: 15, soComEstoque: true, mostrarOcultos: false, busca: '', limite: 100, crescente: false, painel: false };
+  estado.giroFiltro = estado.giroFiltro || { caminho: [], dias: 31, soComEstoque: true, mostrarOcultos: false, busca: '', limite: 100, crescente: false, painel: false };
+  if (![7, 14, 30, 31].includes(estado.giroFiltro.dias)) estado.giroFiltro.dias = 31;
   estado.giroOcultos = giroLerOcultos();
   const el = document.getElementById('conteudo-principal');
   el.innerHTML = cabecalho('Giro de Produtos', 'Produtos sem venda ou parados, do maior estoque para o menor') +
@@ -3323,7 +3339,7 @@ function renderizarGiro() {
   const f = estado.giroFiltro;
   const lista = giroFiltrados();
   const r = giroResumir(lista, f.dias);
-  const qtdFiltros = f.caminho.length + (f.dias !== 15 ? 1 : 0) + (!f.soComEstoque ? 1 : 0) + (f.mostrarOcultos ? 1 : 0);
+  const qtdFiltros = f.caminho.length + (f.dias !== 31 ? 1 : 0) + (!f.soComEstoque ? 1 : 0) + (f.mostrarOcultos ? 1 : 0);
   const chip = (txt, ativo, onclick, extra) => '<button class="pill' + (ativo ? ' admin' : '') + '" style="cursor:pointer;margin:0;gap:6px;' + (extra || '') + '" onclick="' + onclick + '">' + txt + '</button>';
 
   // Barra: busca + Filtro + Limpar + ordem
@@ -3340,7 +3356,7 @@ function renderizarGiro() {
   // Filtros ativos
   const ativos = !qtdFiltros ? '' : '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:14px;">' +
     f.caminho.map((c, i) => chip('<span style="opacity:.75;">' + GIRO_ROTULO[GIRO_NIVEIS[i]] + ':</span> ' + giroEsc(giroNome(c)) + ' ✕', true, 'giroRemoverNivel(' + i + ')')).join('') +
-    (f.dias !== 15 ? chip('Parado ' + f.dias + '+ dias', true, 'estado.giroFiltro.painel=true;renderizarGiro()') : '') +
+    (f.dias !== 31 ? chip(GIRO_FAIXAS.find((x) => x[0] === f.dias)[1], true, 'estado.giroFiltro.painel=true;renderizarGiro()') : '') +
     (!f.soComEstoque ? chip('Inclui sem estoque', true, 'estado.giroFiltro.painel=true;renderizarGiro()') : '') +
     (f.mostrarOcultos ? chip('Mostrando ocultos', true, 'estado.giroFiltro.painel=true;renderizarGiro()') : '') +
     '</div>';
@@ -3366,8 +3382,8 @@ function renderizarGiro() {
     }
     painel = '<div class="item-card" style="margin-bottom:18px;">' + niveis +
       '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;border-top:1px solid var(--border);padding-top:12px;">' +
-        '<label style="font-size:12.5px;color:var(--text-secondary);">Parado há pelo menos <select class="select-filtro" style="padding:7px 10px;" onchange="estado.giroFiltro.dias=Number(this.value);estado.giroFiltro.limite=100;renderizarGiro()">' +
-          [7, 15, 30].map((d) => '<option value="' + d + '"' + (f.dias === d ? ' selected' : '') + '>' + d + ' dias</option>').join('') + '</select></label>' +
+        '<label style="font-size:12.5px;color:var(--text-secondary);">Dias sem venda <select class="select-filtro" style="padding:7px 10px;" onchange="estado.giroFiltro.dias=Number(this.value);estado.giroFiltro.limite=100;renderizarGiro()">' +
+          GIRO_FAIXAS.map((x) => '<option value="' + x[0] + '"' + (f.dias === x[0] ? ' selected' : '') + '>' + x[1] + '</option>').join('') + '</select></label>' +
         '<label class="pill" style="cursor:pointer;margin:0;gap:6px;"><input type="checkbox"' + (f.soComEstoque ? ' checked' : '') + ' onchange="estado.giroFiltro.soComEstoque=this.checked;renderizarGiro()"> Só com estoque</label>' +
         '<label class="pill" style="cursor:pointer;margin:0;gap:6px;"><input type="checkbox"' + (f.mostrarOcultos ? ' checked' : '') + ' onchange="estado.giroFiltro.mostrarOcultos=this.checked;renderizarGiro()"> Mostrar ocultos</label>' +
         '<button class="btn-acao" style="margin-left:auto;" onclick="estado.giroFiltro.painel=false;renderizarGiro()">Ver produtos</button>' +
@@ -3376,7 +3392,7 @@ function renderizarGiro() {
 
   const resumo = '<div class="resumo-perdas">' +
     '<div class="box"><div class="rotulo">Sem nenhuma venda</div><div class="valor" style="color:var(--red);">' + r.semVenda.toLocaleString('pt-BR') + '</div></div>' +
-    '<div class="box"><div class="rotulo">Parados ' + f.dias + '+ dias</div><div class="valor" style="color:var(--orange);">' + r.parados.toLocaleString('pt-BR') + '</div></div>' +
+    '<div class="box"><div class="rotulo">' + (f.dias >= 31 ? 'Parados há mais de 30 dias' : 'Até ' + f.dias + ' dias sem venda') + '</div><div class="valor" style="color:var(--orange);">' + r.parados.toLocaleString('pt-BR') + '</div></div>' +
     '<div class="box"><div class="rotulo">Estoque parado (custo)</div><div class="valor">' + giroReais(r.custoParado) + '</div></div>' +
     '</div>';
 
@@ -3397,7 +3413,7 @@ function renderizarGiro() {
     '</tr>';
   }).join('');
   const tabela =
-    '<h3 style="font-size:15px;margin:0 0 10px;">' + produtos.length.toLocaleString('pt-BR') + ' produtos sem venda ou parados</h3>' +
+    '<h3 style="font-size:15px;margin:0 0 10px;">' + produtos.length.toLocaleString('pt-BR') + ' produtos · ' + (f.dias >= 31 ? 'mais de 30 dias sem venda (inclui sem venda no período)' : 'até ' + f.dias + ' dias sem venda') + '</h3>' +
     '<div class="tabela-wrap"><table><thead><tr><th>Situação</th><th>Produto</th>' +
     '<th style="text-align:right;cursor:pointer;user-select:none;" onclick="giroInverter()" title="Inverter ordem">Estoque ' + (f.crescente ? '▲' : '▼') + '</th>' +
     '<th style="text-align:right;">Última venda</th><th style="text-align:right;">Dias sem venda</th><th style="text-align:right;">Estoque parado</th><th></th></tr></thead><tbody>' +
@@ -3405,7 +3421,8 @@ function renderizarGiro() {
     '</tbody></table></div>' +
     (produtos.length > f.limite ? '<div style="text-align:center;margin-top:12px;"><button class="btn-acao secundario" onclick="estado.giroFiltro.limite+=200;renderizarGiro()">Mostrar mais (' + (produtos.length - f.limite).toLocaleString('pt-BR') + ' restantes)</button></div>' : '');
 
-  const periodo = base.periodoInicio ? 'Vendas de ' + giroData(base.periodoInicio) + ' a ' + giroData(base.periodoFim) + ' · "dias parado" contados até ' + giroData(base.periodoFim) : 'Nenhuma venda carregada';
+  const periodo = (base.periodoInicio ? 'Vendas de ' + giroData(base.periodoInicio) + ' a ' + giroData(base.periodoFim) : 'Nenhuma venda carregada') +
+    (base.estoqueData ? ' · estoque do Estoque Loja de ' + giroData(base.estoqueData) : '');
   document.getElementById('conteudo-principal').innerHTML =
     cabecalho('Giro de Produtos', periodo) + barra + ativos + painel + resumo + tabela;
 
@@ -3423,7 +3440,7 @@ function giroEscolher(i, j) {
 function giroRemoverNivel(i) { estado.giroFiltro.caminho = estado.giroFiltro.caminho.slice(0, i); estado.giroFiltro.limite = 100; renderizarGiro(); }
 function giroInverter() { estado.giroFiltro.crescente = !estado.giroFiltro.crescente; renderizarGiro(); }
 function giroLimpar() {
-  Object.assign(estado.giroFiltro, { caminho: [], dias: 15, soComEstoque: true, mostrarOcultos: false, busca: '', limite: 100 });
+  Object.assign(estado.giroFiltro, { caminho: [], dias: 31, soComEstoque: true, mostrarOcultos: false, busca: '', limite: 100 });
   renderizarGiro();
 }
 function giroBuscar(v) {
@@ -3459,6 +3476,190 @@ function giroExportar() {
   XLSX.utils.book_append_sheet(wb, ws, 'Giro');
   const sufixo = f.caminho.length ? '_' + f.caminho[f.caminho.length - 1].replace(/[^A-Za-z0-9]+/g, '-').toLowerCase() : '';
   XLSX.writeFile(wb, 'giro_produtos' + sufixo + '_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+}
+
+// =============================================================================
+// Importar vendas (Falcon) — lê a planilha "produto × dia" exportada do Falcon
+// direto no navegador e grava em vendas_diarias (upsert por produto+dia), em
+// lotes de 1000. Não passa pelo Claude, não gasta crédito nenhum.
+// Formato esperado: uma linha por produto (coluna com o código), uma coluna
+// por dia (datas no cabeçalho), valor de venda em R$ nas células (vazio = 0).
+// =============================================================================
+function impNumero(v) {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return v;
+  let s = String(v).trim().replace(/[R$\s]/g, '');
+  if (!s || s === '-') return 0;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
+  const n = Number(s);
+  return isFinite(n) ? n : 0;
+}
+function impData(v, anoPadrao) {
+  if (v instanceof Date && !isNaN(v)) return v.getFullYear() + '-' + String(v.getMonth() + 1).padStart(2, '0') + '-' + String(v.getDate()).padStart(2, '0');
+  if (typeof v === 'number' && v > 40000 && v < 60000) {
+    const d = new Date(Math.round((v - 25569) * 86400000));
+    return d.getUTCFullYear() + '-' + String(d.getUTCMonth() + 1).padStart(2, '0') + '-' + String(d.getUTCDate()).padStart(2, '0');
+  }
+  const m = String(v == null ? '' : v).trim().match(/^(\d{1,2})[\/\-.](\d{1,2})(?:[\/\-.](\d{2,4}))?/);
+  if (!m) return null;
+  let ano = m[3] ? Number(m[3]) : anoPadrao;
+  if (ano < 100) ano += 2000;
+  const dia = Number(m[1]), mes = Number(m[2]);
+  if (mes < 1 || mes > 12 || dia < 1 || dia > 31) return null;
+  return ano + '-' + String(mes).padStart(2, '0') + '-' + String(dia).padStart(2, '0');
+}
+function impCodigo(v) {
+  const m = String(v == null ? '' : v).trim().match(/^0*(\d{2,})/);
+  return m ? m[1] : null;
+}
+
+function impAnalisar(linhas) {
+  const anoPadrao = new Date().getFullYear();
+  // Cabeçalho = primeira linha (entre as 30 primeiras) com 3+ células que são datas.
+  let iCab = -1, colsData = [];
+  for (let i = 0; i < Math.min(linhas.length, 30); i++) {
+    const cols = [];
+    (linhas[i] || []).forEach((c, j) => { const d = impData(c, anoPadrao); if (d) cols.push({ j, data: d }); });
+    if (cols.length >= 3) { iCab = i; colsData = cols; break; }
+  }
+  if (iCab < 0) throw new Error('Não achei a linha com as datas (cabeçalho). Confira se a planilha tem uma coluna por dia.');
+  const colunasDeData = new Set(colsData.map((c) => c.j));
+  // Coluna do código: a que mais tem códigos numéricos nas linhas de dados.
+  const amostra = linhas.slice(iCab + 1, iCab + 200);
+  let melhor = -1, melhorQtd = 0;
+  const larg = Math.max(...linhas.slice(iCab, iCab + 50).map((l) => (l || []).length));
+  for (let j = 0; j < larg; j++) {
+    if (colunasDeData.has(j)) continue;
+    const qtd = amostra.filter((l) => impCodigo((l || [])[j])).length;
+    if (qtd > melhorQtd) { melhorQtd = qtd; melhor = j; }
+  }
+  if (melhor < 0) throw new Error('Não achei a coluna com o código do produto.');
+  const registros = new Map();
+  const produtos = new Set();
+  let total = 0;
+  for (let i = iCab + 1; i < linhas.length; i++) {
+    const l = linhas[i] || [];
+    const cod = impCodigo(l[melhor]);
+    if (!cod) continue;
+    produtos.add(cod);
+    colsData.forEach(({ j, data }) => {
+      const v = impNumero(l[j]);
+      if (v > 0) {
+        const k = cod + '|' + data;
+        registros.set(k, { codigo_produto: cod, data_venda: data, venda_valor: Math.round(((registros.get(k)?.venda_valor || 0) + v) * 100) / 100 });
+        total += v;
+      }
+    });
+  }
+  const datas = colsData.map((c) => c.data).sort();
+  return {
+    registros: [...registros.values()], produtos: produtos.size, total,
+    dataIni: datas[0], dataFim: datas[datas.length - 1], dias: new Set(datas).size,
+    colunaCodigo: (linhas[iCab] || [])[melhor] || ('coluna ' + (melhor + 1)),
+  };
+}
+
+async function paginaImportarVendas() {
+  if (!estado.usuario || estado.usuario.matricula !== '7990353') {
+    document.getElementById('conteudo-principal').innerHTML = cabecalho('Importar vendas (Falcon)', '') + '<div class="celula-vazio">Página em teste — ainda não liberada.</div>';
+    return;
+  }
+  estado.impAnalise = null;
+  const el = document.getElementById('conteudo-principal');
+  el.innerHTML = cabecalho('Importar vendas (Falcon)', 'Venda por produto e por dia — alimenta o Giro de Produtos') +
+    '<div id="imp-situacao" class="item-card" style="margin-bottom:16px;"><div class="carregando">Conferindo o que já está no banco…</div></div>' +
+    '<div class="item-card" style="margin-bottom:16px;">' +
+      '<div style="font-size:14px;font-weight:700;margin-bottom:8px;">1. Exporte do Falcon</div>' +
+      '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">Relatório de venda da loja com <b>PRODUTO</b> nas linhas e <b>Análise temporal → Dia</b> nas colunas, medida <b>VENDA (R$)</b>. Exporte em Excel (.xlsx). Pode ser o mesmo período de antes — o que já existe é atualizado, sem duplicar.</div>' +
+      '<div style="font-size:14px;font-weight:700;margin:16px 0 8px;">2. Escolha o arquivo</div>' +
+      '<input type="file" id="imp-arquivo" accept=".xlsx,.xls,.csv" onchange="impLerArquivo(this)" />' +
+      '<div id="imp-previa" style="margin-top:16px;"></div>' +
+    '</div>';
+  impMostrarSituacao();
+}
+
+async function impMostrarSituacao() {
+  const box = document.getElementById('imp-situacao');
+  try {
+    const [ini, fim, cont] = await Promise.all([
+      sb.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: true }).limit(1),
+      sb.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: false }).limit(1),
+      sb.from('vendas_diarias').select('id', { count: 'exact', head: true }),
+    ]);
+    const di = ini.data && ini.data[0] ? ini.data[0].data_venda : null;
+    const df = fim.data && fim.data[0] ? fim.data[0].data_venda : null;
+    box.innerHTML = '<div style="font-size:13px;"><b>No banco hoje:</b> ' + (cont.count || 0).toLocaleString('pt-BR') + ' registros de venda' +
+      (di ? ' · de ' + giroData(di) + '/' + di.slice(0, 4) + ' a ' + giroData(df) + '/' + df.slice(0, 4) : '') + '</div>';
+  } catch (e) {
+    box.innerHTML = '<div style="font-size:13px;color:var(--red);">Não consegui consultar o banco: ' + giroEsc(e.message || '') + '</div>';
+  }
+}
+
+function impLerArquivo(input) {
+  const arquivo = input.files && input.files[0];
+  const previa = document.getElementById('imp-previa');
+  if (!arquivo) return;
+  previa.innerHTML = '<div class="carregando">Lendo a planilha no seu computador…</div>';
+  const leitor = new FileReader();
+  leitor.onload = (ev) => {
+    try {
+      const livro = XLSX.read(new Uint8Array(ev.target.result), { type: 'array', cellDates: true });
+      const folha = livro.Sheets[livro.SheetNames[0]];
+      const linhas = XLSX.utils.sheet_to_json(folha, { header: 1, raw: true, defval: null });
+      const a = impAnalisar(linhas);
+      estado.impAnalise = a;
+      if (!a.registros.length) throw new Error('A planilha não tem nenhuma venda maior que zero.');
+      previa.innerHTML =
+        '<div class="resumo-perdas">' +
+          '<div class="box"><div class="rotulo">Produtos</div><div class="valor">' + a.produtos.toLocaleString('pt-BR') + '</div></div>' +
+          '<div class="box"><div class="rotulo">Dias</div><div class="valor">' + a.dias + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + giroData(a.dataIni) + ' a ' + giroData(a.dataFim) + '</div></div>' +
+          '<div class="box"><div class="rotulo">Vendas (produto × dia)</div><div class="valor">' + a.registros.length.toLocaleString('pt-BR') + '</div></div>' +
+          '<div class="box"><div class="rotulo">Total vendido</div><div class="valor">' + giroReais(a.total) + '</div></div>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--text-muted);margin:-8px 0 14px;">Código do produto lido da coluna “' + giroEsc(a.colunaCodigo) + '”. Confira se os números batem com o Falcon antes de importar.</div>' +
+        '<button class="btn-acao" id="imp-botao" onclick="impGravar()">3. Importar ' + a.registros.length.toLocaleString('pt-BR') + ' registros</button>' +
+        '<div id="imp-progresso" style="margin-top:14px;"></div>';
+    } catch (e) {
+      estado.impAnalise = null;
+      previa.innerHTML = '<div class="celula-vazio" style="text-align:left;color:var(--red);">' + giroEsc(e.message || 'Não consegui ler a planilha.') + '</div>';
+    }
+  };
+  leitor.readAsArrayBuffer(arquivo);
+}
+
+async function impGravar() {
+  const a = estado.impAnalise;
+  if (!a) return;
+  const botao = document.getElementById('imp-botao');
+  const prog = document.getElementById('imp-progresso');
+  botao.disabled = true;
+  const LOTE = 1000;
+  const agora = new Date().toISOString();
+  let feitos = 0, falhas = 0, ultimoErro = '';
+  const total = a.registros.length;
+  const desenhar = () => {
+    const pct = Math.round((feitos / total) * 100);
+    prog.innerHTML = '<div style="height:10px;border-radius:9px;background:var(--border);overflow:hidden;"><div style="height:10px;width:' + pct + '%;background:var(--green);"></div></div>' +
+      '<div style="font-size:12.5px;margin-top:6px;">' + feitos.toLocaleString('pt-BR') + ' de ' + total.toLocaleString('pt-BR') + ' (' + pct + '%)' + (falhas ? ' · <span style="color:var(--red);">' + falhas + ' com erro</span>' : '') + '</div>';
+  };
+  desenhar();
+  for (let i = 0; i < total; i += LOTE) {
+    const lote = a.registros.slice(i, i + LOTE).map((r) => Object.assign({ atualizado_em: agora }, r));
+    let ok = false;
+    for (let tentativa = 0; tentativa < 3 && !ok; tentativa++) {
+      const { error } = await sb.from('vendas_diarias').upsert(lote, { onConflict: 'codigo_produto,data_venda' });
+      if (!error) ok = true; else { ultimoErro = error.message; await new Promise((r) => setTimeout(r, 1500)); }
+    }
+    if (ok) feitos += lote.length; else falhas += lote.length;
+    desenhar();
+  }
+  estado.giroBase = null; // o Giro recarrega com as vendas novas
+  botao.disabled = false;
+  prog.innerHTML += falhas
+    ? '<div style="color:var(--red);font-size:13px;margin-top:8px;">' + falhas.toLocaleString('pt-BR') + ' registros não subiram (' + giroEsc(ultimoErro) + '). Clique em Importar de novo — o que já subiu não duplica.</div>'
+    : '<div style="color:var(--green);font-size:13px;margin-top:8px;font-weight:700;">✔ Pronto! Vendas importadas. O Giro de Produtos já usa os dados novos.</div>';
+  mostrarToast(falhas ? 'Importação com falhas — tente de novo.' : 'Vendas importadas.', falhas ? 'erro' : 'sucesso');
+  impMostrarSituacao();
 }
 
 async function exportarVendasTudo() {

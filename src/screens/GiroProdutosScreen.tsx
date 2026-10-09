@@ -15,6 +15,9 @@ import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
 import {
   BaseGiro,
+  FAIXAS,
+  FAIXA_MAIS_30,
+  rotuloFaixa,
   NIVEIS,
   ROTULO_NIVEL,
   ProdutoGiro,
@@ -38,7 +41,6 @@ import {
 // maior estoque pro menor. O botão "Filtro" vai afunilando: setor → subsetor
 // → categoria → subcategoria (cada escolha libera o próximo nível). Seta pra
 // inverter a ordem do estoque e "Limpar filtro" pra voltar a ver tudo.
-const OPCOES_DIAS = [7, 15, 30];
 const POR_PAGINA = 40;
 
 export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void }) {
@@ -48,7 +50,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
   const [erro, setErro] = useState<string | null>(null);
 
   const [caminho, setCaminho] = useState<string[]>([]);
-  const [dias, setDias] = useState(15);
+  const [dias, setDias] = useState(FAIXA_MAIS_30);
   const [soComEstoque, setSoComEstoque] = useState(true);
   const [mostrarOcultos, setMostrarOcultos] = useState(false);
   const [ocultos, setOcultos] = useState<Set<string>>(new Set());
@@ -95,7 +97,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
   function limparFiltro() {
     setCaminho([]);
     setBusca('');
-    setDias(15);
+    setDias(FAIXA_MAIS_30);
     setSoComEstoque(true);
     setMostrarOcultos(false);
     setLimite(POR_PAGINA);
@@ -136,10 +138,10 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
     return out;
   }, [semCaminho, caminho, dias]);
 
-  const qtdFiltros = caminho.length + (dias !== 15 ? 1 : 0) + (!soComEstoque ? 1 : 0) + (mostrarOcultos ? 1 : 0);
+  const qtdFiltros = caminho.length + (dias !== FAIXA_MAIS_30 ? 1 : 0) + (!soComEstoque ? 1 : 0) + (mostrarOcultos ? 1 : 0);
   const periodoTexto =
     base?.periodoInicio && base.periodoFim
-      ? `Vendas de ${formatarDataCurta(base.periodoInicio)} a ${formatarDataCurta(base.periodoFim)}`
+      ? `Vendas de ${formatarDataCurta(base.periodoInicio)} a ${formatarDataCurta(base.periodoFim)}${base.estoqueData ? ` · estoque de ${formatarDataCurta(base.estoqueData)}` : ''}`
       : 'Sem vendas carregadas';
 
   return (
@@ -217,9 +219,9 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                     <Feather name="x" size={12} color={colors.navy700} />
                   </TouchableOpacity>
                 ))}
-                {dias !== 15 && (
+                {dias !== FAIXA_MAIS_30 && (
                   <View style={styles.ativoChip}>
-                    <Text style={styles.ativoTexto}>Parado {dias}+ dias</Text>
+                    <Text style={styles.ativoTexto}>{rotuloFaixa(dias)}</Text>
                   </View>
                 )}
                 {!soComEstoque && (
@@ -248,7 +250,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
               <View style={styles.statDivisor} />
               <View style={styles.stat}>
                 <Text style={[styles.statValor, { color: '#B4650E' }]}>{resumo.parados.toLocaleString('pt-BR')}</Text>
-                <Text style={styles.statRotulo}>parados {dias}+ dias</Text>
+                <Text style={styles.statRotulo}>{dias >= FAIXA_MAIS_30 ? 'mais de 30 dias' : `até ${dias} dias`}</Text>
               </View>
               <View style={styles.statDivisor} />
               <View style={styles.stat}>
@@ -269,7 +271,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
 
             {produtos.length === 0 ? (
               <Text style={[styles.ajuda, { textAlign: 'center', marginTop: spacing.xl }]}>
-                Nenhum produto parado com esses filtros. 🎉
+                Nenhum produto nessa faixa com esses filtros.
               </Text>
             ) : (
               produtos.slice(0, limite).map((p) => {
@@ -365,11 +367,11 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                 </View>
               ))}
 
-              <Text style={[styles.filtroRotulo, { marginTop: spacing.lg }]}>Parado há pelo menos</Text>
+              <Text style={[styles.filtroRotulo, { marginTop: spacing.lg }]}>Dias sem venda</Text>
               <View style={styles.segmento}>
-                {OPCOES_DIAS.map((d) => (
-                  <TouchableOpacity key={d} style={[styles.segItem, dias === d && styles.segItemAtivo]} onPress={() => setDias(d)}>
-                    <Text style={[styles.segTexto, dias === d && styles.segTextoAtivo]}>{d} dias</Text>
+                {FAIXAS.map((f) => (
+                  <TouchableOpacity key={f.valor} style={[styles.segItem, dias === f.valor && styles.segItemAtivo]} onPress={() => setDias(f.valor)}>
+                    <Text style={[styles.segTexto, dias === f.valor && styles.segTextoAtivo]}>{f.rotulo}</Text>
                   </TouchableOpacity>
                 ))}
               </View>
@@ -530,7 +532,7 @@ const styles = StyleSheet.create({
   segmento: { flexDirection: 'row', backgroundColor: colors.gray50, borderRadius: radius.md, padding: 3 },
   segItem: { flex: 1, paddingVertical: 8, borderRadius: radius.sm, alignItems: 'center' },
   segItemAtivo: { backgroundColor: colors.navy700 },
-  segTexto: { fontSize: 12.5, fontWeight: '700', color: colors.gray600 },
+  segTexto: { fontSize: 11.5, fontWeight: '700', color: colors.gray600 },
   segTextoAtivo: { color: colors.white },
   chipsLinha: { flexDirection: 'row', gap: 8, marginTop: spacing.md, flexWrap: 'wrap' },
   chip: {
