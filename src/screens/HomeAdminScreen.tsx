@@ -23,6 +23,7 @@ import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
 import ChecklistHubScreen from './ChecklistHubScreen';
 import VisitaTecnicaScreen from './VisitaTecnicaScreen';
+import GiroProdutosScreen from './GiroProdutosScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
@@ -49,6 +50,7 @@ export default function HomeAdminScreen() {
     | 'estoqueLoja'
     | 'painelResultados'
     | 'vendas'
+    | 'giro'
     | 'mapaLoja'
     | 'pontasExtras'
     | 'jornalOfertas'
@@ -148,6 +150,9 @@ export default function HomeAdminScreen() {
   }
   if (tela === 'vendas') {
     return <VendasScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'giro') {
+    return <GiroProdutosScreen onVoltar={() => setTela('home')} />;
   }
   if (tela === 'mapaLoja') {
     return <MapaLojaScreen onVoltar={() => setTela('home')} />;
@@ -281,6 +286,8 @@ export default function HomeAdminScreen() {
             { label: 'Pedidos', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') },
             { label: 'Painel Resultados', icone: 'bar-chart-2' as const, onPress: () => setTela('painelResultados') },
             { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },
+            // Produtos sem venda / parados, por setor → subcategoria.
+            { label: 'Giro de Produtos', icone: 'refresh-cw' as const, onPress: () => setTela('giro') },
             { label: 'Mapa da Loja', icone: 'map' as const, onPress: () => setTela('mapaLoja') },
             { label: 'Pontas e Pontos Extras', icone: 'layers' as const, onPress: () => setTela('pontasExtras') },
             // Jornal de Ofertas: tile removido — o balão flutuante
