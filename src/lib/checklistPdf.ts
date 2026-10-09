@@ -74,7 +74,7 @@ export function montarHtmlChecklist(dados: {
             ${badge}
           </div>
           ${r.justificativa ? `<div class="item-justificativa"><b>Justificativa:</b> ${escapeHtml(r.justificativa)}</div>` : ''}
-          ${r.fotoUrl ? `<img class="item-foto" src="${r.fotoUrl}" />` : ''}
+          ${r.fotosUrls.length ? `<div class="fotos">${r.fotosUrls.map((u) => `<img class="item-foto" src="${u}" />`).join('')}</div>` : ''}
         </div>`;
     })
     .join('');
@@ -114,7 +114,9 @@ export function montarHtmlChecklist(dados: {
         .badge-nao { background: #FBDEDC; color: #C5392F; }
         .badge-na { background: #eee; color: #777; }
         .item-justificativa { font-size: 11.5px; color: #555; margin-top: 6px; }
-        .item-foto { max-width: 220px; max-height: 180px; border-radius: 6px; margin-top: 8px; display: block; border: 1px solid #ddd; }
+        .item-foto { width: 160px; height: 120px; object-fit: cover; border-radius: 6px; margin-top: 8px; display: block; border: 1px solid #ddd; }
+        .fotos { display: flex; flex-wrap: wrap; gap: 8px; }
+        .consideracoes { border: 1px solid #1A2340; border-radius: 8px; padding: 12px 14px; font-size: 12.5px; white-space: pre-wrap; page-break-inside: avoid; }
         .rodape { margin-top: 28px; font-size: 9.5px; color: #999; text-align: center; }
       </style>
     </head>
@@ -136,6 +138,9 @@ export function montarHtmlChecklist(dados: {
           <div class="resumo-rotulo">Não conformidades</div>
           <div class="resumo-valor" style="color:${(avaliacao.naoConformidades ?? 0) > 0 ? '#C5392F' : '#2C8F5E'};">${avaliacao.naoConformidades ?? 0}</div>
         </div>
+        ${avaliacao.perguntasNaoAvaliadas
+          ? `<div class="resumo-box"><div class="resumo-rotulo">Não avaliadas</div><div class="resumo-valor" style="color:#888;">${avaliacao.perguntasNaoAvaliadas}</div></div>`
+          : ''}
         ${avaliacao.passosContados !== null && avaliacao.passosContados !== undefined
           ? `<div class="resumo-box">
               <div class="resumo-rotulo">Passos dados</div>
@@ -145,6 +150,7 @@ export function montarHtmlChecklist(dados: {
       </div>
 
       ${itensHtml}
+      ${avaliacao.consideracoesFinais ? `<h2 class="secao-titulo">Considerações finais</h2><div class="consideracoes">${escapeHtml(avaliacao.consideracoesFinais)}</div>` : ''}
       ${resolucaoHtml}
 
       <div class="rodape">Gerado pelo app ULVA em ${formatarDataHoraPdf(new Date().toISOString())}</div>
