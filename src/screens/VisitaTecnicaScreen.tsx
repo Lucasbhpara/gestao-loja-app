@@ -44,7 +44,9 @@ import {
   descartarSeVazia,
   finalizadasPendentes,
   finalizarLocal,
-  fotoLocal,
+  MAX_FOTOS,
+  adicionarFotoLocal,
+  removerFotoLocal,
   importarVisitaRemota,
   justificarLocal,
   passosLocal,
@@ -885,7 +887,7 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
     if (!uri) return;
     setOcupadoId(p.id);
     try {
-      await fotoLocal(visitaId, p, uri);
+      await adicionarFotoLocal(visitaId, p, uri);
       sincronizarEmBreve();
     } finally {
       setOcupadoId(null);
@@ -896,7 +898,7 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
   function pendenciaDa(p: VisitaPergunta, r: RespostaLocal | undefined): 'sem_resposta' | 'sem_obs' | 'sem_foto' | null {
     if (!r) return 'sem_resposta';
     if (r.resposta === 'nao' && !(justificativas[p.id] ?? r.justificativa ?? '').trim()) return 'sem_obs';
-    if (p.fotoObrigatoria && r.resposta !== 'na' && !r.fotoUrl && !r.fotoLocal) return 'sem_foto';
+    if (p.fotoObrigatoria && r.resposta !== 'na' && r.fotos.length === 0) return 'sem_foto';
     return null;
   }
   let semResposta = 0;
@@ -1050,7 +1052,7 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
                 g.perguntas.map(({ p, numero }) => {
                   const r = respostas[p.id];
                   const pend = r ? pendenciaDa(p, r) : null;
-                  const foto = r?.fotoLocal ?? r?.fotoUrl ?? null;
+                  const fotos = r?.fotos ?? [];
                   const mostrarFoto = !!r && r.resposta !== 'na' && (p.fotoObrigatoria || r.resposta === 'nao');
                   return (
                     <View key={p.id} style={[styles.perguntaCard, pend && styles.perguntaPendente]}>
@@ -1094,26 +1096,47 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
                       )}
 
                       {mostrarFoto && (
-                        <View style={r?.resposta === 'nao' ? undefined : styles.caixaExtra}>
-                          {ocupadoId === p.id ? (
-                            <ActivityIndicator color={colors.navy700} style={{ alignSelf: 'flex-start', marginTop: spacing.sm }} />
-                          ) : foto ? (
-                            <View style={styles.fotoLinha}>
-                              <Image source={{ uri: foto }} style={styles.foto} />
-                              <View>
-                                <TouchableOpacity onPress={() => escolherFoto(p)}>
-                                  <Text style={styles.btnFotoTexto}>📷 Trocar foto</Text>
+                        <View style={r?.resposta === 'nao' ? { marginTop: spacing.md } : styles.caixaExtra}>
+                          <Text style={styles.label}>
+                            Fotos {p.fotoObrigatoria ? '(obrigatória)' : '(opcional)'} · {fotos.length}/{MAX_FOTOS}
+                          </Text>
+                          <View style={styles.fotosGrade}>
+                            {fotos.map((f) => (
+                              <View key={f.id} style={styles.fotoItem}>
+                                <Image source={{ uri: (f.local ?? f.url) as string }} style={styles.foto} />
+                                <TouchableOpacity
+                                  style={styles.fotoRemover}
+                                  onPress={() =>
+                                    Alert.alert('Remover foto?', '', [
+                                      { text: 'Cancelar', style: 'cancel' },
+                                      { text: 'Remover', style: 'destructive', onPress: () => removerFotoLocal(visitaId, p, f.id) },
+                                    ])
+                                  }
+                                  hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                                >
+                                  <Feather name="x" size={12} color={colors.white} />
                                 </TouchableOpacity>
-                                {r?.fotoLocal ? <Text style={styles.fotoPendente}>salva no celular · envia depois</Text> : null}
+                                {f.local ? <View style={styles.fotoNuvem}><Feather name="upload-cloud" size={10} color={colors.white} /></View> : null}
                               </View>
-                            </View>
-                          ) : (
-                            <TouchableOpacity style={styles.btnFoto} onPress={() => escolherFoto(p)}>
-                              <Text style={[styles.btnFotoTexto, p.fotoObrigatoria && { color: colors.red500 }]}>
-                                📷 {p.fotoObrigatoria ? 'Anexar foto (obrigatória)' : 'Anexar foto (opcional)'}
-                              </Text>
-                            </TouchableOpacity>
-                          )}
+                            ))}
+                            {fotos.length < MAX_FOTOS &&
+                              (ocupadoId === p.id ? (
+                                <View style={[styles.fotoAdd, { borderStyle: 'solid' }]}>
+                                  <ActivityIndicator color={colors.navy700} />
+                                </View>
+                              ) : (
+                                <TouchableOpacity
+                                  style={[styles.fotoAdd, p.fotoObrigatoria && fotos.length === 0 && { borderColor: colors.red500 }]}
+                                  onPress={() => escolherFoto(p)}
+                                >
+                                  <Feather name="camera" size={18} color={p.fotoObrigatoria && fotos.length === 0 ? colors.red500 : colors.navy700} />
+                                  <Text style={[styles.fotoAddTexto, p.fotoObrigatoria && fotos.length === 0 && { color: colors.red500 }]}>
+                                    {fotos.length ? '+ foto' : 'Foto'}
+                                  </Text>
+                                </TouchableOpacity>
+                              ))}
+                          </View>
+                          {fotos.some((f) => f.local) ? <Text style={styles.fotoPendente}>☁ salvas no celular · enviam quando tiver internet</Text> : null}
                         </View>
                       )}
                     </View>
@@ -1278,8 +1301,13 @@ const styles = StyleSheet.create({
   inputErro: { borderColor: colors.red500 },
   btnFoto: { marginTop: spacing.sm, alignSelf: 'flex-start' },
   btnFotoTexto: { fontSize: 12, fontWeight: '700', color: colors.navy700 },
-  fotoLinha: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm },
-  foto: { width: 64, height: 64, borderRadius: radius.sm },
+  fotosGrade: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
+  fotoItem: { width: 68, height: 68 },
+  foto: { width: 68, height: 68, borderRadius: radius.sm, backgroundColor: colors.gray100 },
+  fotoRemover: { position: 'absolute', top: -6, right: -6, width: 22, height: 22, borderRadius: 11, backgroundColor: colors.red500, alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: colors.white },
+  fotoNuvem: { position: 'absolute', bottom: 4, left: 4, backgroundColor: 'rgba(180,101,14,0.9)', borderRadius: 8, padding: 3 },
+  fotoAdd: { width: 68, height: 68, borderRadius: radius.sm, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.navy500, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.white, gap: 2 },
+  fotoAddTexto: { fontSize: 10.5, fontWeight: '700', color: colors.navy700 },
   fotoPendente: { fontSize: 10.5, color: '#B4650E', marginTop: 4 },
   consideracoesCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.md, marginTop: spacing.sm },
   consideracoesTitulo: { fontSize: 14, fontWeight: '800', color: colors.gray900, flex: 1 },

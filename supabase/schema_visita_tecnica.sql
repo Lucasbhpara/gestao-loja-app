@@ -76,3 +76,7 @@ alter table public.visitas_tecnicas add column if not exists unidade text;
 alter table public.visitas_tecnicas add column if not exists consideracoes_finais text;
 alter table public.visitas_tecnicas add column if not exists perguntas_nao_avaliadas integer;
 create index if not exists visitas_tecnicas_unidade_idx on public.visitas_tecnicas (unidade, setor, status);
+
+-- 09/10/2026 (aplicado): várias fotos por resposta (foto_url continua com a
+-- primeira, por compatibilidade).
+alter table public.visita_tecnica_respostas add column if not exists fotos_urls text[] not null default '{}';

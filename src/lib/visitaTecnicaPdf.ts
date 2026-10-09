@@ -73,7 +73,7 @@ export function montarHtmlVisita(dados: {
           </div>
           ${p.baseManual ? `<div class="base">Base: ${esc(p.baseManual)}</div>` : ''}
           ${r.justificativa ? `<div class="just"><b>Observação:</b> ${esc(r.justificativa)}</div>` : ''}
-          ${r.fotoUrl ? `<img class="foto" src="${r.fotoUrl}" />` : ''}
+          ${r.fotosUrls.length ? `<div class="fotos">${r.fotosUrls.map((u) => `<img class="foto" src="${u}" />`).join('')}</div>` : ''}
         </div>`;
     })
     .join('');
@@ -93,7 +93,7 @@ export function montarHtmlVisita(dados: {
       }</span>
           </div>
           ${r.justificativa ? `<div class="just"><b>Observação:</b> ${esc(r.justificativa)}</div>` : ''}
-          ${r.fotoUrl ? `<img class="foto" src="${r.fotoUrl}" />` : ''}
+          ${r.fotosUrls.length ? `<div class="fotos">${r.fotosUrls.map((u) => `<img class="foto" src="${u}" />`).join('')}</div>` : ''}
         </div>`
     )
     .join('');
@@ -129,7 +129,8 @@ export function montarHtmlVisita(dados: {
     .sim { background: #DCF2E7; color: #2C8F5E; } .nao { background: #FBDEDC; color: #C5392F; } .na { background: #eee; color: #777; }
     .base { font-size: 10px; color: #999; margin-top: 4px; }
     .just { font-size: 11.5px; color: #555; margin-top: 6px; }
-    .foto { max-width: 220px; max-height: 180px; border-radius: 6px; margin-top: 8px; display: block; border: 1px solid #ddd; }
+    .fotos { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+    .foto { width: 160px; height: 120px; object-fit: cover; border-radius: 6px; display: block; border: 1px solid #ddd; }
     .rodape { margin-top: 28px; font-size: 9.5px; color: #999; text-align: center; }
   </style></head>
   <body>

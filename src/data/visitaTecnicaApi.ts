@@ -78,7 +78,8 @@ export interface VisitaResposta {
   critico: boolean;
   resposta: RespostaVisita;
   justificativa: string | null;
-  fotoUrl: string | null;
+  fotoUrl: string | null; // primeira foto (compatibilidade)
+  fotosUrls: string[]; // todas as fotos da resposta
   respondidaEm: string;
 }
 
@@ -132,6 +133,7 @@ function linhaParaResposta(l: any): VisitaResposta {
     resposta: l.resposta,
     justificativa: l.justificativa,
     fotoUrl: l.foto_url,
+    fotosUrls: Array.isArray(l.fotos_urls) && l.fotos_urls.length ? l.fotos_urls : l.foto_url ? [l.foto_url] : [],
     respondidaEm: l.respondida_em,
   };
 }
@@ -293,7 +295,7 @@ export async function gravarRespostaVisita(dados: {
   critico: boolean;
   resposta: RespostaVisita;
   justificativa: string | null;
-  fotoUrl: string | null;
+  fotosUrls: string[];
   respondidaEm: string;
 }): Promise<void> {
   const { error } = await supabase.from('visita_tecnica_respostas').upsert(
@@ -304,7 +306,8 @@ export async function gravarRespostaVisita(dados: {
       critico: dados.critico,
       resposta: dados.resposta,
       justificativa: dados.justificativa,
-      foto_url: dados.fotoUrl,
+      foto_url: dados.fotosUrls[0] ?? null,
+      fotos_urls: dados.fotosUrls,
       respondida_em: dados.respondidaEm,
     },
     { onConflict: 'visita_id,pergunta_id' }

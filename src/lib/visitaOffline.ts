@@ -37,7 +37,17 @@ import {
 // duas vezes, vale a última (a nuvem recebe um upsert, nunca duplica).
 // =============================================================================
 
-const CHAVE = '@ulva/visita-tecnica-offline-v1';
+const CHAVE = '@ulva/visita-tecnica-offline-v2';
+
+export const MAX_FOTOS = 5;
+
+// Uma foto da resposta: `local` enquanto só existe no celular, `url`
+// depois de enviada pra nuvem.
+export interface FotoLocal {
+  id: string;
+  local: string | null;
+  url: string | null;
+}
 
 export interface RespostaLocal {
   perguntaId: string;
@@ -45,8 +55,7 @@ export interface RespostaLocal {
   critico: boolean;
   resposta: RespostaVisita;
   justificativa: string | null;
-  fotoUrl: string | null; // já enviada pra nuvem
-  fotoLocal: string | null; // ainda só no celular
+  fotos: FotoLocal[];
   respondidaEm: string;
   pendente: boolean; // precisa ser (re)enviada
 }
@@ -272,8 +281,7 @@ export async function importarVisitaRemota(setor: SetorVisita, unidade: string):
       critico: r.critico,
       resposta: r.resposta,
       justificativa: r.justificativa,
-      fotoUrl: r.fotoUrl,
-      fotoLocal: null,
+      fotos: r.fotosUrls.map((url) => ({ id: gerarId(), local: null, url })),
       respondidaEm: r.respondidaEm,
       pendente: false,
     };
@@ -300,8 +308,7 @@ export function responderLocal(visitaId: string, pergunta: VisitaPergunta, valor
     resposta: valor,
     // N/A não guarda foto nem observação; Sim mantém a foto (evidência).
     justificativa: valor === 'nao' ? atual?.justificativa ?? null : null,
-    fotoUrl: valor === 'na' ? null : atual?.fotoUrl ?? null,
-    fotoLocal: valor === 'na' ? null : atual?.fotoLocal ?? null,
+    fotos: valor === 'na' ? [] : atual?.fotos ?? [],
     respondidaEm: '',
     pendente: true,
   }));
@@ -314,11 +321,11 @@ export function justificarLocal(visitaId: string, pergunta: VisitaPergunta, text
   mudarResposta(visitaId, pergunta, (r) => ({ ...(r as RespostaLocal), justificativa: texto || null }));
 }
 
-// Copia a foto pra uma pasta do app (o cache da câmera pode ser limpo pelo
-// Android antes de dar tempo de enviar).
-export async function fotoLocal(visitaId: string, pergunta: VisitaPergunta, uriTemporaria: string) {
+// Adiciona uma foto à resposta (até MAX_FOTOS). Copia pra uma pasta do app
+// (o cache da câmera pode ser limpo pelo Android antes de dar tempo de enviar).
+export async function adicionarFotoLocal(visitaId: string, pergunta: VisitaPergunta, uriTemporaria: string) {
   const atual = estado.visitas[visitaId]?.respostas[pergunta.id];
-  if (!atual || atual.resposta === 'na') return;
+  if (!atual || atual.resposta === 'na' || atual.fotos.length >= MAX_FOTOS) return;
   let uri = uriTemporaria;
   if (!rodandoNaWeb) {
     try {
@@ -332,7 +339,18 @@ export async function fotoLocal(visitaId: string, pergunta: VisitaPergunta, uriT
       // se não der pra copiar, usa a original mesmo
     }
   }
-  mudarResposta(visitaId, pergunta, (r) => ({ ...(r as RespostaLocal), fotoLocal: uri, fotoUrl: null }));
+  mudarResposta(visitaId, pergunta, (r) => ({
+    ...(r as RespostaLocal),
+    fotos: [...(r as RespostaLocal).fotos, { id: gerarId(), local: uri, url: null }],
+  }));
+}
+
+export function removerFotoLocal(visitaId: string, pergunta: VisitaPergunta, fotoId: string) {
+  const atual = estado.visitas[visitaId]?.respostas[pergunta.id];
+  const foto = atual?.fotos.find((f) => f.id === fotoId);
+  if (!atual || !foto) return;
+  mudarResposta(visitaId, pergunta, (r) => ({ ...(r as RespostaLocal), fotos: (r as RespostaLocal).fotos.filter((f) => f.id !== fotoId) }));
+  if (foto.local) apagarArquivo(foto.local);
 }
 
 export function consideracoesLocal(visitaId: string, texto: string) {
@@ -460,35 +478,40 @@ async function sincronizarVisita(id: string) {
     persistir();
   }
 
-  // 3) Respostas (com upload da foto antes, se ainda estiver só no celular).
+  // 3) Respostas: primeiro sobe as fotos que estão só no celular (uma a
+  //    uma, guardando a url de cada), depois grava a resposta com a lista.
   for (const pid of Object.keys(estado.visitas[id].respostas)) {
     const r = estado.visitas[id].respostas[pid];
     if (!r.pendente) continue;
-    let fotoUrl = r.fotoUrl;
-    if (r.fotoLocal && !fotoUrl) {
-      fotoUrl = await enviarFotoVisita(r.fotoLocal);
+    for (const f of r.fotos) {
+      if (!f.local || f.url) continue;
+      const url = await enviarFotoVisita(f.local);
+      const atual = estado.visitas[id].respostas[pid];
+      if (!atual) break;
+      atual.fotos = atual.fotos.map((x) => (x.id === f.id ? { ...x, url, local: null } : x));
+      estado.visitas[id] = { ...estado.visitas[id] };
+      persistir();
+      apagarArquivo(f.local);
     }
+    const agora = estado.visitas[id].respostas[pid];
+    if (!agora || agora.fotos.some((f) => !f.url)) continue; // foto nova no meio — próxima rodada
     await gravarRespostaVisita({
       visitaId: id,
-      perguntaId: r.perguntaId,
-      perguntaTexto: r.perguntaTexto,
-      critico: r.critico,
-      resposta: r.resposta,
-      justificativa: r.justificativa,
-      fotoUrl,
-      respondidaEm: r.respondidaEm,
+      perguntaId: agora.perguntaId,
+      perguntaTexto: agora.perguntaTexto,
+      critico: agora.critico,
+      resposta: agora.resposta,
+      justificativa: agora.justificativa,
+      fotosUrls: agora.fotos.map((f) => f.url as string),
+      respondidaEm: agora.respondidaEm,
     });
-    const atual = estado.visitas[id];
-    const agora = atual.respostas[pid];
+    const depois = estado.visitas[id].respostas[pid];
     // Se a pessoa mudou a resposta enquanto enviava, continua pendente.
-    const mudouNoMeio = agora.respondidaEm !== r.respondidaEm;
-    atual.respostas = {
-      ...atual.respostas,
-      [pid]: mudouNoMeio ? { ...agora, fotoUrl: agora.fotoLocal === r.fotoLocal ? fotoUrl : agora.fotoUrl } : { ...agora, fotoUrl, fotoLocal: fotoUrl ? null : agora.fotoLocal, pendente: false },
-    };
-    estado.visitas[id] = { ...atual };
-    persistir();
-    if (r.fotoLocal && fotoUrl && !mudouNoMeio) apagarArquivo(r.fotoLocal);
+    if (depois && depois.respondidaEm === agora.respondidaEm) {
+      estado.visitas[id].respostas = { ...estado.visitas[id].respostas, [pid]: { ...depois, pendente: false } };
+      estado.visitas[id] = { ...estado.visitas[id] };
+      persistir();
+    }
   }
 
   // 4) Finalização (uma vez só — o passo 1 garante isso nas próximas).
