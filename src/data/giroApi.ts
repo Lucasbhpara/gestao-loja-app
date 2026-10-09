@@ -1,0 +1,270 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { supabase } from '../lib/supabase';
+
+// =============================================================================
+// Giro de Produtos — quais produtos estão sem venda ou parados.
+//
+// Fonte (já no banco):
+//   - giro_produtos (view): por produto, setor/subsetor/categoria/subcategoria
+//     (classes do Falcon), dias com venda, última venda, venda no período.
+//     Calculada a partir de vendas_diarias (venda em R$ por produto por dia).
+//   - produtos_classes: estoque atual (qtd) e custo médio.
+//
+// "Dias parado" conta a partir do ÚLTIMO dia de venda carregado no banco
+// (não de hoje), pra não inflar quando a carga das vendas atrasa.
+//
+// Produtos "ocultos": insumos/embalagens que não são vendidos direto (pão
+// congelado, carne em peça, sacola...). Os setores que nunca são de venda já
+// vêm ocultos; o resto o usuário oculta à mão — por enquanto salvo só neste
+// aparelho (AsyncStorage).
+// =============================================================================
+
+export interface ProdutoGiro {
+  codigo: string;
+  nome: string;
+  setor: string;
+  subsetor: string;
+  categoria: string;
+  subcategoria: string;
+  estoque: number;
+  custoMedio: number;
+  custoEstoque: number; // estoque (positivo) × custo médio
+  diasComVenda: number;
+  ultimaVenda: string | null; // yyyy-mm-dd
+  diasParado: number | null; // null = sem nenhuma venda no período
+  vendaPeriodo: number;
+  ocultoPorSetor: boolean; // setor/subcategoria que nunca é de venda (insumo, embalagem)
+}
+
+export interface BaseGiro {
+  produtos: ProdutoGiro[];
+  periodoInicio: string | null;
+  periodoFim: string | null;
+  carregadoEm: number;
+}
+
+export const SETORES_FORA_DE_VENDA = [
+  'NI',
+  'EMBALAGENS',
+  'EMBALAGEM/GARRAFEIRA/GF',
+  'MANUTENCAO',
+  'ALMOX/RH/MANUT/EPI/ARTES',
+  'DIVERSOS',
+];
+
+// Subcategorias de insumo (não vendidas direto ao cliente).
+export const SUBCATEGORIAS_FORA_DE_VENDA = ['MATERIA PRIMA PRODUCAO'];
+
+const PAGINA = 1000;
+let cache: BaseGiro | null = null;
+
+async function buscarTudo<T>(tabela: string, colunas: string, ordem: string): Promise<T[]> {
+  const { count, error } = await supabase.from(tabela).select(ordem, { count: 'exact', head: true });
+  if (error) throw error;
+  const total = count ?? 0;
+  const paginas = Math.max(1, Math.ceil(total / PAGINA));
+  const partes = await Promise.all(
+    Array.from({ length: paginas }, (_, i) =>
+      supabase
+        .from(tabela)
+        .select(colunas)
+        .order(ordem, { ascending: true })
+        .range(i * PAGINA, i * PAGINA + PAGINA - 1)
+        .then(({ data, error: e }) => {
+          if (e) throw e;
+          return (data ?? []) as T[];
+        })
+    )
+  );
+  return partes.flat();
+}
+
+const limpa = (s: string | null | undefined, padrao: string) => {
+  const t = (s ?? '').trim();
+  return t || padrao;
+};
+
+function diasEntre(de: string, ate: string): number {
+  const a = new Date(de + 'T12:00:00').getTime();
+  const b = new Date(ate + 'T12:00:00').getTime();
+  return Math.round((b - a) / 86_400_000);
+}
+
+export async function carregarBaseGiro(forcar = false): Promise<BaseGiro> {
+  if (!forcar && cache && Date.now() - cache.carregadoEm < 10 * 60_000) return cache;
+
+  const [giro, classes, periodo] = await Promise.all([
+    buscarTudo<any>(
+      'giro_produtos',
+      'codigo_produto,nome_produto,setor,subsetor,categoria,subcategoria,custo_medio,dias_com_venda,ultima_venda,venda_total_periodo',
+      'codigo_produto'
+    ),
+    buscarTudo<any>('produtos_classes', 'codigo_produto,qtd', 'codigo_produto'),
+    Promise.all([
+      supabase.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: true }).limit(1),
+      supabase.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: false }).limit(1),
+    ]),
+  ]);
+
+  const periodoInicio: string | null = periodo[0].data?.[0]?.data_venda ?? null;
+  const periodoFim: string | null = periodo[1].data?.[0]?.data_venda ?? null;
+  const estoquePorCodigo = new Map<string, number>(classes.map((c) => [c.codigo_produto, Number(c.qtd ?? 0)]));
+
+  const produtos: ProdutoGiro[] = giro.map((g) => {
+    const estoque = estoquePorCodigo.get(g.codigo_produto) ?? 0;
+    const custoMedio = Number(g.custo_medio ?? 0);
+    const setor = limpa(g.setor, 'SEM SETOR');
+    const subcategoria = limpa(g.subcategoria, 'SEM SUBCATEGORIA');
+    const ultimaVenda: string | null = g.ultima_venda ?? null;
+    return {
+      codigo: g.codigo_produto,
+      nome: g.nome_produto ?? g.codigo_produto,
+      setor,
+      subsetor: limpa(g.subsetor, 'SEM SUBSETOR'),
+      categoria: limpa(g.categoria, 'SEM CATEGORIA'),
+      subcategoria,
+      estoque,
+      custoMedio,
+      custoEstoque: Math.max(estoque, 0) * custoMedio,
+      diasComVenda: Number(g.dias_com_venda ?? 0),
+      ultimaVenda,
+      diasParado: ultimaVenda && periodoFim ? diasEntre(ultimaVenda, periodoFim) : null,
+      vendaPeriodo: Number(g.venda_total_periodo ?? 0),
+      ocultoPorSetor: SETORES_FORA_DE_VENDA.includes(setor) || SUBCATEGORIAS_FORA_DE_VENDA.includes(subcategoria),
+    };
+  });
+
+  cache = { produtos, periodoInicio, periodoFim, carregadoEm: Date.now() };
+  return cache;
+}
+
+// --- Filtros e agrupamento ---------------------------------------------------
+
+export type NivelGiro = 'setor' | 'subsetor' | 'categoria' | 'subcategoria';
+export const NIVEIS: NivelGiro[] = ['setor', 'subsetor', 'categoria', 'subcategoria'];
+export const ROTULO_NIVEL: Record<NivelGiro, string> = {
+  setor: 'Setor',
+  subsetor: 'Subsetor',
+  categoria: 'Categoria',
+  subcategoria: 'Subcategoria',
+};
+
+export interface FiltroGiro {
+  caminho: string[]; // valores escolhidos, na ordem dos NIVEIS
+  soComEstoque: boolean;
+  dias: number; // "parado" = sem vender há pelo menos X dias
+  mostrarOcultos: boolean;
+  ocultos: Set<string>;
+  busca?: string;
+}
+
+export const ehSemVenda = (p: ProdutoGiro) => p.ultimaVenda === null;
+export const ehParado = (p: ProdutoGiro, dias: number) => p.diasParado !== null && p.diasParado >= dias;
+export const ehProblema = (p: ProdutoGiro, dias: number) => ehSemVenda(p) || ehParado(p, dias);
+
+export function filtrar(base: ProdutoGiro[], f: FiltroGiro): ProdutoGiro[] {
+  const busca = (f.busca ?? '').trim().toUpperCase();
+  return base.filter((p) => {
+    if (!f.mostrarOcultos && (p.ocultoPorSetor || f.ocultos.has(p.codigo))) return false;
+    if (f.soComEstoque && !(p.estoque > 0)) return false;
+    for (let i = 0; i < f.caminho.length; i++) if (p[NIVEIS[i]] !== f.caminho[i]) return false;
+    if (busca && !p.nome.toUpperCase().includes(busca) && !p.codigo.includes(busca)) return false;
+    return true;
+  });
+}
+
+export interface ResumoGiro {
+  grupo: string;
+  produtos: number;
+  semVenda: number;
+  parados: number;
+  custoParado: number;
+  venda: number;
+}
+
+export function resumir(lista: ProdutoGiro[], dias: number, grupo = 'TOTAL'): ResumoGiro {
+  const r: ResumoGiro = { grupo, produtos: 0, semVenda: 0, parados: 0, custoParado: 0, venda: 0 };
+  for (const p of lista) {
+    r.produtos++;
+    r.venda += p.vendaPeriodo;
+    if (ehSemVenda(p)) r.semVenda++;
+    else if (ehParado(p, dias)) r.parados++;
+    if (ehProblema(p, dias)) r.custoParado += p.custoEstoque;
+  }
+  return r;
+}
+
+export function agrupar(lista: ProdutoGiro[], nivel: NivelGiro, dias: number): ResumoGiro[] {
+  const mapa = new Map<string, ProdutoGiro[]>();
+  for (const p of lista) {
+    const k = p[nivel];
+    if (!mapa.has(k)) mapa.set(k, []);
+    mapa.get(k)!.push(p);
+  }
+  return [...mapa.entries()]
+    .map(([k, ps]) => resumir(ps, dias, k))
+    .sort((a, b) => b.semVenda + b.parados - (a.semVenda + a.parados) || b.custoParado - a.custoParado);
+}
+
+// Sem venda primeiro (maior custo parado antes), depois os mais parados.
+export function ordenarProblemas(lista: ProdutoGiro[], dias: number): ProdutoGiro[] {
+  return lista
+    .filter((p) => ehProblema(p, dias))
+    .sort((a, b) => {
+      const da = a.diasParado ?? Number.POSITIVE_INFINITY;
+      const db = b.diasParado ?? Number.POSITIVE_INFINITY;
+      if (da !== db) return db - da;
+      return b.custoEstoque - a.custoEstoque;
+    });
+}
+
+// --- Ocultos (por aparelho) ----------------------------------------------------
+
+const CHAVE_OCULTOS = 'giro_ocultos_v1';
+
+export async function lerOcultos(): Promise<Set<string>> {
+  try {
+    const bruto = await AsyncStorage.getItem(CHAVE_OCULTOS);
+    return new Set(bruto ? (JSON.parse(bruto) as string[]) : []);
+  } catch {
+    return new Set();
+  }
+}
+
+export async function salvarOcultos(s: Set<string>): Promise<void> {
+  try {
+    await AsyncStorage.setItem(CHAVE_OCULTOS, JSON.stringify([...s]));
+  } catch {
+    // sem armazenamento: vale só enquanto o app está aberto
+  }
+}
+
+// --- Formatação -----------------------------------------------------------------
+
+export const formatarReais = (n: number) =>
+  'R$ ' + n.toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+
+// Versão curta pra cartões estreitos: R$ 1,84 mi / R$ 216 mil / R$ 9.850.
+export function formatarReaisCurto(n: number): string {
+  if (Math.abs(n) >= 1_000_000) return 'R$ ' + (n / 1_000_000).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' mi';
+  if (Math.abs(n) >= 100_000) return 'R$ ' + Math.round(n / 1000).toLocaleString('pt-BR') + ' mil';
+  return formatarReais(n);
+}
+
+export const formatarDataCurta = (iso: string | null) => {
+  if (!iso) return '—';
+  const [, m, d] = iso.split('-');
+  return `${d}/${m}`;
+};
+
+export const formatarEstoque = (n: number) =>
+  Number.isInteger(n) ? n.toLocaleString('pt-BR') : n.toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+
+// Nome do setor do Falcon em formato de título ("MERCEARIA LIQUIDA" → "Mercearia Liquida").
+export function nomeBonito(s: string): string {
+  return s
+    .toLowerCase()
+    .split(/(\s|\/)/)
+    .map((w) => (w.length > 2 ? w[0].toUpperCase() + w.slice(1) : w))
+    .join('');
+}
