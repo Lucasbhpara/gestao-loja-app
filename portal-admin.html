@@ -3243,6 +3243,7 @@ async function giroCarregarBase(forcar) {
     if (!estoque.has(cod)) estoque.set(cod, { qtd: Number(e.quantidade || 0), custo: e.preco_custo != null ? Number(e.preco_custo) : null });
   });
   // Pai/filho: transfere do pai o que falta para zerar o negativo do filho.
+  const estoqueOriginal = new Map([...estoque.entries()].map(([k, v]) => [k, v.qtd]));
   const ajustes = new Map();
   GIRO_PAI_FILHO.forEach(([pai, filho, fator]) => {
     const ep = estoque.get(pai), ef = estoque.get(filho);
@@ -3263,7 +3264,7 @@ async function giroCarregarBase(forcar) {
     return {
       codigo: g.codigo_produto, nome: g.nome_produto || g.codigo_produto, setor,
       subsetor: limpa(g.subsetor, 'SEM SUBSETOR'), categoria: limpa(g.categoria, 'SEM CATEGORIA'), subcategoria,
-      estoque: est, custoMedio: custo, custoEstoque: Math.max(est, 0) * custo,
+      estoque: est, estoqueSistema: estoqueOriginal.has(g.codigo_produto) ? estoqueOriginal.get(g.codigo_produto) : 0, custoMedio: custo, custoEstoque: Math.max(est, 0) * custo,
       diasComVenda: Number(g.dias_com_venda || 0), ultimaVenda: ultima,
       diasParado: ultima && periodoFim ? giroDiasEntre(ultima, periodoFim) : null,
       vendaPeriodo: Number(g.venda_total_periodo || 0),
@@ -3350,7 +3351,7 @@ async function paginaGiroProdutos() {
   el.innerHTML = cabecalho('Giro de Produtos', 'Produtos sem venda ou parados, do maior estoque para o menor') +
     '<div class="carregando">Carregando quase 10 mil produtos…</div>';
   try {
-    await giroCarregarBase(false);
+    await Promise.all([giroCarregarBase(false), giroCarregarAjustes()]);
   } catch (e) {
     el.innerHTML = cabecalho('Giro de Produtos', '') + '<div class="celula-vazio">Não consegui carregar o giro: ' + giroEsc(e.message || '') + '</div>';
     return;
@@ -3371,6 +3372,7 @@ function renderizarGiro() {
     '<input class="input-busca" id="giro-busca" style="max-width:320px;" placeholder="Buscar produto ou código" value="' + giroEsc(f.busca) + '" oninput="giroBuscar(this.value)">' +
     '<button class="btn-acao' + (f.painel ? '' : ' secundario') + '" onclick="estado.giroFiltro.painel=!estado.giroFiltro.painel;renderizarGiro()">⚲ Filtro' + (qtdFiltros ? ' (' + qtdFiltros + ')' : '') + '</button>' +
     (qtdFiltros || f.busca ? '<button class="btn-acao secundario" style="color:var(--red);" onclick="giroLimpar()">✕ Limpar filtro</button>' : '') +
+    '<button class="btn-acao' + (f.verAjustes ? '' : ' secundario') + '" onclick="estado.giroFiltro.verAjustes=!estado.giroFiltro.verAjustes;renderizarGiro()">📝 Ajustes' + ((estado.giroAjustes || []).length ? ' (' + estado.giroAjustes.length + ')' : '') + '</button>' +
     '<button class="btn-acao secundario" title="Inverter ordem do estoque" onclick="giroInverter()">Estoque ' + (f.crescente ? '↑ menor → maior' : '↓ maior → menor') + '</button>' +
     '<span style="margin-left:auto;display:flex;gap:8px;">' +
       '<button class="btn-acao secundario" onclick="giroAtualizar()">↻ Atualizar</button>' +
@@ -3426,15 +3428,18 @@ function renderizarGiro() {
     const selo = p.ultimaVenda === null ? '<span class="pill vermelho">Sem venda no período</span>' : '<span class="pill laranja">Parado</span>';
     const acao = p.ocultoPorSetor ? '<span style="font-size:11px;color:var(--text-muted);">insumo / fora de venda</span>'
       : '<button class="btn-acao secundario" style="padding:5px 10px;font-size:11.5px;" onclick="giroAlternarOculto(\'' + giroEsc(p.codigo) + '\')">' + (oculto ? 'Mostrar' : 'Ocultar') + '</button>';
+    const aj = ajPorCodigo(p.codigo);
+    const botaoAjuste = '<button class="btn-acao" style="padding:5px 10px;font-size:11.5px;margin-right:4px;" onclick="giroAbrirAjuste(\'' + giroEsc(p.codigo) + '\')">' + (aj ? 'Editar ajuste' : 'Ajustar') + '</button>';
     return '<tr' + (oculto ? ' style="opacity:.55;"' : '') + '>' +
       '<td>' + selo + '</td>' +
       '<td><div class="nome-forte">' + giroEsc(p.nome) + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + giroEsc(p.codigo) + ' · ' + giroEsc(giroNome(p.setor)) + ' › ' + giroEsc(giroNome(p.subcategoria)) + '</div>' +
-        (p.ajustePaiFilho ? '<div style="font-size:11px;color:var(--accent,#5B7BFF);margin-top:2px;">🔗 ' + p.ajustePaiFilho + '</div>' : '') + '</td>' +
+        (p.ajustePaiFilho ? '<div style="font-size:11px;color:var(--accent,#5B7BFF);margin-top:2px;">🔗 ' + p.ajustePaiFilho + '</div>' : '') +
+        (aj ? '<div style="font-size:11px;color:var(--orange);margin-top:2px;font-weight:700;">📝 Ajuste pendente: contado ' + ajQtd(aj.quantidade_contada) + ' (' + giroReais(ajValor(aj)) + ')</div>' : '') + '</td>' +
       '<td style="text-align:right;font-weight:800;">' + p.estoque.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '</td>' +
       '<td style="text-align:right;">' + giroData(p.ultimaVenda) + '</td>' +
       '<td style="text-align:right;font-weight:800;color:' + (p.ultimaVenda === null ? 'var(--red)' : 'var(--orange)') + ';">' + giroDiasSemVenda(p) + '</td>' +
       '<td style="text-align:right;font-weight:700;">' + giroReais(p.custoEstoque) + '</td>' +
-      '<td style="text-align:right;">' + acao + '</td>' +
+      '<td style="text-align:right;white-space:nowrap;">' + botaoAjuste + acao + '</td>' +
     '</tr>';
   }).join('');
   const tabela =
@@ -3449,7 +3454,7 @@ function renderizarGiro() {
   const periodo = (base.periodoInicio ? 'Vendas de ' + giroData(base.periodoInicio) + ' a ' + giroData(base.periodoFim) : 'Nenhuma venda carregada') +
     (base.estoqueData ? ' · estoque do Estoque Loja de ' + giroData(base.estoqueData) : '');
   document.getElementById('conteudo-principal').innerHTML =
-    cabecalho('Giro de Produtos', periodo) + barra + ativos + painel + resumo + tabela;
+    cabecalho('Giro de Produtos', periodo) + barra + (f.verAjustes ? htmlAjustesGiro() : ativos + painel + resumo + tabela);
 
   const busca = document.getElementById('giro-busca');
   if (busca && estado.giroFocoBusca) { busca.focus(); busca.setSelectionRange(busca.value.length, busca.value.length); estado.giroFocoBusca = false; }
@@ -3501,6 +3506,163 @@ function giroExportar() {
   XLSX.utils.book_append_sheet(wb, ws, 'Giro');
   const sufixo = f.caminho.length ? '_' + f.caminho[f.caminho.length - 1].replace(/[^A-Za-z0-9]+/g, '-').toLowerCase() : '';
   XLSX.writeFile(wb, 'giro_produtos' + sufixo + '_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+}
+
+// =============================================================================
+// Ajustes de estoque (Giro) — a quantidade contada de cada produto fica em
+// ajustes_estoque como "pendente" até ser exportada em Excel para a diretoria.
+// Mesma tabela e mesmo Excel do app (src/data/ajustesEstoqueApi.ts).
+// =============================================================================
+const AJ_MOTIVOS = ['Contagem física', 'Vendido por outro código (pai/filho)', 'Avaria/perda não lançada', 'Entrada (nota) errada', 'Embalagem/unidade errada', 'Outro'];
+function ajNum(t) {
+  const s = String(t == null ? '' : t).trim().replace(/\./g, '').replace(',', '.');
+  if (!s) return null;
+  const n = Number(s);
+  return isFinite(n) ? n : null;
+}
+function ajQtd(n) { return Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 }); }
+async function giroCarregarAjustes() {
+  try {
+    const { data, error } = await sb.from('ajustes_estoque').select('*').eq('status', 'pendente').order('criado_em', { ascending: false });
+    if (error) throw error;
+    estado.giroAjustes = data || [];
+    estado.giroAjustesErro = null;
+  } catch (e) {
+    estado.giroAjustes = [];
+    estado.giroAjustesErro = /relation|does not exist|schema cache/i.test(e.message || '') ? 'Falta criar a tabela: rode o script schema_ajustes_estoque.sql no Supabase.' : (e.message || 'Erro ao carregar os ajustes.');
+  }
+}
+function ajPorCodigo(cod) { return (estado.giroAjustes || []).find((a) => a.codigo_produto === cod); }
+function ajValor(a) { return (Number(a.quantidade_contada) - Number(a.estoque_sistema)) * Number(a.custo || 0); }
+
+function giroAbrirAjuste(codigo) {
+  const p = estado.giroBase.produtos.find((x) => x.codigo === codigo);
+  if (!p) return;
+  const a = ajPorCodigo(codigo);
+  estado.giroAjusteProduto = p;
+  abrirModal('Ajustar estoque',
+    '<div style="font-weight:700;">' + giroEsc(p.nome) + '</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-bottom:12px;">' + giroEsc(p.codigo) + ' · ' + giroEsc(giroNome(p.setor)) + ' · estoque no sistema: <b>' + ajQtd(p.estoqueSistema) + '</b>' +
+      (p.ajustePaiFilho ? ' (o Giro mostra ' + ajQtd(p.estoque) + ' por causa do pai/filho)' : '') + '</div>' +
+    '<div class="form-linha"><label class="campo-label">Quantidade contada</label><input class="campo-input" id="aj-qtd" inputmode="decimal" style="margin-bottom:0" value="' + (a ? String(a.quantidade_contada).replace('.', ',') : '') + '" oninput="ajPrevia()" /></div>' +
+    '<div id="aj-previa" style="font-size:12.5px;margin:6px 0 10px;color:var(--text-secondary);"></div>' +
+    '<div class="form-linha"><label class="campo-label">Motivo</label><select class="campo-input" id="aj-motivo" style="margin-bottom:0">' +
+      AJ_MOTIVOS.map((m) => '<option' + (a && a.motivo === m ? ' selected' : '') + '>' + m + '</option>').join('') + '</select></div>' +
+    '<div class="form-linha"><label class="campo-label">Observação (opcional)</label><input class="campo-input" id="aj-obs" style="margin-bottom:0" value="' + giroEsc(a && a.observacao ? a.observacao : '') + '" /></div>',
+    'Salvar ajuste', giroSalvarAjuste);
+  ajPrevia();
+  setTimeout(() => { const i = document.getElementById('aj-qtd'); if (i) i.focus(); }, 50);
+}
+function ajPrevia() {
+  const p = estado.giroAjusteProduto; const el = document.getElementById('aj-previa');
+  if (!p || !el) return;
+  const q = ajNum(document.getElementById('aj-qtd').value);
+  if (q === null) { el.textContent = ''; return; }
+  const dif = q - p.estoqueSistema;
+  el.innerHTML = 'Diferença: <b style="color:' + (dif < 0 ? 'var(--red)' : 'var(--green)') + ';">' + (dif > 0 ? '+' : '') + ajQtd(dif) + '</b> · valor <b>' + giroReais(dif * (p.custoMedio || 0)) + '</b>';
+}
+async function giroSalvarAjuste() {
+  const p = estado.giroAjusteProduto;
+  const q = ajNum(document.getElementById('aj-qtd').value);
+  if (q === null) { mostrarToast('Digite a quantidade contada (pode ser 0).', 'erro'); return; }
+  const linha = {
+    codigo_produto: p.codigo, produto: p.nome, setor: p.setor, subcategoria: p.subcategoria,
+    estoque_sistema: p.estoqueSistema, quantidade_contada: q, custo: p.custoMedio || null,
+    motivo: document.getElementById('aj-motivo').value, observacao: document.getElementById('aj-obs').value.trim() || null,
+    criado_por: estado.usuario ? estado.usuario.nome : null, atualizado_em: new Date().toISOString(),
+  };
+  try {
+    const existente = ajPorCodigo(p.codigo);
+    const { error } = existente
+      ? await sb.from('ajustes_estoque').update(linha).eq('id', existente.id)
+      : await sb.from('ajustes_estoque').insert(linha);
+    if (error) throw error;
+    fecharModal();
+    mostrarToast('Ajuste salvo.', 'sucesso');
+    await giroCarregarAjustes();
+    renderizarGiro();
+  } catch (e) { mostrarToast('Não consegui salvar: ' + e.message, 'erro'); }
+}
+async function giroRemoverAjuste(id) {
+  if (!confirm('Remover este ajuste?')) return;
+  const { error } = await sb.from('ajustes_estoque').delete().eq('id', id);
+  if (error) { mostrarToast('Não consegui remover: ' + error.message, 'erro'); return; }
+  await giroCarregarAjustes();
+  renderizarGiro();
+}
+function htmlAjustesGiro() {
+  if (estado.giroAjustesErro) return '<div class="celula-vazio" style="color:var(--red);">' + giroEsc(estado.giroAjustesErro) + '</div>';
+  const lista = estado.giroAjustes || [];
+  if (!lista.length) return '<div class="celula-vazio">Nenhum ajuste pendente. Na lista de produtos, clique em "Ajustar" no produto que foi contado.</div>';
+  const total = lista.reduce((t, a) => t + ajValor(a), 0);
+  const linhas = lista.map((a) => {
+    const dif = Number(a.quantidade_contada) - Number(a.estoque_sistema);
+    const cor = dif < 0 ? 'var(--red)' : 'var(--green)';
+    return '<tr>' +
+      '<td><div class="nome-forte">' + giroEsc(a.produto) + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + giroEsc(a.codigo_produto) + ' · ' + giroEsc(giroNome(a.setor || '')) + '</div></td>' +
+      '<td style="text-align:right;">' + ajQtd(a.estoque_sistema) + '</td>' +
+      '<td style="text-align:right;font-weight:700;">' + ajQtd(a.quantidade_contada) + '</td>' +
+      '<td style="text-align:right;font-weight:800;color:' + cor + ';">' + (dif > 0 ? '+' : '') + ajQtd(dif) + '</td>' +
+      '<td style="text-align:right;font-weight:700;color:' + cor + ';">' + giroReais(ajValor(a)) + '</td>' +
+      '<td style="font-size:12px;">' + giroEsc(a.motivo || '') + (a.observacao ? '<div style="color:var(--text-muted);">' + giroEsc(a.observacao) + '</div>' : '') + '</td>' +
+      '<td style="font-size:12px;">' + giroEsc(a.criado_por || '') + '<div style="color:var(--text-muted);">' + new Date(a.criado_em).toLocaleDateString('pt-BR') + '</div></td>' +
+      '<td style="text-align:right;white-space:nowrap;"><button class="btn-acao secundario" style="padding:5px 10px;font-size:11.5px;" onclick="giroAbrirAjuste(\'' + giroEsc(a.codigo_produto) + '\')">Editar</button> ' +
+        '<button class="btn-acao secundario" style="padding:5px 10px;font-size:11.5px;color:var(--red);" onclick="giroRemoverAjuste(\'' + a.id + '\')">Remover</button></td>' +
+    '</tr>';
+  }).join('');
+  return '<div class="resumo-perdas">' +
+      '<div class="box"><div class="rotulo">Ajustes pendentes</div><div class="valor">' + lista.length + '</div></div>' +
+      '<div class="box"><div class="rotulo">Diferença total (custo)</div><div class="valor" style="color:' + (total < 0 ? 'var(--red)' : 'var(--green)') + ';">' + giroReais(total) + '</div></div>' +
+    '</div>' +
+    '<div style="margin-bottom:12px;"><button class="btn-acao" onclick="giroExportarAjustes()">📤 Exportar Excel para a diretoria</button></div>' +
+    '<div class="tabela-wrap"><table><thead><tr><th>Produto</th><th style="text-align:right;">Sistema</th><th style="text-align:right;">Contado</th><th style="text-align:right;">Diferença</th><th style="text-align:right;">Valor</th><th>Motivo</th><th>Responsável</th><th></th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+}
+function giroLivroAjustes(lista) {
+  const hoje = new Date().toLocaleDateString('pt-BR');
+  const cab = ['Data', 'Código', 'Produto', 'Setor', 'Subcategoria', 'Estoque no sistema', 'Quantidade contada', 'Diferença (contado − sistema)', 'Custo unitário (R$)', 'Valor da diferença (R$)', 'Motivo', 'Observação', 'Responsável'];
+  const linhas = [cab];
+  lista.forEach((a, i) => {
+    const r = i + 2;
+    linhas.push([new Date(a.criado_em).toLocaleDateString('pt-BR'), a.codigo_produto, a.produto, a.setor || '(sem setor)', a.subcategoria || '',
+      Number(a.estoque_sistema), Number(a.quantidade_contada), { f: 'G' + r + '-F' + r, t: 'n' }, Number(a.custo || 0), { f: 'H' + r + '*I' + r, t: 'n' },
+      a.motivo || '', a.observacao || '', a.criado_por || '']);
+  });
+  const ult = lista.length + 1;
+  linhas.push([]);
+  linhas.push(['', '', 'TOTAL', '', '', '', '', '', '', { f: 'SUM(J2:J' + ult + ')', t: 'n' }]);
+  linhas.push(['', '', 'Sobra (diferença positiva)', '', '', '', '', '', '', { f: 'SUMIF(J2:J' + ult + ',">0")', t: 'n' }]);
+  linhas.push(['', '', 'Falta (diferença negativa)', '', '', '', '', '', '', { f: 'SUMIF(J2:J' + ult + ',"<0")', t: 'n' }]);
+  const aba = XLSX.utils.aoa_to_sheet(linhas);
+  aba['!cols'] = [10, 9, 42, 22, 26, 14, 14, 16, 14, 18, 30, 36, 18].map((wch) => ({ wch }));
+  aba['!autofilter'] = { ref: 'A1:M' + ult };
+  const setores = [...new Set(lista.map((a) => a.setor || '(sem setor)'))].sort();
+  const res = [['Ajuste de estoque — Loja 327'], ['Gerado em ' + hoje + ' por ' + (estado.usuario ? estado.usuario.nome : '')], [], ['Setor', 'Itens', 'Valor da diferença (R$)', 'Sobra (R$)', 'Falta (R$)']];
+  setores.forEach((s, i) => {
+    const r = i + 5;
+    res.push([s, { f: 'COUNTIF(Ajustes!D2:D' + ult + ',A' + r + ')', t: 'n' }, { f: 'SUMIF(Ajustes!D2:D' + ult + ',A' + r + ',Ajustes!J2:J' + ult + ')', t: 'n' },
+      { f: 'SUMIFS(Ajustes!J2:J' + ult + ',Ajustes!D2:D' + ult + ',A' + r + ',Ajustes!J2:J' + ult + ',">0")', t: 'n' },
+      { f: 'SUMIFS(Ajustes!J2:J' + ult + ',Ajustes!D2:D' + ult + ',A' + r + ',Ajustes!J2:J' + ult + ',"<0")', t: 'n' }]);
+  });
+  const fimR = setores.length + 4;
+  res.push(['TOTAL', { f: 'SUM(B5:B' + fimR + ')', t: 'n' }, { f: 'SUM(C5:C' + fimR + ')', t: 'n' }, { f: 'SUM(D5:D' + fimR + ')', t: 'n' }, { f: 'SUM(E5:E' + fimR + ')', t: 'n' }]);
+  const abaRes = XLSX.utils.aoa_to_sheet(res);
+  abaRes['!cols'] = [30, 8, 22, 16, 16].map((wch) => ({ wch }));
+  const livro = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(livro, abaRes, 'Resumo');
+  XLSX.utils.book_append_sheet(livro, aba, 'Ajustes');
+  return livro;
+}
+async function giroExportarAjustes() {
+  const lista = estado.giroAjustes || [];
+  if (!lista.length) return;
+  XLSX.writeFile(giroLivroAjustes(lista), 'ajuste-estoque-loja327-' + new Date().toLocaleDateString('pt-BR').replace(/\//g, '-') + '.xlsx');
+  if (!confirm('Planilha baixada. Marcar estes ' + lista.length + ' ajustes como enviados à diretoria? (eles saem da lista de pendentes)')) return;
+  const agora = new Date();
+  const { error } = await sb.from('ajustes_estoque').update({ status: 'enviado', lote: agora.toLocaleDateString('pt-BR'), enviado_em: agora.toISOString() }).in('id', lista.map((a) => a.id));
+  if (error) { mostrarToast('Não consegui marcar: ' + error.message, 'erro'); return; }
+  mostrarToast('Ajustes marcados como enviados.', 'sucesso');
+  await giroCarregarAjustes();
+  renderizarGiro();
 }
 
 // =============================================================================

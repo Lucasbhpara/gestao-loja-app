@@ -10,9 +10,22 @@ import {
   RefreshControl,
   BackHandler,
   Modal,
+  Alert,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
+import { useAuth } from '../context/AuthContext';
+import {
+  AjusteEstoque,
+  MOTIVOS_AJUSTE,
+  buscarAjustesPendentes,
+  compartilharAjustesXlsx,
+  diferencaAjuste,
+  excluirAjuste,
+  marcarAjustesEnviados,
+  salvarAjuste,
+  valorAjuste,
+} from '../data/ajustesEstoqueApi';
 import {
   BaseGiro,
   FAIXAS,
@@ -58,6 +71,128 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
   const [busca, setBusca] = useState('');
   const [limite, setLimite] = useState(POR_PAGINA);
   const [filtroAberto, setFiltroAberto] = useState(false);
+
+  // --- Ajuste de estoque ------------------------------------------------------
+  const { usuarioAtual } = useAuth();
+  const [aba, setAba] = useState<'produtos' | 'ajustes'>('produtos');
+  const [ajustes, setAjustes] = useState<AjusteEstoque[]>([]);
+  const [erroAjustes, setErroAjustes] = useState<string | null>(null);
+  const [editando, setEditando] = useState<ProdutoGiro | null>(null);
+  const [contada, setContada] = useState('');
+  const [motivo, setMotivo] = useState<string>(MOTIVOS_AJUSTE[0]);
+  const [obs, setObs] = useState('');
+  const [salvandoAjuste, setSalvandoAjuste] = useState(false);
+  const [exportando, setExportando] = useState(false);
+  const ajustePorCodigo = useMemo(() => new Map(ajustes.map((a) => [a.codigoProduto, a])), [ajustes]);
+
+  async function carregarAjustes() {
+    try {
+      setAjustes(await buscarAjustesPendentes());
+      setErroAjustes(null);
+    } catch (e: any) {
+      const msg = String(e?.message ?? '');
+      setErroAjustes(
+        /relation|does not exist|schema cache|ajustes_estoque/i.test(msg)
+          ? 'Falta criar a tabela dos ajustes: rode o script schema_ajustes_estoque.sql no Supabase (SQL Editor).'
+          : msg || 'Não consegui carregar os ajustes.'
+      );
+    }
+  }
+  useEffect(() => {
+    carregarAjustes();
+  }, []);
+
+  const numero = (t: string) => {
+    const limpo = t.trim().replace(/\./g, '').replace(',', '.');
+    if (!limpo) return null;
+    const n = Number(limpo);
+    return isFinite(n) ? n : null;
+  };
+
+  function abrirAjuste(p: ProdutoGiro) {
+    const a = ajustePorCodigo.get(p.codigo);
+    setEditando(p);
+    setContada(a ? String(a.quantidadeContada).replace('.', ',') : '');
+    setMotivo(a?.motivo ?? MOTIVOS_AJUSTE[0]);
+    setObs(a?.observacao ?? '');
+  }
+
+  async function salvarAjusteAtual() {
+    if (!editando) return;
+    const q = numero(contada);
+    if (q === null) {
+      Alert.alert('Quantidade', 'Digite a quantidade contada (pode ser 0).');
+      return;
+    }
+    setSalvandoAjuste(true);
+    try {
+      await salvarAjuste({
+        codigoProduto: editando.codigo,
+        produto: editando.nome,
+        setor: editando.setor,
+        subcategoria: editando.subcategoria,
+        estoqueSistema: editando.estoqueSistema,
+        quantidadeContada: q,
+        custo: editando.custoMedio || null,
+        motivo,
+        observacao: obs.trim() || null,
+        por: usuarioAtual?.nome ?? '',
+      });
+      setEditando(null);
+      await carregarAjustes();
+    } catch (e: any) {
+      Alert.alert('Não consegui salvar', e?.message ?? 'Tente de novo.');
+    } finally {
+      setSalvandoAjuste(false);
+    }
+  }
+
+  function removerAjuste(a: AjusteEstoque) {
+    Alert.alert('Remover ajuste?', a.produto, [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Remover',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await excluirAjuste(a.id);
+            await carregarAjustes();
+          } catch (e: any) {
+            Alert.alert('Erro', e?.message ?? 'Não consegui remover.');
+          }
+        },
+      },
+    ]);
+  }
+
+  async function exportarAjustes() {
+    if (!ajustes.length) return;
+    setExportando(true);
+    try {
+      await compartilharAjustesXlsx(ajustes, usuarioAtual?.nome ?? '');
+      Alert.alert('Enviado para a diretoria?', `Marcar estes ${ajustes.length} ajustes como enviados? Eles saem da lista de pendentes.`, [
+        { text: 'Ainda não', style: 'cancel' },
+        {
+          text: 'Sim, marcar',
+          onPress: async () => {
+            try {
+              await marcarAjustesEnviados(ajustes.map((a) => a.id));
+              await carregarAjustes();
+            } catch (e: any) {
+              Alert.alert('Erro', e?.message ?? 'Não consegui marcar.');
+            }
+          },
+        },
+      ]);
+    } catch (e: any) {
+      Alert.alert('Não consegui exportar', e?.message ?? 'Tente de novo.');
+    } finally {
+      setExportando(false);
+    }
+  }
+
+  const totalAjustes = ajustes.reduce((t, a) => t + valorAjuste(a), 0);
+  const fmtQtd = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 3 });
 
   const carregar = useCallback(async (forcar = false) => {
     try {
@@ -190,6 +325,19 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
             <Feather name={crescente ? 'arrow-up' : 'arrow-down'} size={18} color={colors.navy700} />
           </TouchableOpacity>
         </View>
+        <View style={styles.abasHero}>
+          {(
+            [
+              { k: 'produtos', rotulo: 'Produtos', icone: 'list' },
+              { k: 'ajustes', rotulo: `Ajustes${ajustes.length ? ` (${ajustes.length})` : ''}`, icone: 'edit-3' },
+            ] as const
+          ).map((a) => (
+            <TouchableOpacity key={a.k} style={[styles.abaHero, aba === a.k && styles.abaHeroAtiva]} onPress={() => setAba(a.k)}>
+              <Feather name={a.icone} size={14} color={aba === a.k ? colors.navy700 : 'rgba(255,255,255,0.85)'} />
+              <Text style={[styles.abaHeroTexto, aba === a.k && styles.abaHeroTextoAtivo]}>{a.rotulo}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
       </View>
 
       <ScrollView
@@ -198,7 +346,78 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={atualizando} onRefresh={() => { setAtualizando(true); carregar(true); }} />}
       >
-        {carregando ? (
+        {aba === 'ajustes' ? (
+          <>
+            {erroAjustes ? (
+              <View style={styles.erroBox}>
+                <Text style={styles.erroTexto}>{erroAjustes}</Text>
+              </View>
+            ) : ajustes.length === 0 ? (
+              <View style={styles.vazioAjustes}>
+                <Feather name="edit-3" size={26} color={colors.gray400} />
+                <Text style={[styles.ajuda, { textAlign: 'center' }]}>
+                  Nenhum ajuste pendente. Na aba Produtos, toque em "Ajustar estoque" no produto que você contou.
+                </Text>
+              </View>
+            ) : (
+              <>
+                <View style={styles.statsCard}>
+                  <View style={styles.stat}>
+                    <Text style={styles.statValor}>{ajustes.length}</Text>
+                    <Text style={styles.statRotulo}>ajustes pendentes</Text>
+                  </View>
+                  <View style={styles.statDivisor} />
+                  <View style={styles.stat}>
+                    <Text style={[styles.statValor, { fontSize: 17, color: totalAjustes < 0 ? colors.red500 : colors.green500 }]} numberOfLines={1} adjustsFontSizeToFit>
+                      {formatarReais(totalAjustes)}
+                    </Text>
+                    <Text style={styles.statRotulo}>diferença total (custo)</Text>
+                  </View>
+                </View>
+                <TouchableOpacity style={[styles.verBotao, exportando && { opacity: 0.6 }]} onPress={exportarAjustes} disabled={exportando}>
+                  <Text style={styles.verTexto}>{exportando ? 'Gerando…' : '📤 Exportar Excel para a diretoria'}</Text>
+                </TouchableOpacity>
+                {ajustes.map((a) => {
+                  const dif = diferencaAjuste(a);
+                  return (
+                    <View key={a.id} style={[styles.prodCard, { marginTop: spacing.sm }]}>
+                      <View style={styles.prodTopo}>
+                        <Text style={styles.prodNome}>{a.produto}</Text>
+                        <TouchableOpacity onPress={() => removerAjuste(a)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Feather name="trash-2" size={16} color={colors.red500} />
+                        </TouchableOpacity>
+                      </View>
+                      <Text style={styles.prodMeta}>
+                        {a.codigoProduto} · {a.motivo ?? '—'} · {a.criadoPor ?? ''}
+                      </Text>
+                      <View style={styles.prodNumeros}>
+                        <View style={styles.prodNum}>
+                          <Text style={styles.prodNumRotulo}>Sistema</Text>
+                          <Text style={styles.prodNumValor}>{fmtQtd(a.estoqueSistema)}</Text>
+                        </View>
+                        <View style={styles.prodNum}>
+                          <Text style={styles.prodNumRotulo}>Contado</Text>
+                          <Text style={styles.prodNumValor}>{fmtQtd(a.quantidadeContada)}</Text>
+                        </View>
+                        <View style={styles.prodNum}>
+                          <Text style={styles.prodNumRotulo}>Diferença</Text>
+                          <Text style={[styles.prodNumValor, { color: dif < 0 ? colors.red500 : colors.green500 }]}>
+                            {dif > 0 ? '+' : ''}{fmtQtd(dif)}
+                          </Text>
+                        </View>
+                        <View style={styles.prodNum}>
+                          <Text style={styles.prodNumRotulo}>Valor</Text>
+                          <Text style={[styles.prodNumValor, { color: dif < 0 ? colors.red500 : colors.green500 }]}>{formatarReais(valorAjuste(a))}</Text>
+                        </View>
+                      </View>
+                      {a.observacao ? <Text style={[styles.prodMeta, { marginTop: 6 }]}>{a.observacao}</Text> : null}
+                    </View>
+                  );
+                })}
+              </>
+            )}
+          </>
+        ) : carregando ? (
           <View style={{ alignItems: 'center', marginTop: spacing.xxl, gap: spacing.md }}>
             <ActivityIndicator color={colors.navy700} />
             <Text style={styles.ajuda}>Carregando quase 10 mil produtos…</Text>
@@ -310,6 +529,16 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                       </View>
                     </View>
                     {p.ajustePaiFilho ? <Text style={styles.ajusteTexto}>🔗 {p.ajustePaiFilho}</Text> : null}
+                    {ajustePorCodigo.get(p.codigo) ? (
+                      <Text style={styles.ajustePendente}>
+                        📝 Ajuste pendente: contado {fmtQtd(ajustePorCodigo.get(p.codigo)!.quantidadeContada)} (
+                        {formatarReais(valorAjuste(ajustePorCodigo.get(p.codigo)!))})
+                      </Text>
+                    ) : null}
+                    <TouchableOpacity style={styles.ajustarBotao} onPress={() => abrirAjuste(p)}>
+                      <Feather name="edit-3" size={13} color={colors.white} />
+                      <Text style={styles.ajustarTexto}>{ajustePorCodigo.get(p.codigo) ? 'Editar ajuste' : 'Ajustar estoque'}</Text>
+                    </TouchableOpacity>
                     {!p.ocultoPorSetor && (
                       <TouchableOpacity style={styles.ocultarBotao} onPress={() => alternarOculto(p)}>
                         <Feather name={oculto ? 'eye' : 'eye-off'} size={13} color={colors.navy700} />
@@ -328,6 +557,78 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
           </>
         )}
       </ScrollView>
+
+      {/* Ajustar estoque de um produto */}
+      <Modal visible={!!editando} transparent animationType="slide" onRequestClose={() => setEditando(null)}>
+        <View style={styles.modalFundo}>
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => setEditando(null)} />
+          <View style={styles.folha}>
+            <View style={styles.folhaAlca} />
+            {editando ? (
+              <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 560 }}>
+                <Text style={styles.folhaTitulo}>Ajustar estoque</Text>
+                <Text style={[styles.prodNome, { marginTop: 6 }]}>{editando.nome}</Text>
+                <Text style={styles.prodMeta}>
+                  {editando.codigo} · {nomeBonito(editando.setor)}
+                </Text>
+                <View style={[styles.prodNumeros, { marginTop: spacing.md }]}>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Estoque no sistema</Text>
+                    <Text style={[styles.prodNumValor, { fontSize: 16 }]}>{fmtQtd(editando.estoqueSistema)}</Text>
+                  </View>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Diferença</Text>
+                    <Text style={[styles.prodNumValor, { fontSize: 16 }]}>
+                      {numero(contada) === null ? '—' : fmtQtd((numero(contada) as number) - editando.estoqueSistema)}
+                    </Text>
+                  </View>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Valor</Text>
+                    <Text style={[styles.prodNumValor, { fontSize: 16 }]}>
+                      {numero(contada) === null ? '—' : formatarReais(((numero(contada) as number) - editando.estoqueSistema) * (editando.custoMedio || 0))}
+                    </Text>
+                  </View>
+                </View>
+                {editando.ajustePaiFilho ? (
+                  <Text style={[styles.ajusteTexto, { marginTop: 6 }]}>
+                    🔗 Este produto tem código pai/filho — o Giro mostra {fmtQtd(editando.estoque)}, mas o sistema está com {fmtQtd(editando.estoqueSistema)}.
+                  </Text>
+                ) : null}
+                <Text style={[styles.filtroRotulo, { marginTop: spacing.lg }]}>Quantidade contada</Text>
+                <TextInput
+                  style={styles.inputAjuste}
+                  keyboardType="decimal-pad"
+                  placeholder="Ex.: 12 ou 3,5"
+                  placeholderTextColor={colors.gray400}
+                  value={contada}
+                  onChangeText={setContada}
+                  autoFocus
+                />
+                <Text style={[styles.filtroRotulo, { marginTop: spacing.lg }]}>Motivo</Text>
+                <View style={styles.opcoesWrap}>
+                  {MOTIVOS_AJUSTE.map((m) => (
+                    <TouchableOpacity key={m} style={[styles.opcao, motivo === m && styles.opcaoAtiva]} onPress={() => setMotivo(m)}>
+                      <Text style={[styles.opcaoTexto, motivo === m && styles.opcaoTextoAtivo]}>{m}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+                <Text style={[styles.filtroRotulo, { marginTop: spacing.lg }]}>Observação (opcional)</Text>
+                <TextInput
+                  style={[styles.inputAjuste, { minHeight: 70, textAlignVertical: 'top', fontSize: 14 }]}
+                  placeholder="Ex.: produto vendido como four pack; caixas avariadas no depósito…"
+                  placeholderTextColor={colors.gray400}
+                  value={obs}
+                  onChangeText={setObs}
+                  multiline
+                />
+                <TouchableOpacity style={[styles.verBotao, salvandoAjuste && { opacity: 0.6 }]} onPress={salvarAjusteAtual} disabled={salvandoAjuste}>
+                  <Text style={styles.verTexto}>{salvandoAjuste ? 'Salvando…' : 'Salvar ajuste'}</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
 
       {/* Painel de filtro */}
       <Modal visible={filtroAberto} transparent animationType="slide" onRequestClose={() => setFiltroAberto(false)}>
@@ -497,6 +798,16 @@ const styles = StyleSheet.create({
   prodNumRotulo: { fontSize: 10.5, color: colors.gray600 },
   prodNumValor: { fontSize: 13, fontWeight: '700', color: colors.navy900, marginTop: 2 },
   ocultarBotao: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: spacing.sm },
+  abasHero: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: radius.lg, padding: 4 },
+  abaHero: { flex: 1, flexDirection: 'row', gap: 6, paddingVertical: 8, borderRadius: radius.md, alignItems: 'center', justifyContent: 'center' },
+  abaHeroAtiva: { backgroundColor: colors.white },
+  abaHeroTexto: { fontSize: 12.5, fontWeight: '700', color: 'rgba(255,255,255,0.85)' },
+  abaHeroTextoAtivo: { color: colors.navy700 },
+  vazioAjustes: { alignItems: 'center', gap: spacing.md, marginTop: spacing.xl, paddingHorizontal: spacing.lg },
+  ajustePendente: { fontSize: 11.5, color: '#B4650E', marginTop: 6, fontWeight: '700' },
+  ajustarBotao: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: colors.navy700, borderRadius: radius.full, paddingVertical: 6, paddingHorizontal: 12, marginTop: spacing.sm },
+  ajustarTexto: { color: colors.white, fontSize: 12, fontWeight: '700' },
+  inputAjuste: { backgroundColor: colors.gray50, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: 18, fontWeight: '700', color: colors.navy900, borderWidth: 1, borderColor: colors.gray100 },
   ajusteTexto: { fontSize: 11, color: colors.navy700, marginTop: 6, fontWeight: '600' },
   ocultarTexto: { fontSize: 11.5, fontWeight: '600', color: colors.navy700 },
   maisBotao: { borderWidth: 1.5, borderColor: colors.navy700, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', marginTop: spacing.sm },

@@ -30,6 +30,7 @@ export interface ProdutoGiro {
   categoria: string;
   subcategoria: string;
   estoque: number;
+  estoqueSistema: number; // como veio do Estoque Loja, antes do ajuste pai/filho
   custoMedio: number;
   custoEstoque: number; // estoque (positivo) × custo médio
   diasComVenda: number;
@@ -128,6 +129,7 @@ export async function carregarBaseGiro(forcar = false): Promise<BaseGiro> {
   // o código que entra na nota e o filho o que é vendido. Enquanto o acerto não
   // é lançado no sistema da loja, o Giro "transfere" do pai para o filho o que
   // falta para zerar o negativo do filho (1 un filho = fator un do pai).
+  const estoqueOriginal = new Map<string, number>([...estoquePorCodigo.entries()].map(([k, v]) => [k, v.qtd]));
   const ajustes = new Map<string, string>();
   for (const [pai, filho, fator] of PAI_FILHO as [string, string, number][]) {
     const ep = estoquePorCodigo.get(pai);
@@ -155,6 +157,7 @@ export async function carregarBaseGiro(forcar = false): Promise<BaseGiro> {
       categoria: limpa(g.categoria, 'SEM CATEGORIA'),
       subcategoria,
       estoque,
+      estoqueSistema: estoqueOriginal.get(g.codigo_produto) ?? 0,
       custoMedio,
       custoEstoque: Math.max(estoque, 0) * custoMedio,
       diasComVenda: Number(g.dias_com_venda ?? 0),
