@@ -284,6 +284,7 @@ export async function finalizarAvaliacao(dados: {
         criado_por_nome: dados.gerenteNome,
         prioridade: 'alta',
         avaliacao_id: dados.avaliacaoId,
+        correcao_status: 'pendente',
       })
       .select()
       .single();

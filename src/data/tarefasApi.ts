@@ -18,6 +18,11 @@ export interface Tarefa {
   avaliacaoId: string | null;
   // Tarefa gerada por uma Visita Técnica (veterinário) — ver visitaTecnicaApi.ts.
   visitaTecnicaId: string | null;
+  // Correção de checklist (ver correcaoApi.ts): null = tarefa comum.
+  correcaoStatus: 'pendente' | 'enviada' | 'devolvida' | 'aprovada' | null;
+  correcaoEnviadaPor: string | null;
+  correcaoAvaliadaPor: string | null;
+  correcaoRodada: number;
   criadoEm: string;
 }
 
@@ -36,6 +41,10 @@ function linhaParaTarefa(linha: any): Tarefa {
     prioridade: linha.prioridade ?? 'normal',
     avaliacaoId: linha.avaliacao_id,
     visitaTecnicaId: linha.visita_tecnica_id ?? null,
+    correcaoStatus: linha.correcao_status ?? null,
+    correcaoEnviadaPor: linha.correcao_enviada_por ?? null,
+    correcaoAvaliadaPor: linha.correcao_avaliada_por ?? null,
+    correcaoRodada: linha.correcao_rodada ?? 1,
     criadoEm: linha.criado_em,
   };
 }

@@ -10,6 +10,8 @@ import { buscarAvaliacaoPorId } from '../data/avaliacaoSetorApi';
 import { compartilharAvaliacao } from '../lib/checklistPdf';
 import { compartilharVisita } from '../lib/visitaTecnicaPdf';
 import { buscarVisitaPorId } from '../data/visitaTecnicaApi';
+import CorrecaoScreen from './CorrecaoScreen';
+import { origemDaTarefa } from '../data/correcaoApi';
 import { Aviso, buscarAvisosDoSetor } from '../data/avisosApi';
 import { Validade, buscarValidadesDoSetor } from '../data/validadeApi';
 import { diasRestantes, formatarData, statusPrazo } from '../lib/validadeUtils';
@@ -66,8 +68,15 @@ export default function HomeColaboradorScreen() {
   // do app" em qualquer tela. Interceptamos e fazemos a mesma coisa que o
   // botão "‹ Voltar" de cada tela — volta pra Home. Só na própria Home é que
   // deixamos o comportamento padrão do Android acontecer (fechar o app).
+  // Tarefa de checklist aberta na tela de Correção (ver CorrecaoScreen.tsx).
+  const [tarefaCorrecao, setTarefaCorrecao] = useState<Tarefa | null>(null);
+
   useEffect(() => {
     const aoVoltar = () => {
+      if (tarefaCorrecao) {
+        setTarefaCorrecao(null);
+        return true;
+      }
       if (tela !== 'home') {
         setTela('home');
         return true;
@@ -76,7 +85,7 @@ export default function HomeColaboradorScreen() {
     };
     const assinatura = BackHandler.addEventListener('hardwareBackPress', aoVoltar);
     return () => assinatura.remove();
-  }, [tela]);
+  }, [tela, tarefaCorrecao]);
 
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [carregandoTarefas, setCarregandoTarefas] = useState(true);
@@ -176,6 +185,19 @@ export default function HomeColaboradorScreen() {
   }
   if (tela === 'colaboradores') {
     return <ColaboradoresScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tarefaCorrecao) {
+    return (
+      <CorrecaoScreen
+        tarefa={tarefaCorrecao}
+        modo="corrigir"
+        usuarioNome={usuarioAtual.nome}
+        onVoltar={(mudou) => {
+          setTarefaCorrecao(null);
+          if (mudou) carregarTarefas();
+        }}
+      />
+    );
   }
   if (tela === 'precificacao') {
     return <PrecificacaoScreen onVoltar={() => setTela('home')} />;
@@ -394,13 +416,35 @@ export default function HomeColaboradorScreen() {
               <Text style={styles.tarefaTitulo}>{t.titulo}</Text>
               {!!t.descricao && <Text style={styles.tarefaDescricao}>{t.descricao}</Text>}
               {!!t.prazo && <Text style={styles.tarefaPrazo}>Prazo: {t.prazo}</Text>}
-              <TouchableOpacity
-                style={[styles.btnConcluir, concluindo === t.id && styles.btnConcluirDesabilitado]}
-                onPress={() => marcarConcluida(t)}
-                disabled={concluindo === t.id}
-              >
-                <Text style={styles.btnConcluirTexto}>{concluindo === t.id ? 'Concluindo…' : 'Marcar como concluída'}</Text>
-              </TouchableOpacity>
+              {origemDaTarefa(t) && t.correcaoStatus ? (
+                // Tarefa de checklist: em vez de "concluir com foto", abre a
+                // Correção (trata cada "Não" e envia pra aprovação).
+                <>
+                  {t.correcaoStatus === 'devolvida' && (
+                    <Text style={styles.tarefaDevolvida}>↩ Devolvida por {t.correcaoAvaliadaPor ?? 'quem fez o checklist'} — refazer os itens indicados</Text>
+                  )}
+                  <TouchableOpacity
+                    style={[styles.btnConcluir, t.correcaoStatus === 'enviada' && styles.btnAguardando]}
+                    onPress={() => setTarefaCorrecao(t)}
+                  >
+                    <Text style={[styles.btnConcluirTexto, t.correcaoStatus === 'enviada' && { color: '#8A4D0B' }]}>
+                      {t.correcaoStatus === 'enviada'
+                        ? '⏳ Aguardando aprovação · ver'
+                        : t.correcaoStatus === 'devolvida'
+                        ? 'Refazer correção'
+                        : 'Realizar correção'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              ) : (
+                <TouchableOpacity
+                  style={[styles.btnConcluir, concluindo === t.id && styles.btnConcluirDesabilitado]}
+                  onPress={() => marcarConcluida(t)}
+                  disabled={concluindo === t.id}
+                >
+                  <Text style={styles.btnConcluirTexto}>{concluindo === t.id ? 'Concluindo…' : 'Marcar como concluída'}</Text>
+                </TouchableOpacity>
+              )}
             </View>
           ))
         )}
@@ -507,6 +551,8 @@ const styles = StyleSheet.create({
   btnConcluir: { backgroundColor: colors.green500, borderRadius: radius.md, paddingVertical: 10, alignItems: 'center', marginTop: spacing.md },
   btnConcluirDesabilitado: { opacity: 0.6 },
   btnConcluirTexto: { color: colors.white, fontSize: 12.5, fontWeight: '700' },
+  btnAguardando: { backgroundColor: '#FFF1DC' },
+  tarefaDevolvida: { fontSize: 12, fontWeight: '700', color: colors.red500, marginTop: 8 },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md },
   tile: { width: '47%', backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg },
   tileDot: { width: 34, height: 34, borderRadius: radius.full, backgroundColor: colors.navy700, marginBottom: spacing.md, alignItems: 'center', justifyContent: 'center' },

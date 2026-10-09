@@ -80,3 +80,15 @@ create index if not exists visitas_tecnicas_unidade_idx on public.visitas_tecnic
 -- 09/10/2026 (aplicado): várias fotos por resposta (foto_url continua com a
 -- primeira, por compatibilidade).
 alter table public.visita_tecnica_respostas add column if not exists fotos_urls text[] not null default '{}';
+
+-- 09/10/2026 (aplicado, migração "correcao_checklist"): Correção de checklist
+-- (encarregado trata cada "Não", quem fez o checklist aprova/devolve).
+-- Ver src/data/correcaoApi.ts. Resumo:
+--   tarefas: correcao_status ('pendente','enviada','devolvida','aprovada'),
+--            correcao_enviada_por/em, correcao_avaliada_por/em, correcao_rodada
+--   correcao_itens: tarefa_id, origem ('visita'|'avaliacao'), checklist_id,
+--            resposta_id, pergunta_texto, critico, status ('pendente',
+--            'corrigido','nao_possivel'), comentario, fotos_urls,
+--            respondido_por/em, aprovacao ('aprovado','devolvido'),
+--            aprovacao_obs — unique (tarefa_id, resposta_id)
+--   bucket 'correcao-fotos'

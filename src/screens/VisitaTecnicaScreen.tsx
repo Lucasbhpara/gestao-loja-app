@@ -60,6 +60,9 @@ import {
   visitaLocal,
 } from '../lib/visitaOffline';
 import { compartilharVisita } from '../lib/visitaTecnicaPdf';
+import CorrecaoScreen from './CorrecaoScreen';
+import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
+import { Tarefa } from '../data/tarefasApi';
 
 // =============================================================================
 // Visita Técnica — checklist do Técnico Veterinário (ver visitaTecnicaApi.ts
@@ -368,12 +371,19 @@ function PainelUnidade({
   const [compartilhandoId, setCompartilhandoId] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [mostrarComoFunciona, setMostrarComoFunciona] = useState(false);
+  const [paraAprovar, setParaAprovar] = useState<Tarefa[]>([]);
+  const [aprovando, setAprovando] = useState<Tarefa | null>(null);
 
   async function carregar() {
     try {
-      const [mapa, lista] = await Promise.all([buscarUltimasVisitasPorSetor(unidade), buscarVisitasFinalizadas(unidade, 30)]);
+      const [mapa, lista, correcoes] = await Promise.all([
+        buscarUltimasVisitasPorSetor(unidade),
+        buscarVisitasFinalizadas(unidade, 30),
+        unidade === UNIDADE_DA_LOJA ? buscarCorrecoesParaAprovar('visita') : Promise.resolve([] as Tarefa[]),
+      ]);
       setUltimas(mapa);
       setFinalizadas(lista);
+      setParaAprovar(correcoes);
       setSemInternet(false);
     } catch {
       setSemInternet(true);
@@ -391,6 +401,10 @@ function PainelUnidade({
   // de unidade (no modo veterinário) ou deixa a Home do admin decidir.
   useEffect(() => {
     const aoVoltar = () => {
+      if (aprovando) {
+        setAprovando(null);
+        return true;
+      }
       if (visitaAberta) {
         descartarSeVazia(visitaAberta);
         setVisitaAberta(null);
@@ -405,7 +419,7 @@ function PainelUnidade({
     };
     const assinatura = BackHandler.addEventListener('hardwareBackPress', aoVoltar);
     return () => assinatura.remove();
-  }, [visitaAberta]);
+  }, [visitaAberta, aprovando]);
 
   const pendentesUnidade = finalizadasPendentes(unidade);
   const totalPendentes = contarPendentes();
@@ -479,6 +493,20 @@ function PainelUnidade({
     } finally {
       setCompartilhandoId(null);
     }
+  }
+
+  if (aprovando) {
+    return (
+      <CorrecaoScreen
+        tarefa={aprovando}
+        modo="aprovar"
+        usuarioNome={usuarioNome}
+        onVoltar={(mudou) => {
+          setAprovando(null);
+          if (mudou) carregar();
+        }}
+      />
+    );
   }
 
   if (visitaAberta) {
@@ -597,6 +625,27 @@ function PainelUnidade({
                 Nesta unidade a visita fica registrada com PDF, mas os "Não" não viram tarefa (as tarefas automáticas são só da Loja {UNIDADE_DA_LOJA}).
               </Text>
             </View>
+          )}
+
+          {paraAprovar.length > 0 && (
+            <>
+              <Text style={styles.secaoTitulo}>Correções para aprovar</Text>
+              <View style={styles.listaCard}>
+                {paraAprovar.map((t, i) => (
+                  <TouchableOpacity key={t.id} style={[styles.linhaFinalizada, i > 0 && styles.linhaDivisor]} onPress={() => setAprovando(t)}>
+                    <View style={[styles.linhaIcone, { backgroundColor: '#FFF1DC' }]}>
+                      <Feather name="check-circle" size={15} color="#B4650E" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.linhaNome}>{t.titulo.replace('Visita Técnica — ', '')}</Text>
+                      <Text style={styles.linhaMeta}>Corrigido por {t.correcaoEnviadaPor ?? '—'}{t.correcaoRodada > 1 ? ` · rodada ${t.correcaoRodada}` : ''}</Text>
+                    </View>
+                    <Text style={styles.tileAcao}>Avaliar</Text>
+                    <Feather name="chevron-right" size={16} color={colors.navy700} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
           )}
 
           <TouchableOpacity style={styles.comoFunciona} onPress={() => setMostrarComoFunciona((v) => !v)} activeOpacity={0.8}>
