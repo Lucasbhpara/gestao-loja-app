@@ -190,6 +190,50 @@ export async function buscarVisitasFinalizadas(limite = 30): Promise<VisitaTecni
   return (data ?? []).map(linhaParaVisita);
 }
 
+// Resumo pro painel da tela inicial: quantas perguntas (e críticas) cada
+// setor tem, e o progresso das visitas em andamento (respondidas / total).
+export interface ResumoSetorVisita {
+  perguntas: number;
+  criticas: number;
+  emAndamento: { visitaId: string; respondidas: number; iniciadaEm: string } | null;
+}
+
+export async function buscarResumoSetores(): Promise<Map<SetorVisita, ResumoSetorVisita>> {
+  const [{ data: perguntas, error: e1 }, { data: abertas, error: e2 }] = await Promise.all([
+    supabase.from('visita_tecnica_perguntas').select('setor, critico').eq('ativo', true),
+    supabase.from('visitas_tecnicas').select('id, setor, iniciada_em').eq('status', 'em_andamento').order('iniciada_em', { ascending: false }),
+  ]);
+  if (e1) throw e1;
+  if (e2) throw e2;
+
+  const mapa = new Map<SetorVisita, ResumoSetorVisita>();
+  SETORES_VISITA.forEach((s) => mapa.set(s.key, { perguntas: 0, criticas: 0, emAndamento: null }));
+  (perguntas ?? []).forEach((p: any) => {
+    const r = mapa.get(p.setor);
+    if (!r) return;
+    r.perguntas++;
+    if (p.critico) r.criticas++;
+  });
+
+  // Mesma regra da tela: vale a visita em andamento mais recente do setor.
+  const maisRecentes = new Map<string, any>();
+  (abertas ?? []).forEach((v: any) => {
+    if (!maisRecentes.has(v.setor)) maisRecentes.set(v.setor, v);
+  });
+  const ids = Array.from(maisRecentes.values()).map((v) => v.id);
+  const contagem = new Map<string, number>();
+  if (ids.length > 0) {
+    const { data: resp, error: e3 } = await supabase.from('visita_tecnica_respostas').select('visita_id').in('visita_id', ids);
+    if (e3) throw e3;
+    (resp ?? []).forEach((r: any) => contagem.set(r.visita_id, (contagem.get(r.visita_id) ?? 0) + 1));
+  }
+  maisRecentes.forEach((v, setor) => {
+    const r = mapa.get(setor as SetorVisita);
+    if (r) r.emAndamento = { visitaId: v.id, respondidas: contagem.get(v.id) ?? 0, iniciadaEm: v.iniciada_em };
+  });
+  return mapa;
+}
+
 export async function buscarVisitaPorId(id: string): Promise<VisitaTecnica | null> {
   const { data, error } = await supabase.from('visitas_tecnicas').select('*').eq('id', id).maybeSingle();
   if (error) throw error;
