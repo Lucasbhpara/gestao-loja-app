@@ -69,6 +69,23 @@ export async function buscarTarefasDoSetor(setor: SetorKey): Promise<Tarefa[]> {
   return (data ?? []).map(linhaParaTarefa);
 }
 
+// Quem acompanha os checklists (vê e recebe aviso das tarefas geradas pela
+// Visita Técnica e pelo Checklist de Setor de todos os setores). Mesma lista
+// da função notificar-tarefa-aviso no Supabase.
+export const MATRICULAS_ACOMPANHAM_CHECKLISTS = ['9729163']; // Claudiane (A.P.P)
+
+// Tarefas de checklist em aberto, de todos os setores.
+export async function buscarTarefasDeChecklist(): Promise<Tarefa[]> {
+  const { data, error } = await supabase
+    .from('tarefas')
+    .select('*')
+    .eq('concluida', false)
+    .or('avaliacao_id.not.is.null,visita_tecnica_id.not.is.null')
+    .order('criado_em', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(linhaParaTarefa);
+}
+
 export async function criarTarefa(dados: {
   titulo: string;
   descricao: string;
