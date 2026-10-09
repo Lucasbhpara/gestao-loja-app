@@ -309,6 +309,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                         <Text style={styles.prodNumValor}>{formatarReais(p.custoEstoque)}</Text>
                       </View>
                     </View>
+                    {p.ajustePaiFilho ? <Text style={styles.ajusteTexto}>🔗 {p.ajustePaiFilho}</Text> : null}
                     {!p.ocultoPorSetor && (
                       <TouchableOpacity style={styles.ocultarBotao} onPress={() => alternarOculto(p)}>
                         <Feather name={oculto ? 'eye' : 'eye-off'} size={13} color={colors.navy700} />
@@ -496,6 +497,7 @@ const styles = StyleSheet.create({
   prodNumRotulo: { fontSize: 10.5, color: colors.gray600 },
   prodNumValor: { fontSize: 13, fontWeight: '700', color: colors.navy900, marginTop: 2 },
   ocultarBotao: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: spacing.sm },
+  ajusteTexto: { fontSize: 11, color: colors.navy700, marginTop: 6, fontWeight: '600' },
   ocultarTexto: { fontSize: 11.5, fontWeight: '600', color: colors.navy700 },
   maisBotao: { borderWidth: 1.5, borderColor: colors.navy700, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', marginTop: spacing.sm },
   maisTexto: { color: colors.navy700, fontWeight: '700', fontSize: 13 },

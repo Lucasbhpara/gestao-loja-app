@@ -3197,6 +3197,9 @@ const GIRO_ROTULO = { setor: 'Setor', subsetor: 'Subsetor', categoria: 'Categori
 const GIRO_SETORES_FORA = ['NI', 'EMBALAGENS', 'EMBALAGEM/GARRAFEIRA/GF', 'MANUTENCAO', 'ALMOX/RH/MANUT/EPI/ARTES', 'DIVERSOS'];
 const GIRO_SUBCAT_FORA = ['MATERIA PRIMA PRODUCAO'];
 const GIRO_CHAVE_OCULTOS = 'giro_ocultos_v1';
+// Códigos pai/filho aprovados na planilha de correção de 09/10 (mesma lista de src/data/paiFilho.json no app).
+const GIRO_PAI_FILHO = [["234","146840",1.0],["234","233",1.0],["234","360627",1.0],["234","56401",1.0],["234","360597",1.0],["234","56403",1.0],["234","345577",1.0],["234","57377",1.0],["234","345576",1.0],["234","71567",1.0],["234","71785",1.0],["234","57376",1.0],["72075","1220",1.0],["72075","1222",1.0],["135326","268948",1.0],["135326","6752",1.0],["126951","269508",4.0],["333502","13098",0.083333],["22962","22963",1.0],["2385","16610",1.0],["279586","279585",0.2],["262222","8458",1.0],["5987","6004",1.0],["230327","6820",1.0],["77017","141413",1.0],["7517","6759",1.0],["242","92089",1.0],["274","273",1.0],["287941","89216",1.0],["634","16531",1.0],["394","461",1.0],["9125","9128",1.0],["15426","15428",1.0],["266752","298095",1.0],["266752","1883",1.0],["268742","346444",20.0],["148753","334289",1.0],["130200","334632",1.0],["73424","73425",1.0],["217","216",1.0],["88969","142624",2.5],["77185","136529",1.0],["262027","346451",40.0],["349","124284",1.0],["349","186237",5.0],["171","136530",1.0],["350","136525",1.0],["350","156637",3.3],["271572","302099",4.0],["325581","325618",1.0],["325581","325691",1.0],["302579","302581",0.166667],["192364","139127",0.027778],["6724","132446",25.0],["287940","334287",1.0],["343047","346509",4.0],["288900","288899",0.416667],["288900","288902",0.033333],["183328","183444",0.166667],["28103","136524",1.0],["28103","188766",5.0],["186","267325",1.0],["186","103891",1.0],["288905","3011",0.041667],["183321","183440",0.166667],["62476","136528",1.0],["78581","334093",1.0],["6695","9373",1.0],["60782","262433",0.166667],["183335","183446",0.166667],["302580","302583",0.166667],["241","16617",1.0],["235927","499",1.0],["22426","2806",0.333333],["345960","345963",1.0],["86206","86207",1.0],["263089","23044",1.0],["18534","188762",5.0],["326082","326085",1.0],["332","135946",1.0],["333499","333434",1.0],["106","9390",1.0],["124472","300985",1.0],["18779","139808",3.0],["288437","288438",1.0],["134869","134868",1.0],["288439","288440",1.0],["170961","280147",1.0],["18536","2808",0.333333],["66623","66626",0.333333],["177315","179697",36.0],["6746","16608",1.0],["163107","188815",1.0],["68546","68525",1.0],["363","89211",1.0],["347229","347231",1.0],["300061","342966",1.0],["129","16615",1.0],["179455","140820",2.0],["344934","344935",1.0],["347080","180882",1.0],["6464","6727",1.0],["77268","270858",1.0],["12595","12594",1.0],["263274","263272",1.0],["64805","64804",1.0],["136821","7493",0.166667],["266","265",1.0],["188450","17328",1.0],["188450","196",1.0],["139093","3030",0.222222],["3934","131071",3.0],["3934","132450",4.0],["270659","44313",1.0],["190081","11425",0.166667],["90738","11422",0.166667],["89072","82189",1.0],["6410","333306",1.0],["6442","6416",1.0],["14704","23089",1.0],["10831","392",1.0],["148605","146439",0.083333]];
+
 
 function giroLerOcultos() {
   try { return new Set(JSON.parse(localStorage.getItem(GIRO_CHAVE_OCULTOS) || '[]')); } catch (e) { return new Set(); }
@@ -3239,6 +3242,16 @@ async function giroCarregarBase(forcar) {
     if (e.data_planilha && (!estoqueData || e.data_planilha > estoqueData)) estoqueData = e.data_planilha;
     if (!estoque.has(cod)) estoque.set(cod, { qtd: Number(e.quantidade || 0), custo: e.preco_custo != null ? Number(e.preco_custo) : null });
   });
+  // Pai/filho: transfere do pai o que falta para zerar o negativo do filho.
+  const ajustes = new Map();
+  GIRO_PAI_FILHO.forEach(([pai, filho, fator]) => {
+    const ep = estoque.get(pai), ef = estoque.get(filho);
+    if (!ep || !ef || ef.qtd >= 0 || ep.qtd <= 0 || !(fator > 0)) return;
+    const lanca = Math.min(-ef.qtd, ep.qtd / fator);
+    ef.qtd += lanca; ep.qtd -= lanca * fator;
+    ajustes.set(pai, 'estoque ajustado pelos códigos filhos');
+    ajustes.set(filho, 'estoque ajustado pelo código pai');
+  });
   const limpa = (s, p) => ((s || '').trim() || p);
   const produtos = giro.map((g) => {
     const el = estoque.get(g.codigo_produto);
@@ -3257,6 +3270,17 @@ async function giroCarregarBase(forcar) {
       ocultoPorSetor: GIRO_SETORES_FORA.includes(setor) || GIRO_SUBCAT_FORA.includes(subcategoria),
     };
   });
+  const porCodigo = new Map(produtos.map((p) => [p.codigo, p]));
+  GIRO_PAI_FILHO.forEach(([pai, filho]) => {
+    const p = porCodigo.get(pai), f = porCodigo.get(filho);
+    if (!p || !f) return;
+    if (f.ultimaVenda && (!p.ultimaVenda || f.ultimaVenda > p.ultimaVenda)) {
+      p.ultimaVenda = f.ultimaVenda;
+      p.diasParado = periodoFim ? giroDiasEntre(f.ultimaVenda, periodoFim) : null;
+    }
+    p.diasComVenda = Math.max(p.diasComVenda, f.diasComVenda);
+  });
+  produtos.forEach((p) => { if (ajustes.has(p.codigo)) p.ajustePaiFilho = ajustes.get(p.codigo); });
   estado.giroBase = { produtos, periodoInicio, periodoFim, estoqueData, carregadoEm: Date.now() };
   return estado.giroBase;
 }
@@ -3404,7 +3428,8 @@ function renderizarGiro() {
       : '<button class="btn-acao secundario" style="padding:5px 10px;font-size:11.5px;" onclick="giroAlternarOculto(\'' + giroEsc(p.codigo) + '\')">' + (oculto ? 'Mostrar' : 'Ocultar') + '</button>';
     return '<tr' + (oculto ? ' style="opacity:.55;"' : '') + '>' +
       '<td>' + selo + '</td>' +
-      '<td><div class="nome-forte">' + giroEsc(p.nome) + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + giroEsc(p.codigo) + ' · ' + giroEsc(giroNome(p.setor)) + ' › ' + giroEsc(giroNome(p.subcategoria)) + '</div></td>' +
+      '<td><div class="nome-forte">' + giroEsc(p.nome) + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + giroEsc(p.codigo) + ' · ' + giroEsc(giroNome(p.setor)) + ' › ' + giroEsc(giroNome(p.subcategoria)) + '</div>' +
+        (p.ajustePaiFilho ? '<div style="font-size:11px;color:var(--accent,#5B7BFF);margin-top:2px;">🔗 ' + p.ajustePaiFilho + '</div>' : '') + '</td>' +
       '<td style="text-align:right;font-weight:800;">' + p.estoque.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '</td>' +
       '<td style="text-align:right;">' + giroData(p.ultimaVenda) + '</td>' +
       '<td style="text-align:right;font-weight:800;color:' + (p.ultimaVenda === null ? 'var(--red)' : 'var(--orange)') + ';">' + giroDiasSemVenda(p) + '</td>' +
