@@ -5484,6 +5484,7 @@ function escVisita(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c
 
 async function paginaVisitaTecnica() {
   if (!estado.visitaAba) estado.visitaAba = 'visitas';
+  if (estado.visitaUnidade === undefined) estado.visitaUnidade = '';
   if (!estado.visitaSetorPerguntas) estado.visitaSetorPerguntas = 'acougue';
   const [{ data: visitas, error: e1 }, { data: perguntas, error: e2 }] = await Promise.all([
     sb.from('visitas_tecnicas').select('*').eq('status', 'finalizada').order('finalizada_em', { ascending: false }).limit(300),
@@ -5497,6 +5498,8 @@ async function paginaVisitaTecnica() {
 }
 
 function alternarAbaVisita(aba) { estado.visitaAba = aba; renderizarVisitaTecnica(); }
+function trocarUnidadeVisita(u) { estado.visitaUnidade = u; renderizarVisitaTecnica(); }
+function visitasFiltradas() { return estado.visitas.filter((v) => !estado.visitaUnidade || String(v.unidade || '') === estado.visitaUnidade); }
 function alternarSetorPerguntasVisita(setor) { estado.visitaSetorPerguntas = setor; renderizarVisitaTecnica(); }
 
 function renderizarVisitaTecnica() {
@@ -5510,9 +5513,17 @@ function renderizarVisitaTecnica() {
 }
 
 function htmlListaVisitas() {
+  // Filtro de unidade (o veterinário visita várias lojas).
+  const unidades = Array.from(new Set(estado.visitas.map((v) => String(v.unidade || '')).filter(Boolean))).sort((a, b) => Number(a) - Number(b));
+  const filtro = '<div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">' +
+    '<span style="font-size:12.5px;color:var(--text-muted);font-weight:700;">Unidade:</span>' +
+    '<button class="chip ' + (!estado.visitaUnidade ? 'ativo' : '') + '" onclick="trocarUnidadeVisita(\'\')">Todas</button>' +
+    unidades.map((u) => '<button class="chip ' + (estado.visitaUnidade === u ? 'ativo' : '') + '" onclick="trocarUnidadeVisita(\'' + u + '\')">Loja ' + escVisita(u) + '</button>').join('') +
+  '</div>';
+  const visitas = visitasFiltradas();
   // Última visita de cada setor (cartões) + lista completa.
   const cartoes = SETORES_VISITA.map((s) => {
-    const ultima = estado.visitas.find((v) => v.setor === s.key);
+    const ultima = visitas.find((v) => v.setor === s.key);
     if (!ultima) {
       return '<div class="item-card"><div style="font-size:13.5px;font-weight:700;">' + s.nome + '</div>' +
         '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Ainda não visitado.</div></div>';
@@ -5523,20 +5534,21 @@ function htmlListaVisitas() {
         '<div style="font-size:13.5px;font-weight:700;">' + s.nome + '</div>' +
         '<span class="pill ' + banda.classe + '">' + ultima.aproveitamento + '%</span>' +
       '</div>' +
-      '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">' + formatarDataHora(ultima.finalizada_em) + ' · ' + escVisita(ultima.veterinario_nome) + '</div>' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">' + (ultima.unidade ? 'Loja ' + escVisita(ultima.unidade) + ' · ' : '') + formatarDataHora(ultima.finalizada_em) + ' · ' + escVisita(ultima.veterinario_nome) + '</div>' +
       '<div style="font-size:12px;margin-top:4px;">' + (ultima.nao_conformidades || 0) + ' não conformidade(s)' +
         ((ultima.criticos_nao_conformes || 0) > 0 ? ' · <b style="color:var(--red);">' + ultima.criticos_nao_conformes + ' crítica(s)</b>' : '') + '</div>' +
     '</div>';
   }).join('');
 
-  if (estado.visitas.length === 0) {
-    return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;">' + cartoes + '</div>' +
+  if (visitas.length === 0) {
+    return filtro + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;">' + cartoes + '</div>' +
       '<div class="celula-vazio" style="margin-top:20px;">Nenhuma visita finalizada ainda. Assim que o veterinário concluir a primeira pelo app, ela aparece aqui.</div>';
   }
 
-  const linhas = estado.visitas.map((v) => {
+  const linhas = visitas.map((v) => {
     const banda = bandaAproveitamento(Number(v.aproveitamento || 0));
     return '<tr class="linha-clicavel" onclick="abrirVisitaTecnica(\'' + v.id + '\')">' +
+      '<td style="font-weight:800;">' + escVisita(v.unidade || '—') + '</td>' +
       '<td><span class="pill">' + nomeSetorVisita(v.setor) + '</span></td>' +
       '<td>' + formatarDataHora(v.finalizada_em) + '</td>' +
       '<td>' + escVisita(v.veterinario_nome) + '</td>' +
@@ -5546,9 +5558,9 @@ function htmlListaVisitas() {
     '</tr>';
   }).join('');
 
-  return '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;">' + cartoes + '</div>' +
+  return filtro + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;">' + cartoes + '</div>' +
     '<h3 style="font-size:15px;margin:28px 0 14px;">Todas as visitas</h3>' +
-    '<div class="tabela-wrap"><table><thead><tr><th>Setor</th><th>Finalizada em</th><th>Veterinário</th><th>Aproveitamento</th><th style="text-align:center;">Não conformidades</th><th style="text-align:center;">Críticas</th></tr></thead><tbody>' + linhas + '</tbody></table></div>' +
+    '<div class="tabela-wrap"><table><thead><tr><th>Loja</th><th>Setor</th><th>Finalizada em</th><th>Veterinário</th><th>Aproveitamento</th><th style="text-align:center;">Não conformidades</th><th style="text-align:center;">Críticas</th></tr></thead><tbody>' + linhas + '</tbody></table></div>' +
     '<div class="celula-vazio" style="text-align:left;padding-top:10px;">Clique numa visita pra ver o resultado completo e imprimir/salvar em PDF.</div>';
 }
 
@@ -5588,9 +5600,13 @@ function renderizarDetalheVisita(v, respostas, tarefa) {
   let grupoAtual = null;
   let itens = perguntas.map((p, i) => {
     const r = porPergunta.get(p.id);
-    if (!r) return '';
+    if (!r && !p.ativo) return '';
     let cab = '';
     if (p.grupo && p.grupo !== grupoAtual) { grupoAtual = p.grupo; cab = '<h4 style="font-size:12.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--navy-700);margin:20px 0 10px;">' + escVisita(p.grupo) + '</h4>'; }
+    if (!r) {
+      return cab + '<div class="item-card" style="margin-bottom:10px;border-style:dashed;opacity:.75;">' +
+        '<div style="display:flex;justify-content:space-between;gap:12px;"><div style="flex:1;font-size:13.5px;font-weight:600;">' + (i + 1) + '. ' + escVisita(p.texto) + '</div><span class="pill">Não avaliada</span></div></div>';
+    }
     return cab + card(r, i + 1, p);
   }).join('');
   const orfas = respostas.filter((r) => !r.pergunta_id || !idsPerguntas.has(r.pergunta_id));
@@ -5600,6 +5616,7 @@ function renderizarDetalheVisita(v, respostas, tarefa) {
     '<div class="box"><div class="rotulo">Aproveitamento</div><div class="valor" style="color:var(--' + corBanda + ');">' + v.aproveitamento + '%</div></div>' +
     '<div class="box"><div class="rotulo">Pontos</div><div class="valor">' + v.pontos_realizados + ' / ' + v.pontos_possiveis + '</div></div>' +
     '<div class="box"><div class="rotulo">Não conformidades</div><div class="valor" style="color:' + ((v.nao_conformidades || 0) > 0 ? 'var(--red)' : 'var(--green)') + ';">' + (v.nao_conformidades || 0) + '</div></div>' +
+    (v.perguntas_nao_avaliadas ? '<div class="box"><div class="rotulo">Não avaliadas</div><div class="valor" style="color:var(--text-muted);">' + v.perguntas_nao_avaliadas + '</div></div>' : '') +
     '<div class="box"><div class="rotulo">Críticas</div><div class="valor" style="color:' + ((v.criticos_nao_conformes || 0) > 0 ? 'var(--red)' : 'var(--green)') + ';">' + (v.criticos_nao_conformes || 0) + '</div></div>' +
     '<div class="box"><div class="rotulo">Tarefa</div><div class="valor" style="font-size:13.5px;">' + (!v.tarefa_id ? 'Sem pendência' : tarefa && tarefa.concluida ? 'Resolvida' : 'Em aberto') + '</div></div>' +
     (v.passos_contados != null ? '<div class="box"><div class="rotulo">Passos dados</div><div class="valor">🚶 ' + v.passos_contados + '</div></div>' : '');
@@ -5621,8 +5638,10 @@ function renderizarDetalheVisita(v, respostas, tarefa) {
       '<button class="btn-acao secundario" onclick="renderizarVisitaTecnica()">‹ Voltar</button>' +
       '<button class="btn-acao" onclick="window.print()">🖨️ Imprimir / Salvar PDF</button>' +
     '</div>' +
-    cabecalho('Visita Técnica — ' + nomeSetorVisita(v.setor), 'Técnico Veterinário: ' + escVisita(v.veterinario_nome) + ' · finalizada em ' + formatarDataHora(v.finalizada_em)) +
-    local + '<div class="resumo-perdas">' + boxes + '</div>' + itens + resolucao;
+    cabecalho('Visita Técnica — ' + nomeSetorVisita(v.setor) + (v.unidade ? ' · Loja ' + escVisita(v.unidade) : ''), 'Técnico Veterinário: ' + escVisita(v.veterinario_nome) + ' · finalizada em ' + formatarDataHora(v.finalizada_em)) +
+    local + '<div class="resumo-perdas">' + boxes + '</div>' + itens +
+    (v.consideracoes_finais ? '<h3 style="font-size:15px;margin:28px 0 14px;">Considerações finais</h3><div class="item-card" style="white-space:pre-wrap;font-size:13.5px;border-color:var(--navy-700);">' + escVisita(v.consideracoes_finais) + '</div>' : '') +
+    resolucao;
 }
 
 function htmlPerguntasVisita() {

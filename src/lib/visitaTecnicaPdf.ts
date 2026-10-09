@@ -42,11 +42,22 @@ export function montarHtmlVisita(dados: {
   const itens = perguntas
     .map((p, i) => {
       const r = porPergunta.get(p.id);
-      if (!r) return '';
+      // Sem resposta: "Não avaliada" (visita finalizada antes de terminar).
+      // Pergunta desativada depois e sem resposta não entra.
+      if (!r && !p.ativo) return '';
       let cabecalho = '';
       if (p.grupo && p.grupo !== grupoAtual) {
         grupoAtual = p.grupo;
         cabecalho = `<h3 class="grupo">${esc(p.grupo)}</h3>`;
+      }
+      if (!r) {
+        return `${cabecalho}
+        <div class="item item-na">
+          <div class="topo">
+            <div class="texto">${i + 1}. ${esc(p.texto)}${p.critico ? ' <span class="critico">CRÍTICO</span>' : ''}</div>
+            <span class="badge na">Não avaliada</span>
+          </div>
+        </div>`;
       }
       const badge =
         r.resposta === 'sim'
@@ -109,6 +120,8 @@ export function montarHtmlVisita(dados: {
     .grupo { font-size: 13px; margin: 18px 0 8px; color: #1B2A6B; border-bottom: 1px solid #ddd; padding-bottom: 4px; }
     .item { border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; page-break-inside: avoid; }
     .item-nao { border-color: #E86A5F; }
+    .item-na { border-style: dashed; color: #888; }
+    .consideracoes { border: 1px solid #1B2A6B; border-radius: 8px; padding: 12px 14px; margin-top: 18px; font-size: 12.5px; white-space: pre-wrap; page-break-inside: avoid; }
     .topo { display: flex; justify-content: space-between; gap: 10px; }
     .texto { font-size: 12.5px; font-weight: 600; flex: 1; }
     .critico { font-size: 9px; font-weight: 700; color: #C5392F; border: 1px solid #C5392F; border-radius: 4px; padding: 1px 4px; margin-left: 4px; }
@@ -121,16 +134,18 @@ export function montarHtmlVisita(dados: {
   </style></head>
   <body>
     <h1>Visita Técnica — ${esc(nomeDoSetorVisita(visita.setor))}</h1>
-    <div class="sub">ULVA · Técnico Veterinário: ${esc(visita.veterinarioNome)} · finalizada em ${visita.finalizadaEm ? dataHora(visita.finalizadaEm) : '—'}</div>
+    <div class="sub">ULVA · Loja ${esc(visita.unidade ?? '—')} · Técnico Veterinário: ${esc(visita.veterinarioNome)} · finalizada em ${visita.finalizadaEm ? dataHora(visita.finalizadaEm) : '—'}</div>
     ${local}
     <div class="resumo">
       <div class="box"><div class="rot">Aproveitamento</div><div class="val" style="color:${corFaixa(pct)};">${pct}%</div></div>
       <div class="box"><div class="rot">Pontos</div><div class="val">${visita.pontosRealizados ?? 0} / ${visita.pontosPossiveis ?? 0}</div></div>
       <div class="box"><div class="rot">Não conformidades</div><div class="val" style="color:${(visita.naoConformidades ?? 0) > 0 ? '#C5392F' : '#2C8F5E'};">${visita.naoConformidades ?? 0}</div></div>
+      ${visita.perguntasNaoAvaliadas ? `<div class="box"><div class="rot">Não avaliadas</div><div class="val" style="color:#888;">${visita.perguntasNaoAvaliadas}</div></div>` : ''}
       <div class="box"><div class="rot">Críticos reprovados</div><div class="val" style="color:${(visita.criticosNaoConformes ?? 0) > 0 ? '#C5392F' : '#2C8F5E'};">${visita.criticosNaoConformes ?? 0}</div></div>
     </div>
     ${itens}
     ${orfas ? `<h3 class="grupo">Outras perguntas</h3>${orfas}` : ''}
+    ${visita.consideracoesFinais ? `<h3 class="grupo">Considerações finais</h3><div class="consideracoes">${esc(visita.consideracoesFinais)}</div>` : ''}
     <div class="rodape">Base: Manual de Boas Práticas e POPs (rev. 12.26) · Gerado pelo app ULVA em ${dataHora(new Date().toISOString())} · by Lucas Alberto</div>
   </body></html>`;
 }
@@ -150,6 +165,6 @@ export async function compartilharVisita(visita: VisitaTecnica): Promise<void> {
   const html = montarHtmlVisita({ visita, perguntas, respostas });
   await compartilharPdf(
     html,
-    `visita-tecnica-${nomeDoSetorVisita(visita.setor)}-${dataParaNomeArquivo(visita.finalizadaEm)}`
+    `visita-tecnica-loja-${visita.unidade ?? ''}-${nomeDoSetorVisita(visita.setor)}-${dataParaNomeArquivo(visita.finalizadaEm)}`
   );
 }

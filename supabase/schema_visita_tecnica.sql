@@ -69,3 +69,10 @@ insert into storage.buckets (id, name, public) values ('visita-tecnica-fotos','v
 on conflict (id) do nothing;
 create policy visita_tecnica_fotos_insert on storage.objects for insert with check (bucket_id = 'visita-tecnica-fotos');
 create policy visita_tecnica_fotos_select on storage.objects for select using (bucket_id = 'visita-tecnica-fotos');
+
+-- 09/10/2026 (aplicado): unidade visitada, considerações finais e perguntas
+-- não avaliadas (visita finalizada antes de terminar).
+alter table public.visitas_tecnicas add column if not exists unidade text;
+alter table public.visitas_tecnicas add column if not exists consideracoes_finais text;
+alter table public.visitas_tecnicas add column if not exists perguntas_nao_avaliadas integer;
+create index if not exists visitas_tecnicas_unidade_idx on public.visitas_tecnicas (unidade, setor, status);

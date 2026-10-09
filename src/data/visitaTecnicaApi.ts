@@ -6,20 +6,25 @@ import { SetorKey } from './employees';
 // rev. 12.26). É a "terceira via" de verificação, ao lado do Checklist de
 // Setor do gerente e do checklist do APP/Auditor (ALCATÉIA).
 //
-// Diferenças em relação ao Checklist de Setor (avaliacaoSetorApi.ts):
-//   - cada setor tem as SUAS perguntas (coluna `setor` sempre preenchida),
-//     em vez de um grupo genérico que vale pra todos;
-//   - existe o "setor" especial 'geral' (documentos da loja, caixa d'água,
-//     dedetização, ASO…), que não tem encarregado — a tarefa gerada vai sem
-//     setor (aparece pro administrador);
-//   - pergunta pode exigir foto mesmo quando a resposta é "Sim" (evidência
-//     da visita: termômetro, câmara etc.) — `fotoObrigatoria`;
-//   - pergunta pode ser "crítica" (temperatura, validade, contaminação
-//     cruzada, pragas). "Não" em item crítico deixa a tarefa como
-//     prioridade alta e aparece destacado no resumo.
+// Este arquivo é só a parte "nuvem" (Supabase). O app trabalha primeiro no
+// próprio celular (src/lib/visitaOffline.ts) — o veterinário entra em
+// câmaras frias sem sinal — e sincroniza com as funções daqui quando tem
+// internet.
 //
-// Tabelas próprias: visita_tecnica_perguntas / visitas_tecnicas /
+// Regras principais:
+//   - cada setor tem as SUAS perguntas; 'geral' = documentos da loja etc.;
+//   - toda visita é de uma UNIDADE (número da loja visitada, perguntado
+//     logo depois do vídeo de abertura);
+//   - pergunta pode exigir foto e pode ser "crítica";
+//   - ao finalizar, os "Não" viram UMA tarefa pro encarregado do setor —
+//     SÓ quando a unidade visitada é a própria loja do ULVA
+//     (UNIDADE_DA_LOJA). Em outras unidades a visita fica registrada (PDF,
+//     Portal), mas não gera tarefa pra equipe da 327.
+//
+// Tabelas: visita_tecnica_perguntas / visitas_tecnicas /
 // visita_tecnica_respostas. Fotos no bucket 'visita-tecnica-fotos'.
+
+export const UNIDADE_DA_LOJA = '327';
 
 export type SetorVisita = 'acougue' | 'frios' | 'padaria' | 'deposito' | 'mercearia' | 'flv' | 'geral';
 
@@ -39,8 +44,8 @@ export function nomeDoSetorVisita(key: SetorVisita): string {
 
 // Quem é "Técnico Veterinário" no ULVA: colaborador comum, cadastrado pelo
 // portal, cuja função contém "veterin" (ex.: "Técnico Veterinário",
-// "Médico Veterinário") ou "responsável técnico". Comparação sem acento e
-// sem diferenciar maiúscula, pra não depender de como a função foi digitada.
+// "Médico Veterinário") ou "responsável técnico". Sem acento e sem
+// diferenciar maiúscula, pra não depender de como a função foi digitada.
 export function ehTecnicoVeterinario(funcao: string | null | undefined): boolean {
   if (!funcao) return false;
   const f = funcao
@@ -80,6 +85,7 @@ export interface VisitaResposta {
 export interface VisitaTecnica {
   id: string;
   setor: SetorVisita;
+  unidade: string | null;
   status: 'em_andamento' | 'finalizada';
   veterinarioNome: string;
   veterinarioMatricula: string | null;
@@ -95,6 +101,10 @@ export interface VisitaTecnica {
   localizacaoLat: number | null;
   localizacaoLng: number | null;
   localizacaoEndereco: string | null;
+  consideracoesFinais: string | null;
+  // Perguntas que ficaram sem resposta quando a visita foi finalizada antes
+  // de terminar ("Não avaliada" — fora da nota).
+  perguntasNaoAvaliadas: number | null;
 }
 
 function linhaParaPergunta(l: any): VisitaPergunta {
@@ -130,6 +140,7 @@ function linhaParaVisita(l: any): VisitaTecnica {
   return {
     id: l.id,
     setor: l.setor,
+    unidade: l.unidade ?? null,
     status: l.status,
     veterinarioNome: l.veterinario_nome,
     veterinarioMatricula: l.veterinario_matricula,
@@ -145,10 +156,25 @@ function linhaParaVisita(l: any): VisitaTecnica {
     localizacaoLat: l.localizacao_lat,
     localizacaoLng: l.localizacao_lng,
     localizacaoEndereco: l.localizacao_endereco,
+    consideracoesFinais: l.consideracoes_finais ?? null,
+    perguntasNaoAvaliadas: l.perguntas_nao_avaliadas ?? null,
   };
 }
 
 // --- Perguntas ---------------------------------------------------------------
+
+// Todas as perguntas ativas de uma vez — o app guarda no celular (cache)
+// pra conseguir abrir qualquer setor mesmo sem internet.
+export async function buscarTodasPerguntasAtivas(): Promise<VisitaPergunta[]> {
+  const { data, error } = await supabase
+    .from('visita_tecnica_perguntas')
+    .select('*')
+    .eq('ativo', true)
+    .order('setor')
+    .order('ordem', { ascending: true });
+  if (error) throw error;
+  return (data ?? []).map(linhaParaPergunta);
+}
 
 // incluirInativas = true é pro PDF de visitas antigas: uma pergunta
 // desativada depois da visita ainda precisa aparecer no relatório dela.
@@ -160,13 +186,15 @@ export async function buscarPerguntasDoSetor(setor: SetorVisita, incluirInativas
   return (data ?? []).map(linhaParaPergunta);
 }
 
-// --- Visitas -----------------------------------------------------------------
+// --- Visitas (leitura) -------------------------------------------------------
 
-export async function buscarUltimasVisitasPorSetor(): Promise<Map<SetorVisita, VisitaTecnica>> {
+// Última visita finalizada de cada setor NAQUELA unidade.
+export async function buscarUltimasVisitasPorSetor(unidade: string): Promise<Map<SetorVisita, VisitaTecnica>> {
   const { data, error } = await supabase
     .from('visitas_tecnicas')
     .select('*')
     .eq('status', 'finalizada')
+    .eq('unidade', unidade)
     .order('finalizada_em', { ascending: false })
     .limit(200);
   if (error) throw error;
@@ -177,61 +205,13 @@ export async function buscarUltimasVisitasPorSetor(): Promise<Map<SetorVisita, V
   return mapa;
 }
 
-// Visitas já finalizadas (todos os setores), mais recentes primeiro — lista
-// "Visitas finalizadas" da tela, de onde dá pra compartilhar o PDF de novo.
-export async function buscarVisitasFinalizadas(limite = 30): Promise<VisitaTecnica[]> {
-  const { data, error } = await supabase
-    .from('visitas_tecnicas')
-    .select('*')
-    .eq('status', 'finalizada')
-    .order('finalizada_em', { ascending: false })
-    .limit(limite);
+// Visitas finalizadas, mais recentes primeiro (de uma unidade, ou todas).
+export async function buscarVisitasFinalizadas(unidade: string | null, limite = 30): Promise<VisitaTecnica[]> {
+  let query = supabase.from('visitas_tecnicas').select('*').eq('status', 'finalizada');
+  if (unidade) query = query.eq('unidade', unidade);
+  const { data, error } = await query.order('finalizada_em', { ascending: false }).limit(limite);
   if (error) throw error;
   return (data ?? []).map(linhaParaVisita);
-}
-
-// Resumo pro painel da tela inicial: quantas perguntas (e críticas) cada
-// setor tem, e o progresso das visitas em andamento (respondidas / total).
-export interface ResumoSetorVisita {
-  perguntas: number;
-  criticas: number;
-  emAndamento: { visitaId: string; respondidas: number; iniciadaEm: string } | null;
-}
-
-export async function buscarResumoSetores(): Promise<Map<SetorVisita, ResumoSetorVisita>> {
-  const [{ data: perguntas, error: e1 }, { data: abertas, error: e2 }] = await Promise.all([
-    supabase.from('visita_tecnica_perguntas').select('setor, critico').eq('ativo', true),
-    supabase.from('visitas_tecnicas').select('id, setor, iniciada_em').eq('status', 'em_andamento').order('iniciada_em', { ascending: false }),
-  ]);
-  if (e1) throw e1;
-  if (e2) throw e2;
-
-  const mapa = new Map<SetorVisita, ResumoSetorVisita>();
-  SETORES_VISITA.forEach((s) => mapa.set(s.key, { perguntas: 0, criticas: 0, emAndamento: null }));
-  (perguntas ?? []).forEach((p: any) => {
-    const r = mapa.get(p.setor);
-    if (!r) return;
-    r.perguntas++;
-    if (p.critico) r.criticas++;
-  });
-
-  // Mesma regra da tela: vale a visita em andamento mais recente do setor.
-  const maisRecentes = new Map<string, any>();
-  (abertas ?? []).forEach((v: any) => {
-    if (!maisRecentes.has(v.setor)) maisRecentes.set(v.setor, v);
-  });
-  const ids = Array.from(maisRecentes.values()).map((v) => v.id);
-  const contagem = new Map<string, number>();
-  if (ids.length > 0) {
-    const { data: resp, error: e3 } = await supabase.from('visita_tecnica_respostas').select('visita_id').in('visita_id', ids);
-    if (e3) throw e3;
-    (resp ?? []).forEach((r: any) => contagem.set(r.visita_id, (contagem.get(r.visita_id) ?? 0) + 1));
-  }
-  maisRecentes.forEach((v, setor) => {
-    const r = mapa.get(setor as SetorVisita);
-    if (r) r.emAndamento = { visitaId: v.id, respondidas: contagem.get(v.id) ?? 0, iniciadaEm: v.iniciada_em };
-  });
-  return mapa;
 }
 
 export async function buscarVisitaPorId(id: string): Promise<VisitaTecnica | null> {
@@ -240,11 +220,14 @@ export async function buscarVisitaPorId(id: string): Promise<VisitaTecnica | nul
   return data ? linhaParaVisita(data) : null;
 }
 
-export async function buscarVisitaEmAndamento(setor: SetorVisita): Promise<VisitaTecnica | null> {
+// Visita em andamento desse setor/unidade que esteja só na nuvem (ex.:
+// começada em outro celular) — o app traz pro celular pra continuar.
+export async function buscarVisitaEmAndamentoRemota(setor: SetorVisita, unidade: string): Promise<VisitaTecnica | null> {
   const { data, error } = await supabase
     .from('visitas_tecnicas')
     .select('*')
     .eq('setor', setor)
+    .eq('unidade', unidade)
     .eq('status', 'em_andamento')
     .order('iniciada_em', { ascending: false })
     .limit(1)
@@ -253,76 +236,96 @@ export async function buscarVisitaEmAndamento(setor: SetorVisita): Promise<Visit
   return data ? linhaParaVisita(data) : null;
 }
 
-export async function iniciarVisita(setor: SetorVisita, nome: string, matricula: string | null): Promise<VisitaTecnica> {
-  const { data, error } = await supabase
-    .from('visitas_tecnicas')
-    .insert({ setor, veterinario_nome: nome, veterinario_matricula: matricula })
-    .select()
-    .single();
-  if (error) throw error;
-  return linhaParaVisita(data);
-}
-
-export async function salvarLocalizacaoVisita(
-  visitaId: string,
-  localizacao: { lat: number; lng: number; endereco: string | null }
-): Promise<void> {
-  const { error } = await supabase
-    .from('visitas_tecnicas')
-    .update({
-      localizacao_lat: localizacao.lat,
-      localizacao_lng: localizacao.lng,
-      localizacao_endereco: localizacao.endereco,
-    })
-    .eq('id', visitaId);
-  if (error) throw error;
-}
-
 export async function buscarRespostasDaVisita(visitaId: string): Promise<VisitaResposta[]> {
   const { data, error } = await supabase.from('visita_tecnica_respostas').select('*').eq('visita_id', visitaId);
   if (error) throw error;
   return (data ?? []).map(linhaParaResposta);
 }
 
-// Upsert por visita + pergunta, pra não perder o progresso se o app fechar.
-export async function salvarRespostaVisita(dados: {
+// --- Visitas (gravação — chamadas pela sincronização) ------------------------
+
+// Cria/atualiza o cabeçalho da visita com o id gerado no celular. Sempre
+// grava como 'em_andamento': quem marca 'finalizada' é finalizarVisita, que
+// também gera a tarefa — a sincronização confere antes se a visita já não
+// foi finalizada na nuvem, pra nunca "desfinalizar" nem duplicar tarefa.
+export async function gravarCabecalhoVisita(v: {
+  id: string;
+  setor: SetorVisita;
+  unidade: string;
+  veterinarioNome: string;
+  veterinarioMatricula: string | null;
+  iniciadaEm: string;
+  localizacaoLat: number | null;
+  localizacaoLng: number | null;
+  localizacaoEndereco: string | null;
+  consideracoesFinais: string | null;
+}): Promise<void> {
+  const { error } = await supabase.from('visitas_tecnicas').upsert(
+    {
+      id: v.id,
+      setor: v.setor,
+      unidade: v.unidade,
+      status: 'em_andamento',
+      veterinario_nome: v.veterinarioNome,
+      veterinario_matricula: v.veterinarioMatricula,
+      iniciada_em: v.iniciadaEm,
+      localizacao_lat: v.localizacaoLat,
+      localizacao_lng: v.localizacaoLng,
+      localizacao_endereco: v.localizacaoEndereco,
+      consideracoes_finais: v.consideracoesFinais,
+    },
+    { onConflict: 'id' }
+  );
+  if (error) throw error;
+}
+
+export async function statusRemotoDaVisita(id: string): Promise<'em_andamento' | 'finalizada' | null> {
+  const { data, error } = await supabase.from('visitas_tecnicas').select('status').eq('id', id).maybeSingle();
+  if (error) throw error;
+  return data ? (data.status as any) : null;
+}
+
+// Upsert por visita + pergunta (não duplica se for reenviada).
+export async function gravarRespostaVisita(dados: {
   visitaId: string;
-  pergunta: VisitaPergunta;
+  perguntaId: string;
+  perguntaTexto: string;
+  critico: boolean;
   resposta: RespostaVisita;
   justificativa: string | null;
   fotoUrl: string | null;
-}): Promise<VisitaResposta> {
-  const { data, error } = await supabase
-    .from('visita_tecnica_respostas')
-    .upsert(
-      {
-        visita_id: dados.visitaId,
-        pergunta_id: dados.pergunta.id,
-        pergunta_texto: dados.pergunta.texto,
-        critico: dados.pergunta.critico,
-        resposta: dados.resposta,
-        justificativa: dados.justificativa,
-        foto_url: dados.fotoUrl,
-        respondida_em: new Date().toISOString(),
-      },
-      { onConflict: 'visita_id,pergunta_id' }
-    )
-    .select()
-    .single();
+  respondidaEm: string;
+}): Promise<void> {
+  const { error } = await supabase.from('visita_tecnica_respostas').upsert(
+    {
+      visita_id: dados.visitaId,
+      pergunta_id: dados.perguntaId,
+      pergunta_texto: dados.perguntaTexto,
+      critico: dados.critico,
+      resposta: dados.resposta,
+      justificativa: dados.justificativa,
+      foto_url: dados.fotoUrl,
+      respondida_em: dados.respondidaEm,
+    },
+    { onConflict: 'visita_id,pergunta_id' }
+  );
   if (error) throw error;
-  return linhaParaResposta(data);
 }
 
-// Finaliza a visita: Sim = 1 ponto, Não = 0 (não conformidade), N/A fica fora
-// do cálculo. Se houver "Não", cria UMA tarefa pro encarregado do setor
-// (setor 'geral' → tarefa sem setor, só pro administrador), com prioridade
-// alta quando algum item crítico foi reprovado. A tarefa só pode ser
-// concluída com foto (regra geral de tarefasApi.ts).
+// Finaliza a visita na nuvem: Sim = 1 ponto, Não = 0 (não conformidade),
+// N/A fica fora do cálculo. Se houver "Não" e a unidade for a própria loja
+// (UNIDADE_DA_LOJA), cria UMA tarefa pro encarregado do setor (setor
+// 'geral' → tarefa sem setor, só pro administrador), com prioridade alta
+// quando algum item crítico foi reprovado.
 export async function finalizarVisita(dados: {
   visitaId: string;
   setor: SetorVisita;
+  unidade: string | null;
   veterinarioNome: string;
   passosContados?: number | null;
+  finalizadaEm?: string;
+  consideracoesFinais?: string | null;
+  perguntasNaoAvaliadas?: number | null;
   // Ordem das perguntas na tela, pra lista de não conformidades da tarefa
   // sair na mesma sequência do checklist.
   ordemPerguntas?: string[];
@@ -342,7 +345,7 @@ export async function finalizarVisita(dados: {
   const nomeSetor = nomeDoSetorVisita(dados.setor);
 
   let tarefaId: string | null = null;
-  if (naoConformes.length > 0) {
+  if (naoConformes.length > 0 && dados.unidade === UNIDADE_DA_LOJA) {
     const linhas = naoConformes
       .map((r, i) => `${i + 1}. ${r.critico ? '[CRÍTICO] ' : ''}${r.perguntaTexto}${r.justificativa ? ` — ${r.justificativa}` : ''}`)
       .join('\n');
@@ -350,7 +353,9 @@ export async function finalizarVisita(dados: {
       `Visita Técnica (veterinário) finalizada por ${dados.veterinarioNome}.\n` +
       `Aproveitamento: ${aproveitamento}% (${pontosRealizados}/${pontosPossiveis}).` +
       (criticos.length ? `\nItens críticos reprovados: ${criticos.length}.` : '') +
-      `\n\nNão conformidades encontradas:\n${linhas}`;
+      `\n\nNão conformidades encontradas:\n${linhas}` +
+      (dados.perguntasNaoAvaliadas ? `\n\nPerguntas não avaliadas nesta visita: ${dados.perguntasNaoAvaliadas}.` : '') +
+      (dados.consideracoesFinais ? `\n\nConsiderações finais: ${dados.consideracoesFinais}` : '');
 
     const { data: tarefa, error: erroTarefa } = await supabase
       .from('tarefas')
@@ -372,7 +377,7 @@ export async function finalizarVisita(dados: {
     .from('visitas_tecnicas')
     .update({
       status: 'finalizada',
-      finalizada_em: new Date().toISOString(),
+      finalizada_em: dados.finalizadaEm ?? new Date().toISOString(),
       pontos_possiveis: pontosPossiveis,
       pontos_realizados: pontosRealizados,
       nao_conformidades: naoConformes.length,
@@ -380,6 +385,8 @@ export async function finalizarVisita(dados: {
       aproveitamento,
       tarefa_id: tarefaId,
       passos_contados: dados.passosContados ?? null,
+      consideracoes_finais: dados.consideracoesFinais ?? null,
+      perguntas_nao_avaliadas: dados.perguntasNaoAvaliadas ?? 0,
     })
     .eq('id', dados.visitaId)
     .select()
