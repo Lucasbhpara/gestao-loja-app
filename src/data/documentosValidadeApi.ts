@@ -15,13 +15,17 @@ import { supabase } from '../lib/supabase';
 
 export const DOCUMENTOS_VALIDADE = [
   'Alvará Sanitário',
-  'Alvará de Funcionamento',
-  'AVCB',
-  'Licença Ambiental Flores',
-  'Licença Ambiental Pescados',
-  'Licença Ambiental Carvão',
-  'Limpeza da Caixa d’Água',
+  'Alvará de Localização',
+  'Certificado IEF',
+  'Declaração de Pescados',
+  'Relatório de Limpeza da Caixa d’Água',
+  'Manual de Boas Práticas / POP / Lista de Presença',
   'Controle de Pragas',
+  'AVCB',
+  'Ficha Técnica de Produtos Químicos',
+  'Limpeza de Bebedouro e Caixas de Gordura',
+  'ART / CREA-MG e Inmetro',
+  'Croqui',
 ] as const;
 
 export interface ValidadeDocumento {
