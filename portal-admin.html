@@ -750,8 +750,9 @@ async function fazerLogin() {
     document.getElementById('sidebar-nome').textContent = encontrado.nome;
     document.getElementById('sidebar-funcao').textContent = encontrado.funcao;
     // Giro de Produtos: por enquanto só o Lucas (fase de teste).
-    document.getElementById('nav-giro-produtos').style.display = encontrado.matricula === '7990353' ? '' : 'none';
-    document.getElementById('nav-importar-vendas').style.display = encontrado.matricula === '7990353' ? '' : 'none';
+    // Giro de Produtos e Importar vendas: por enquanto só Lucas e Rodrigo.
+    document.getElementById('nav-giro-produtos').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
+    document.getElementById('nav-importar-vendas').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     irPara('equipe');
   } catch (e) {
     erroBox.innerHTML = '<div class="login-erro">Não consegui conectar: ' + (e.message || 'tenta de novo.') + '</div>';
@@ -3192,6 +3193,8 @@ function renderizarTabelaVendas() {
 // último dia de venda carregado. Ocultos (insumos, embalagens) ficam salvos
 // neste navegador; setores que nunca são de venda já vêm ocultos.
 // =============================================================================
+// Quem acessa o Giro de Produtos e o Importar vendas (Lucas e Rodrigo).
+const MATRICULAS_GIRO = ['7990353', '9728010'];
 const GIRO_NIVEIS = ['setor', 'subsetor', 'categoria', 'subcategoria'];
 const GIRO_ROTULO = { setor: 'Setor', subsetor: 'Subsetor', categoria: 'Categoria', subcategoria: 'Subcategoria' };
 const GIRO_SETORES_FORA = ['NI', 'EMBALAGENS', 'EMBALAGEM/GARRAFEIRA/GF', 'MANUTENCAO', 'ALMOX/RH/MANUT/EPI/ARTES', 'DIVERSOS'];
@@ -3340,7 +3343,7 @@ function giroOpcoes(lista, nivel) {
 }
 
 async function paginaGiroProdutos() {
-  if (!estado.usuario || estado.usuario.matricula !== '7990353') {
+  if (!estado.usuario || !MATRICULAS_GIRO.includes(String(estado.usuario.matricula))) {
     document.getElementById('conteudo-principal').innerHTML = cabecalho('Giro de Produtos', '') + '<div class="celula-vazio">Página em teste — ainda não liberada.</div>';
     return;
   }
@@ -3749,7 +3752,7 @@ function impAnalisar(linhas) {
 }
 
 async function paginaImportarVendas() {
-  if (!estado.usuario || estado.usuario.matricula !== '7990353') {
+  if (!estado.usuario || !MATRICULAS_GIRO.includes(String(estado.usuario.matricula))) {
     document.getElementById('conteudo-principal').innerHTML = cabecalho('Importar vendas (Falcon)', '') + '<div class="celula-vazio">Página em teste — ainda não liberada.</div>';
     return;
   }
