@@ -428,6 +428,13 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
           </View>
         ) : (
           <>
+            {base && base.produtos.some((p) => p.ajustePaiFilho) ? (
+              <View style={styles.avisoPaiFilho}>
+                <Text style={styles.ajusteTexto}>
+                  🔗 Correção pai/filho aplicada: {base.produtos.filter((p) => p.ajustePaiFilho).length} produtos com estoque ajustado
+                </Text>
+              </View>
+            ) : null}
             {/* Filtros ativos */}
             {qtdFiltros > 0 && (
               <View style={styles.ativosLinha}>
@@ -808,6 +815,7 @@ const styles = StyleSheet.create({
   ajustarBotao: { flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start', backgroundColor: colors.navy700, borderRadius: radius.full, paddingVertical: 6, paddingHorizontal: 12, marginTop: spacing.sm },
   ajustarTexto: { color: colors.white, fontSize: 12, fontWeight: '700' },
   inputAjuste: { backgroundColor: colors.gray50, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: 18, fontWeight: '700', color: colors.navy900, borderWidth: 1, borderColor: colors.gray100 },
+  avisoPaiFilho: { backgroundColor: '#E3E7F5', borderRadius: radius.md, padding: spacing.sm, marginBottom: spacing.md },
   ajusteTexto: { fontSize: 11, color: colors.navy700, marginTop: 6, fontWeight: '600' },
   ocultarTexto: { fontSize: 11.5, fontWeight: '600', color: colors.navy700 },
   maisBotao: { borderWidth: 1.5, borderColor: colors.navy700, borderRadius: radius.md, paddingVertical: 12, alignItems: 'center', marginTop: spacing.sm },

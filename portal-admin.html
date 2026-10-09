@@ -3453,8 +3453,10 @@ function renderizarGiro() {
 
   const periodo = (base.periodoInicio ? 'Vendas de ' + giroData(base.periodoInicio) + ' a ' + giroData(base.periodoFim) : 'Nenhuma venda carregada') +
     (base.estoqueData ? ' · estoque do Estoque Loja de ' + giroData(base.estoqueData) : '');
+  const qtdPaiFilho = base.produtos.filter((p) => p.ajustePaiFilho).length;
+  const avisoPaiFilho = '<div class="item-card" style="margin-bottom:14px;padding:10px 14px;font-size:12.5px;border-color:var(--accent,#5B7BFF);">🔗 <b>Correção pai/filho aplicada:</b> ' + GIRO_PAI_FILHO.length + ' pares (' + qtdPaiFilho + ' produtos com estoque ajustado). Os pais herdam a venda dos filhos e o estoque é transferido para zerar o negativo dos filhos.</div>';
   document.getElementById('conteudo-principal').innerHTML =
-    cabecalho('Giro de Produtos', periodo) + barra + (f.verAjustes ? htmlAjustesGiro() : ativos + painel + resumo + tabela);
+    cabecalho('Giro de Produtos', periodo) + avisoPaiFilho + barra + (f.verAjustes ? htmlAjustesGiro() : ativos + painel + resumo + tabela);
 
   const busca = document.getElementById('giro-busca');
   if (busca && estado.giroFocoBusca) { busca.focus(); busca.setSelectionRange(busca.value.length, busca.value.length); estado.giroFocoBusca = false; }
