@@ -14,6 +14,8 @@ import { colors, radius, spacing } from '../theme/colors';
 import { setores, SetorKey } from '../data/employees';
 import { useAuth } from '../context/AuthContext';
 import { Tarefa, PrioridadeTarefa, buscarTodasTarefas, criarTarefa, removerTarefa } from '../data/tarefasApi';
+import CorrecaoScreen from './CorrecaoScreen';
+import { origemDaTarefa } from '../data/correcaoApi';
 
 // Confere se o texto digitado é uma data real no formato AAAA-MM-DD.
 // Campo vazio é válido (o prazo é opcional).
@@ -44,6 +46,10 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
   const [prioridade, setPrioridade] = useState<PrioridadeTarefa>('normal');
   const [salvando, setSalvando] = useState(false);
   const prazoTemErro = prazo.trim().length > 0 && !prazoValido(prazo);
+  // Administrador (ex.: Lucas, Rodrigo) também pode fazer a Correção de uma
+  // tarefa de checklist — útil pros setores sem encarregado cadastrado no
+  // app (ex.: Padaria) — e aprovar correções enviadas.
+  const [correcaoAberta, setCorrecaoAberta] = useState<{ tarefa: Tarefa; modo: 'corrigir' | 'aprovar' } | null>(null);
 
   async function carregar() {
     try {
@@ -111,6 +117,20 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
   function nomeSetor(key: SetorKey | null) {
     if (!key) return 'Todos os setores';
     return setores.find((s) => s.key === key)?.nome ?? key;
+  }
+
+  if (correcaoAberta) {
+    return (
+      <CorrecaoScreen
+        tarefa={correcaoAberta.tarefa}
+        modo={correcaoAberta.modo}
+        usuarioNome={usuarioAtual?.nome ?? ''}
+        onVoltar={(mudou) => {
+          setCorrecaoAberta(null);
+          if (mudou) carregar();
+        }}
+      />
+    );
   }
 
   return (
@@ -239,6 +259,23 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
                   {t.fotoUrl ? ' · com foto' : ''}
                 </Text>
               )}
+              {!t.concluida && origemDaTarefa(t) && t.correcaoStatus ? (
+                <View style={styles.correcaoLinha}>
+                  <Text style={styles.correcaoStatus}>
+                    {t.correcaoStatus === 'enviada'
+                      ? `⏳ Correção enviada por ${t.correcaoEnviadaPor ?? '—'}`
+                      : t.correcaoStatus === 'devolvida'
+                      ? '↩ Correção devolvida'
+                      : '🛠 Aguardando correção'}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.btnCorrecao}
+                    onPress={() => setCorrecaoAberta({ tarefa: t, modo: t.correcaoStatus === 'enviada' ? 'aprovar' : 'corrigir' })}
+                  >
+                    <Text style={styles.btnCorrecaoTexto}>{t.correcaoStatus === 'enviada' ? 'Aprovar correção' : 'Realizar correção'}</Text>
+                  </TouchableOpacity>
+                </View>
+              ) : null}
               <TouchableOpacity onPress={() => confirmarExclusao(t)} style={styles.btnRemover}>
                 <Text style={styles.btnRemoverTexto}>Remover</Text>
               </TouchableOpacity>
@@ -252,6 +289,10 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.gray50 },
+  correcaoLinha: { marginTop: spacing.md, paddingTop: spacing.md, borderTopWidth: 1, borderTopColor: colors.gray100, gap: spacing.sm },
+  correcaoStatus: { fontSize: 12, fontWeight: '700', color: '#8A4D0B' },
+  btnCorrecao: { backgroundColor: colors.navy700, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' },
+  btnCorrecaoTexto: { color: colors.white, fontSize: 13, fontWeight: '700' },
   header: {
     flexDirection: 'row',
     alignItems: 'center',
