@@ -16,6 +16,8 @@ export interface Tarefa {
   fotoUrl: string | null;
   prioridade: PrioridadeTarefa;
   avaliacaoId: string | null;
+  // Tarefa gerada por uma Visita Técnica (veterinário) — ver visitaTecnicaApi.ts.
+  visitaTecnicaId: string | null;
   criadoEm: string;
 }
 
@@ -33,6 +35,7 @@ function linhaParaTarefa(linha: any): Tarefa {
     fotoUrl: linha.foto_url,
     prioridade: linha.prioridade ?? 'normal',
     avaliacaoId: linha.avaliacao_id,
+    visitaTecnicaId: linha.visita_tecnica_id ?? null,
     criadoEm: linha.criado_em,
   };
 }

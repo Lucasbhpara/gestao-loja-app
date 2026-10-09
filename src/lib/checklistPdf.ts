@@ -1,5 +1,7 @@
 import * as Print from 'expo-print';
-import { AvaliacaoPergunta, AvaliacaoResposta, AvaliacaoSetor } from '../data/avaliacaoSetorApi';
+import { AvaliacaoPergunta, AvaliacaoResposta, AvaliacaoSetor, buscarRespostasOrdenadas } from '../data/avaliacaoSetorApi';
+import { setores } from '../data/employees';
+import { compartilharPdf, dataParaNomeArquivo } from './compartilharPdf';
 
 // Gera e imprime/exporta em PDF um Checklist de Setor já respondido — usado
 // em dois momentos (ver ChecklistSetorScreen.tsx e HomeColaboradorScreen.tsx):
@@ -153,4 +155,19 @@ export function montarHtmlChecklist(dados: {
 // Abre o diálogo nativo de impressão/"Salvar como PDF" com o HTML montado.
 export async function imprimirChecklist(html: string): Promise<void> {
   await Print.printAsync({ html });
+}
+
+export function nomeDoSetorAvaliacao(setor: string): string {
+  if (setor === 'area_externa') return 'Área Externa';
+  return setores.find((s) => s.key === setor)?.nome ?? setor;
+}
+
+// Gera o PDF de um Checklist de Setor já finalizado e abre a tela de
+// compartilhar (WhatsApp, e-mail…) — logo ao finalizar, na lista de
+// checklists finalizados e depois que o encarregado resolve a tarefa.
+export async function compartilharAvaliacao(avaliacao: AvaliacaoSetor, resolucao?: ResolucaoTarefa | null): Promise<void> {
+  const respostas = await buscarRespostasOrdenadas(avaliacao.id);
+  const nomeSetor = nomeDoSetorAvaliacao(avaliacao.setor);
+  const html = montarHtmlChecklist({ avaliacao, nomeSetor, respostas, resolucao });
+  await compartilharPdf(html, `checklist-${nomeSetor}-${dataParaNomeArquivo(avaliacao.finalizadaEm)}`);
 }

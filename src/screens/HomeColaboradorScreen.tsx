@@ -6,8 +6,10 @@ import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { setores } from '../data/employees';
 import { Tarefa, buscarTarefasDoSetor, concluirTarefa, enviarFotoTarefa } from '../data/tarefasApi';
-import { buscarAvaliacaoPorId, buscarRespostasDaAvaliacao } from '../data/avaliacaoSetorApi';
-import { imprimirChecklist, montarHtmlChecklist } from '../lib/checklistPdf';
+import { buscarAvaliacaoPorId } from '../data/avaliacaoSetorApi';
+import { compartilharAvaliacao } from '../lib/checklistPdf';
+import { compartilharVisita } from '../lib/visitaTecnicaPdf';
+import { buscarVisitaPorId } from '../data/visitaTecnicaApi';
 import { Aviso, buscarAvisosDoSetor } from '../data/avisosApi';
 import { Validade, buscarValidadesDoSetor } from '../data/validadeApi';
 import { diasRestantes, formatarData, statusPrazo } from '../lib/validadeUtils';
@@ -224,14 +226,19 @@ export default function HomeColaboradorScreen() {
       setTarefas((prev) => prev.filter((t) => t.id !== tarefa.id));
 
       // Tarefa veio de um Checklist de Setor (não conformidade) — oferece
-      // exportar o checklist completo + a resolução em PDF.
+      // compartilhar o checklist completo + a resolução em PDF.
       if (tarefa.avaliacaoId) {
-        Alert.alert('Tarefa concluída', 'Deseja exportar o checklist resolvido em PDF?', [
+        Alert.alert('Tarefa concluída', 'Deseja compartilhar o checklist resolvido em PDF (WhatsApp, e-mail…)?', [
           { text: 'Agora não', style: 'cancel' },
           {
-            text: 'Exportar PDF',
-            onPress: () => exportarChecklistResolvidoPdf(tarefa.avaliacaoId!, usuarioAtual.nome, fotoUrl),
+            text: 'Compartilhar PDF',
+            onPress: () => compartilharChecklistResolvido(tarefa.avaliacaoId!, usuarioAtual.nome, fotoUrl),
           },
+        ]);
+      } else if (tarefa.visitaTecnicaId) {
+        Alert.alert('Tarefa concluída', 'Deseja compartilhar o PDF da Visita Técnica (WhatsApp, e-mail…)?', [
+          { text: 'Agora não', style: 'cancel' },
+          { text: 'Compartilhar PDF', onPress: () => compartilharVisitaDaTarefa(tarefa.visitaTecnicaId!) },
         ]);
       }
     } catch (e: any) {
@@ -241,27 +248,29 @@ export default function HomeColaboradorScreen() {
     }
   }
 
-  async function exportarChecklistResolvidoPdf(avaliacaoId: string, concluidaPorNome: string, fotoUrl: string) {
+  async function compartilharChecklistResolvido(avaliacaoId: string, concluidaPorNome: string, fotoUrl: string) {
     try {
-      const [avaliacao, respostas] = await Promise.all([
-        buscarAvaliacaoPorId(avaliacaoId),
-        buscarRespostasDaAvaliacao(avaliacaoId),
-      ]);
+      const avaliacao = await buscarAvaliacaoPorId(avaliacaoId);
       if (!avaliacao) {
-        Alert.alert('Não consegui exportar', 'Não achei o checklist original.');
+        Alert.alert('Não consegui gerar o PDF', 'Não achei o checklist original.');
         return;
       }
-      const nomeSetorAvaliacao =
-        avaliacao.setor === 'area_externa' ? 'Área Externa' : setores.find((s) => s.key === avaliacao.setor)?.nome ?? avaliacao.setor;
-      const html = montarHtmlChecklist({
-        avaliacao,
-        nomeSetor: nomeSetorAvaliacao,
-        respostas,
-        resolucao: { concluidaPorNome, concluidaEm: new Date().toISOString(), fotoUrl },
-      });
-      await imprimirChecklist(html);
+      await compartilharAvaliacao(avaliacao, { concluidaPorNome, concluidaEm: new Date().toISOString(), fotoUrl });
     } catch (e: any) {
-      Alert.alert('Não consegui exportar o PDF', e?.message ?? 'Tente novamente.');
+      Alert.alert('Não consegui gerar o PDF', e?.message ?? 'Tente novamente.');
+    }
+  }
+
+  async function compartilharVisitaDaTarefa(visitaId: string) {
+    try {
+      const visita = await buscarVisitaPorId(visitaId);
+      if (!visita) {
+        Alert.alert('Não consegui gerar o PDF', 'Não achei a visita original.');
+        return;
+      }
+      await compartilharVisita(visita);
+    } catch (e: any) {
+      Alert.alert('Não consegui gerar o PDF', e?.message ?? 'Tente novamente.');
     }
   }
 

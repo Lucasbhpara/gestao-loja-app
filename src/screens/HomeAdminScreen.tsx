@@ -22,6 +22,7 @@ import MapaLojaScreen from './MapaLojaScreen';
 import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
 import ChecklistHubScreen from './ChecklistHubScreen';
+import VisitaTecnicaScreen from './VisitaTecnicaScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
@@ -52,6 +53,7 @@ export default function HomeAdminScreen() {
     | 'pontasExtras'
     | 'jornalOfertas'
     | 'checklist'
+    | 'visitaTecnica'
     | 'colaboradores'
     | 'escalaFaltas'
         | 'precificacao'
@@ -159,6 +161,15 @@ export default function HomeAdminScreen() {
   if (tela === 'checklist') {
     return <ChecklistHubScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'visitaTecnica') {
+    return (
+      <VisitaTecnicaScreen
+        usuarioNome={usuarioAtual?.nome ?? ''}
+        usuarioMatricula={usuarioAtual?.matricula ?? null}
+        onVoltar={() => setTela('home')}
+      />
+    );
+  }
   if (tela === 'colaboradores') {
     return <ColaboradoresScreen onVoltar={() => setTela('home')} />;
   }
@@ -249,6 +260,10 @@ export default function HomeAdminScreen() {
             // separadas (rotina do dia + avaliação de setor) — ver
             // ChecklistHubScreen.tsx.
             { label: 'Checklist', icone: 'check-square' as const, onPress: () => setTela('checklist') },
+            // Checklist do Técnico Veterinário (Boas Práticas) — o próprio
+            // veterinário cai direto nessa tela ao logar; aqui é o acesso do
+            // administrador pra acompanhar/testar.
+            { label: 'Visita Técnica', icone: 'shield' as const, onPress: () => setTela('visitaTecnica') },
             // "Colaboradores" agora abre a tela de presença/falta por dia
             // (antiga "Faltas e Atestados"); a tela antiga de cadastro
             // (ColaboradoresScreen) ficou sem tile por enquanto — inativa,
