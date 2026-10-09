@@ -12,6 +12,7 @@ import {
   RespostaValor,
   SETORES_CHECKLIST,
   buscarAvaliacaoEmAndamento,
+  buscarAvaliacoesFinalizadas,
   buscarPerguntasAtivas,
   buscarRespostasDaAvaliacao,
   buscarUltimasAvaliacoesPorSetor,
@@ -21,7 +22,7 @@ import {
   salvarLocalizacaoAvaliacao,
   salvarResposta,
 } from '../data/avaliacaoSetorApi';
-import { imprimirChecklist, montarHtmlChecklist } from '../lib/checklistPdf';
+import { compartilharAvaliacao } from '../lib/checklistPdf';
 
 // Checklist de Setor — avaliação diária de conformidade, só pra gerência
 // (quem abre essa tela já é filtrado como admin/gerente lá na Home). Sem
@@ -70,12 +71,15 @@ export default function ChecklistSetorScreen({
   const [setorAtivo, setSetorAtivo] = useState<SetorKey | null>(null);
   const [avaliacaoAtiva, setAvaliacaoAtiva] = useState<AvaliacaoSetor | null>(null);
   const [abrindo, setAbrindo] = useState<SetorKey | null>(null);
+  const [finalizadas, setFinalizadas] = useState<AvaliacaoSetor[]>([]);
+  const [compartilhandoId, setCompartilhandoId] = useState<string | null>(null);
 
   async function carregar() {
     try {
       setErro(null);
-      const mapa = await buscarUltimasAvaliacoesPorSetor();
+      const [mapa, lista] = await Promise.all([buscarUltimasAvaliacoesPorSetor(), buscarAvaliacoesFinalizadas(30)]);
       setUltimas(mapa);
+      setFinalizadas(lista);
     } catch (e: any) {
       setErro(e?.message ?? 'Não consegui carregar o checklist.');
     } finally {
@@ -101,6 +105,17 @@ export default function ChecklistSetorScreen({
       setErro(e?.message ?? 'Não consegui iniciar o checklist desse setor.');
     } finally {
       setAbrindo(null);
+    }
+  }
+
+  async function compartilhar(a: AvaliacaoSetor) {
+    setCompartilhandoId(a.id);
+    try {
+      await compartilharAvaliacao(a);
+    } catch (e: any) {
+      Alert.alert('Não consegui gerar o PDF', e?.message ?? 'Tente novamente.');
+    } finally {
+      setCompartilhandoId(null);
     }
   }
 
@@ -183,6 +198,35 @@ export default function ChecklistSetorScreen({
               </TouchableOpacity>
             );
           })
+        )}
+
+        {!carregando && finalizadas.length > 0 && (
+          <>
+            <Text style={styles.secaoTitulo}>Checklists finalizados</Text>
+            {finalizadas.map((a) => {
+              const banda = corDoAproveitamento(a.aproveitamento ?? 0);
+              return (
+                <View key={a.id} style={styles.finalizadaCard}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.finalizadaNome}>{nomeDoSetor(a.setor)}</Text>
+                    <Text style={styles.finalizadaMeta}>
+                      {a.finalizadaEm ? formatarDataHora(a.finalizadaEm) : '—'} · {a.gerenteNome}
+                    </Text>
+                    <Text style={[styles.finalizadaMeta, { color: banda.cor, fontWeight: '700' }]}>
+                      {a.aproveitamento ?? 0}% · {a.naoConformidades ?? 0} não conformidade(s)
+                    </Text>
+                  </View>
+                  <TouchableOpacity style={styles.btnCompartilhar} onPress={() => compartilhar(a)} disabled={compartilhandoId === a.id}>
+                    {compartilhandoId === a.id ? (
+                      <ActivityIndicator color={colors.white} size="small" />
+                    ) : (
+                      <Text style={styles.btnCompartilharTexto}>Compartilhar PDF</Text>
+                    )}
+                  </TouchableOpacity>
+                </View>
+              );
+            })}
+          </>
         )}
       </ScrollView>
     </View>
@@ -387,22 +431,6 @@ function AvaliacaoForm({
   });
   const podeFinalizar = perguntas.length > 0 && totalRespondidas === perguntas.length && naoSemJustificativa.length === 0;
 
-  async function exportarPdf(resultado: AvaliacaoSetor) {
-    try {
-      const respostasOrdenadas = perguntas
-        .map((p) => respostas.get(p.id))
-        .filter((r): r is AvaliacaoResposta => !!r);
-      const html = montarHtmlChecklist({
-        avaliacao: resultado,
-        nomeSetor: nomeDoSetor(setor),
-        respostas: respostasOrdenadas,
-      });
-      await imprimirChecklist(html);
-    } catch (e: any) {
-      Alert.alert('Não consegui exportar o PDF', e?.message ?? 'Tente novamente.');
-    }
-  }
-
   async function finalizar() {
     if (!podeFinalizar) return;
     Alert.alert(
@@ -422,17 +450,20 @@ function AvaliacaoForm({
                 gerenteNome: usuarioNome,
                 passosContados: passos,
               });
-              Alert.alert(
-                'Checklist finalizado',
+              const resumo =
                 `Aproveitamento: ${resultado.aproveitamento}%.\n` +
-                  (resultado.naoConformidades
-                    ? `${resultado.naoConformidades} não conformidade(s) — uma tarefa importante foi enviada ao encarregado do setor.`
-                    : 'Nenhuma não conformidade encontrada. 🎉'),
-                [
-                  { text: 'Exportar PDF', onPress: () => exportarPdf(resultado).then(onVoltar) },
-                  { text: 'OK', onPress: onVoltar },
-                ]
-              );
+                (resultado.naoConformidades
+                  ? `${resultado.naoConformidades} não conformidade(s) — uma tarefa importante foi enviada ao encarregado do setor.`
+                  : 'Nenhuma não conformidade encontrada. 🎉');
+              // Já abre a tela de compartilhar com o PDF (WhatsApp etc.). O
+              // checklist já está salvo — se o PDF falhar, dá pra compartilhar
+              // depois pela lista "Checklists finalizados".
+              try {
+                await compartilharAvaliacao(resultado);
+              } catch (e: any) {
+                Alert.alert('Checklist salvo, mas o PDF falhou', `${e?.message ?? ''}\nCompartilhe depois em "Checklists finalizados".`);
+              }
+              Alert.alert('Checklist finalizado', resumo, [{ text: 'OK', onPress: onVoltar }]);
             } catch (e: any) {
               setErro(e?.message ?? 'Não consegui finalizar o checklist.');
               setFinalizando(false);
@@ -572,6 +603,12 @@ const styles = StyleSheet.create({
   setorAcao: { fontSize: 12.5, color: colors.navy700, fontWeight: '700', marginTop: spacing.md },
   chipBanda: { borderRadius: radius.full, paddingVertical: 4, paddingHorizontal: 10 },
   chipBandaTexto: { fontSize: 11, fontWeight: '700' },
+  secaoTitulo: { fontSize: 13, fontWeight: '800', color: colors.navy900, marginTop: spacing.xl, marginBottom: spacing.md },
+  finalizadaCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.sm, flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  finalizadaNome: { fontSize: 13.5, fontWeight: '700', color: colors.gray900 },
+  finalizadaMeta: { fontSize: 11.5, color: colors.gray600, marginTop: 2 },
+  btnCompartilhar: { backgroundColor: colors.navy700, borderRadius: radius.md, paddingVertical: 9, paddingHorizontal: 12, minWidth: 128, alignItems: 'center' },
+  btnCompartilharTexto: { color: colors.white, fontSize: 12, fontWeight: '700' },
   progresso: { fontSize: 12, fontWeight: '700', color: colors.navy700, marginBottom: spacing.lg },
   perguntaCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.md },
   perguntaTexto: { fontSize: 13.5, fontWeight: '600', color: colors.gray900, lineHeight: 19, marginBottom: spacing.md },

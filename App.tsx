@@ -9,6 +9,8 @@ import CreatePasswordScreen from './src/screens/CreatePasswordScreen';
 import HomeColaboradorScreen from './src/screens/HomeColaboradorScreen';
 import HomeAdminScreen from './src/screens/HomeAdminScreen';
 import PrecificacaoScreen from './src/screens/PrecificacaoScreen';
+import VisitaTecnicaScreen from './src/screens/VisitaTecnicaScreen';
+import { ehTecnicoVeterinario } from './src/data/visitaTecnicaApi';
 import JornalOfertasFlutuante from './src/components/JornalOfertasFlutuante';
 import Rodape from './src/components/Rodape';
 import { colors } from './src/theme/colors';
@@ -16,7 +18,7 @@ import { colors } from './src/theme/colors';
 type TelaPublica = 'login' | 'recuperarSenha';
 
 function AppInterno() {
-  const { carregando, usuarioAtual } = useAuth();
+  const { carregando, usuarioAtual, logout } = useAuth();
   const [telaPublica, setTelaPublica] = useState<TelaPublica>('login');
 
   // O vídeo de abertura toca depois do login (não na hora de abrir o app):
@@ -78,6 +80,16 @@ function AppInterno() {
     );
   } else if (tocandoIntro) {
     conteudo = <IntroScreen onFim={() => setMostrarIntro(false)} />;
+  } else if (!usuarioAtual.isAdmin && ehTecnicoVeterinario(usuarioAtual.funcao)) {
+    // Técnico Veterinário (função cadastrada no portal contendo
+    // "Veterinário"): não tem Home — cai direto na Visita Técnica, que é a
+    // única ferramenta dele. Ver visitaTecnicaApi.ts.
+    conteudo = (
+      <>
+        <VisitaTecnicaScreen usuarioNome={usuarioAtual.nome} usuarioMatricula={usuarioAtual.matricula} onSair={logout} />
+        <Rodape />
+      </>
+    );
   } else {
     // Logado, com senha própria definida e vídeo já visto nessa sessão:
     // cada perfil vê sua Home.

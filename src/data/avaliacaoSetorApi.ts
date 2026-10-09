@@ -310,6 +310,34 @@ export async function finalizarAvaliacao(dados: {
   return linhaParaAvaliacao(data);
 }
 
+// Respostas de uma avaliação na ordem das perguntas do checklist (ordem da
+// tabela avaliacao_perguntas, inclusive de perguntas desativadas depois) —
+// pro PDF de avaliações antigas sair na mesma sequência em que foram feitas.
+export async function buscarRespostasOrdenadas(avaliacaoId: string): Promise<AvaliacaoResposta[]> {
+  const respostas = await buscarRespostasDaAvaliacao(avaliacaoId);
+  const ids = respostas.map((r) => r.perguntaId).filter((id): id is string => !!id);
+  if (ids.length === 0) return respostas;
+  const { data, error } = await supabase.from('avaliacao_perguntas').select('id, ordem').in('id', ids);
+  if (error) throw error;
+  const ordem = new Map((data ?? []).map((l: any) => [l.id as string, l.ordem as number]));
+  return [...respostas].sort(
+    (a, b) => (ordem.get(a.perguntaId ?? '') ?? 9999) - (ordem.get(b.perguntaId ?? '') ?? 9999)
+  );
+}
+
+// Checklists finalizados de todos os setores, mais recentes primeiro — lista
+// "Checklists finalizados" da tela, de onde dá pra compartilhar o PDF de novo.
+export async function buscarAvaliacoesFinalizadas(limite = 30): Promise<AvaliacaoSetor[]> {
+  const { data, error } = await supabase
+    .from('avaliacoes_setor')
+    .select('*')
+    .eq('status', 'finalizada')
+    .order('finalizada_em', { ascending: false })
+    .limit(limite);
+  if (error) throw error;
+  return (data ?? []).map(linhaParaAvaliacao);
+}
+
 // Histórico de avaliações finalizadas de um setor, mais recentes primeiro —
 // usado pra tela do gerente mostrar as últimas rodadas daquele setor.
 export async function buscarHistoricoDoSetor(setor: SetorKey, limite = 20): Promise<AvaliacaoSetor[]> {
