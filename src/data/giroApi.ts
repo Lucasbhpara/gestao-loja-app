@@ -152,15 +152,27 @@ export const ROTULO_NIVEL: Record<NivelGiro, string> = {
 export interface FiltroGiro {
   caminho: string[]; // valores escolhidos, na ordem dos NIVEIS
   soComEstoque: boolean;
-  dias: number; // "parado" = sem vender há pelo menos X dias
+  dias: number; // faixa: 7/14/30 = "até N dias sem venda" (1..N); 31 = "mais de 30" (inclui sem venda)
   mostrarOcultos: boolean;
   ocultos: Set<string>;
   busca?: string;
 }
 
 export const ehSemVenda = (p: ProdutoGiro) => p.ultimaVenda === null;
-export const ehParado = (p: ProdutoGiro, dias: number) => p.diasParado !== null && p.diasParado >= dias;
-export const ehProblema = (p: ProdutoGiro, dias: number) => ehSemVenda(p) || ehParado(p, dias);
+// Faixas de dias sem venda: 7, 14 e 30 = "até N dias" (de 1 a N); FAIXA_MAIS_30
+// = mais de 30 dias, junto com quem não vendeu nenhuma vez no período.
+export const FAIXA_MAIS_30 = 31;
+export const FAIXAS: { valor: number; rotulo: string }[] = [
+  { valor: 7, rotulo: 'Até 7 dias' },
+  { valor: 14, rotulo: 'Até 14 dias' },
+  { valor: 30, rotulo: 'Até 30 dias' },
+  { valor: FAIXA_MAIS_30, rotulo: 'Mais de 30' },
+];
+export const rotuloFaixa = (dias: number) =>
+  dias >= FAIXA_MAIS_30 ? 'mais de 30 dias sem venda' : `até ${dias} dias sem venda`;
+export const ehParado = (p: ProdutoGiro, dias: number) =>
+  p.diasParado !== null && (dias >= FAIXA_MAIS_30 ? p.diasParado > 30 : p.diasParado >= 1 && p.diasParado <= dias);
+export const ehProblema = (p: ProdutoGiro, dias: number) => (dias >= FAIXA_MAIS_30 && ehSemVenda(p)) || ehParado(p, dias);
 
 export function filtrar(base: ProdutoGiro[], f: FiltroGiro): ProdutoGiro[] {
   const busca = (f.busca ?? '').trim().toUpperCase();
@@ -187,8 +199,9 @@ export function resumir(lista: ProdutoGiro[], dias: number, grupo = 'TOTAL'): Re
   for (const p of lista) {
     r.produtos++;
     r.venda += p.vendaPeriodo;
-    if (ehSemVenda(p)) r.semVenda++;
-    else if (ehParado(p, dias)) r.parados++;
+    if (ehSemVenda(p)) {
+      if (dias >= FAIXA_MAIS_30) r.semVenda++;
+    } else if (ehParado(p, dias)) r.parados++;
     if (ehProblema(p, dias)) r.custoParado += p.custoEstoque;
   }
   return r;
