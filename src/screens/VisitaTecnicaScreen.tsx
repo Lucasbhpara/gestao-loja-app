@@ -16,6 +16,7 @@ import {
   KeyboardAvoidingView,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import ValidadeDocumentosCard from '../components/ValidadeDocumentosCard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { Pedometer } from 'expo-sensors';
@@ -648,6 +649,10 @@ function PainelUnidade({
             </>
           )}
 
+          <View style={{ marginTop: spacing.lg }}>
+            <ValidadeDocumentosCard unidade={unidade} usuarioNome={usuarioNome} modo="resumo" />
+          </View>
+
           <TouchableOpacity style={styles.comoFunciona} onPress={() => setMostrarComoFunciona((v) => !v)} activeOpacity={0.8}>
             <Feather name="info" size={15} color={colors.navy700} />
             <Text style={styles.comoFuncionaTitulo}>Como funciona</Text>
@@ -1066,6 +1071,9 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
       </View>
 
       <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 }} keyboardShouldPersistTaps="handled">
+        {setor === 'geral' && (
+          <ValidadeDocumentosCard unidade={visita.unidade} usuarioNome={visita.veterinarioNome} modo="editar" />
+        )}
         {grupos.map((g) => {
           const aberto = abertos.has(g.nome);
           const respondidasG = g.perguntas.filter(({ p }) => respostas[p.id]).length;
