@@ -5058,10 +5058,13 @@ async function abrirAvaliacaoChecklist(id) {
   if (erroResp) { mostrarToast('Não consegui abrir o checklist: ' + erroResp.message, 'erro'); return; }
 
   let tarefaResolucao = null;
+  estado.checklistDetalheTarefaCompleta = null;
   if (avaliacao.tarefa_id) {
     const { data: tarefa } = await sb.from('tarefas').select('*').eq('id', avaliacao.tarefa_id).maybeSingle();
     if (tarefa && tarefa.concluida) tarefaResolucao = tarefa;
+    estado.checklistDetalheTarefaCompleta = tarefa || null;
   }
+  estado.checklistDetalheCorrecao = await buscarItensCorrecao(avaliacao.tarefa_id);
 
   estado.checklistDetalheAvaliacao = avaliacao;
   estado.checklistDetalheRespostas = respostas || [];
@@ -5133,7 +5136,7 @@ function renderizarAvaliacaoChecklistDetalhe() {
     localizacaoHtml +
     '<div class="resumo-perdas">' + boxesResumo + '</div>' +
     itensHtml +
-    resolucaoHtml;
+    (htmlCorrecaoPortal(estado.checklistDetalheTarefaCompleta, estado.checklistDetalheCorrecao || []) || resolucaoHtml);
 }
 
 // "Recidivência" = a mesma não conformidade (mesmo texto de pergunta) se
@@ -5482,6 +5485,36 @@ const SETORES_VISITA = [
 function nomeSetorVisita(key) { return (SETORES_VISITA.find((s) => s.key === key) || {}).nome || key; }
 function escVisita(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 
+
+// Correção (antes × depois) de uma tarefa de checklist — ver
+// src/data/correcaoApi.ts no app. Usado no detalhe da Visita Técnica e do
+// Checklist de Setor.
+async function buscarItensCorrecao(tarefaId) {
+  if (!tarefaId) return [];
+  const { data } = await sb.from('correcao_itens').select('*').eq('tarefa_id', tarefaId);
+  return data || [];
+}
+function htmlCorrecaoPortal(tarefa, itens) {
+  if (!tarefa || !tarefa.correcao_status) return '';
+  const status = { pendente: 'Aguardando o encarregado', enviada: 'Aguardando aprovação', devolvida: 'Devolvida ao encarregado', aprovada: 'Aprovada' }[tarefa.correcao_status] || tarefa.correcao_status;
+  const corStatus = tarefa.correcao_status === 'aprovada' ? 'verde' : tarefa.correcao_status === 'devolvida' ? 'vermelho' : 'laranja';
+  const fotos = (us) => (us && us.length) ? '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">' + us.map((u) => '<a href="' + u + '" target="_blank"><img src="' + u + '" style="width:130px;height:98px;object-fit:cover;border-radius:6px;border:1px solid var(--border);"></a>').join('') + '</div>' : '';
+  const linhas = itens.length === 0 ? '<div class="celula-vazio">O encarregado ainda não começou a correção.</div>' : itens.map((i) =>
+    '<div class="item-card" style="margin-bottom:10px;">' +
+      '<div style="display:flex;justify-content:space-between;gap:10px;"><div style="font-size:13.5px;font-weight:700;flex:1;">' + escVisita(i.pergunta_texto) + (i.critico ? ' <span class="pill vermelho" style="font-size:10px;">CRÍTICO</span>' : '') + '</div>' +
+        (i.aprovacao === 'aprovado' ? '<span class="pill verde">Aprovado</span>' : i.aprovacao === 'devolvido' ? '<span class="pill vermelho">Devolvido</span>' : '') + '</div>' +
+      '<div style="margin-top:8px;padding:8px 10px;border-radius:8px;background:rgba(47,163,107,.08);">' +
+        '<div style="font-size:11px;font-weight:800;text-transform:uppercase;color:var(--text-muted);">' + (i.status === 'corrigido' ? '🟢 Corrigido' : i.status === 'nao_possivel' ? '⚪ Não foi possível' : 'Pendente') + (i.respondido_por ? ' · ' + escVisita(i.respondido_por) : '') + '</div>' +
+        (i.comentario ? '<div style="font-size:12.5px;margin-top:4px;">' + escVisita(i.comentario) + '</div>' : '') + fotos(i.fotos_urls) +
+      '</div>' +
+      (i.aprovacao === 'devolvido' && i.aprovacao_obs ? '<div style="font-size:12px;color:var(--red);margin-top:6px;"><b>Devolvido:</b> ' + escVisita(i.aprovacao_obs) + '</div>' : '') +
+    '</div>'
+  ).join('');
+  return '<h3 style="font-size:15px;margin:28px 0 10px;">Correção do encarregado <span class="pill ' + corStatus + '" style="margin-left:8px;">' + status + '</span></h3>' +
+    (tarefa.correcao_enviada_por ? '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px;">Corrigido por ' + escVisita(tarefa.correcao_enviada_por) + (tarefa.correcao_avaliada_por ? ' · avaliado por ' + escVisita(tarefa.correcao_avaliada_por) : '') + '</div>' : '') +
+    linhas;
+}
+
 async function paginaVisitaTecnica() {
   if (!estado.visitaAba) estado.visitaAba = 'visitas';
   if (estado.visitaUnidade === undefined) estado.visitaUnidade = '';
@@ -5574,10 +5607,11 @@ async function abrirVisitaTecnica(id) {
     const { data } = await sb.from('tarefas').select('*').eq('id', visita.tarefa_id).maybeSingle();
     tarefa = data || null;
   }
-  renderizarDetalheVisita(visita, respostas || [], tarefa);
+  const itensCorrecao = await buscarItensCorrecao(visita.tarefa_id);
+  renderizarDetalheVisita(visita, respostas || [], tarefa, itensCorrecao);
 }
 
-function renderizarDetalheVisita(v, respostas, tarefa) {
+function renderizarDetalheVisita(v, respostas, tarefa, itensCorrecao) {
   const perguntas = estado.visitaPerguntas.filter((p) => p.setor === v.setor);
   const porPergunta = new Map(respostas.filter((r) => r.pergunta_id).map((r) => [r.pergunta_id, r]));
   const idsPerguntas = new Set(perguntas.map((p) => p.id));
@@ -5631,6 +5665,7 @@ function renderizarDetalheVisita(v, respostas, tarefa) {
           '<div style="font-size:13px;margin-top:4px;"><b>Em:</b> ' + formatarDataHora(tarefa.concluida_em) + '</div>' +
           (tarefa.foto_url ? '<div style="margin-top:10px;"><img src="' + tarefa.foto_url + '" style="max-width:260px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block;"></div>' : '') + '</div>'
       : '<div class="celula-vazio">Ainda não resolvida.</div>');
+  const correcaoHtml = htmlCorrecaoPortal(tarefa, itensCorrecao || []);
 
   const local = (v.localizacao_lat == null || v.localizacao_lng == null) ? '' :
     '<div style="font-size:12.5px;color:var(--text-muted);margin:-6px 0 14px;">📍 ' + escVisita(v.localizacao_endereco || (v.localizacao_lat.toFixed(5) + ', ' + v.localizacao_lng.toFixed(5))) +
@@ -5644,7 +5679,7 @@ function renderizarDetalheVisita(v, respostas, tarefa) {
     cabecalho('Visita Técnica — ' + nomeSetorVisita(v.setor) + (v.unidade ? ' · Loja ' + escVisita(v.unidade) : ''), 'Técnico Veterinário: ' + escVisita(v.veterinario_nome) + ' · finalizada em ' + formatarDataHora(v.finalizada_em)) +
     local + '<div class="resumo-perdas">' + boxes + '</div>' + itens +
     (v.consideracoes_finais ? '<h3 style="font-size:15px;margin:28px 0 14px;">Considerações finais</h3><div class="item-card" style="white-space:pre-wrap;font-size:13.5px;border-color:var(--navy-700);">' + escVisita(v.consideracoes_finais) + '</div>' : '') +
-    resolucao;
+    (correcaoHtml || resolucao);
 }
 
 function htmlPerguntasVisita() {

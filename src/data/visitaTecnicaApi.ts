@@ -371,6 +371,7 @@ export async function finalizarVisita(dados: {
         criado_por_nome: dados.veterinarioNome,
         prioridade: criticos.length > 0 ? 'alta' : 'normal',
         visita_tecnica_id: dados.visitaId,
+        correcao_status: 'pendente',
       })
       .select()
       .single();

@@ -23,6 +23,9 @@ import {
   salvarResposta,
 } from '../data/avaliacaoSetorApi';
 import { compartilharAvaliacao } from '../lib/checklistPdf';
+import CorrecaoScreen from './CorrecaoScreen';
+import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
+import { Tarefa } from '../data/tarefasApi';
 
 // Checklist de Setor — avaliação diária de conformidade, só pra gerência
 // (quem abre essa tela já é filtrado como admin/gerente lá na Home). Sem
@@ -73,13 +76,20 @@ export default function ChecklistSetorScreen({
   const [abrindo, setAbrindo] = useState<SetorKey | null>(null);
   const [finalizadas, setFinalizadas] = useState<AvaliacaoSetor[]>([]);
   const [compartilhandoId, setCompartilhandoId] = useState<string | null>(null);
+  const [paraAprovar, setParaAprovar] = useState<Tarefa[]>([]);
+  const [aprovando, setAprovando] = useState<Tarefa | null>(null);
 
   async function carregar() {
     try {
       setErro(null);
-      const [mapa, lista] = await Promise.all([buscarUltimasAvaliacoesPorSetor(), buscarAvaliacoesFinalizadas(30)]);
+      const [mapa, lista, correcoes] = await Promise.all([
+        buscarUltimasAvaliacoesPorSetor(),
+        buscarAvaliacoesFinalizadas(30),
+        buscarCorrecoesParaAprovar('avaliacao').catch(() => [] as Tarefa[]),
+      ]);
       setUltimas(mapa);
       setFinalizadas(lista);
+      setParaAprovar(correcoes);
     } catch (e: any) {
       setErro(e?.message ?? 'Não consegui carregar o checklist.');
     } finally {
@@ -117,6 +127,20 @@ export default function ChecklistSetorScreen({
     } finally {
       setCompartilhandoId(null);
     }
+  }
+
+  if (aprovando) {
+    return (
+      <CorrecaoScreen
+        tarefa={aprovando}
+        modo="aprovar"
+        usuarioNome={usuarioNome}
+        onVoltar={(mudou) => {
+          setAprovando(null);
+          if (mudou) carregar();
+        }}
+      />
+    );
   }
 
   if (setorAtivo && avaliacaoAtiva) {
@@ -160,6 +184,26 @@ export default function ChecklistSetorScreen({
         {erro && (
           <View style={styles.erroBox}>
             <Text style={styles.erroTexto}>{erro}</Text>
+          </View>
+        )}
+
+        {paraAprovar.length > 0 && (
+          <View style={{ marginBottom: spacing.lg }}>
+            <Text style={[styles.secaoTitulo, { marginTop: 0 }]}>Correções para aprovar</Text>
+            {paraAprovar.map((t) => (
+              <TouchableOpacity key={t.id} style={styles.finalizadaCard} onPress={() => setAprovando(t)}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.finalizadaNome}>{t.titulo.replace('Checklist de Setor — ', '')}</Text>
+                  <Text style={styles.finalizadaMeta}>
+                    Corrigido por {t.correcaoEnviadaPor ?? '—'}
+                    {t.correcaoRodada > 1 ? ` · rodada ${t.correcaoRodada}` : ''}
+                  </Text>
+                </View>
+                <View style={[styles.btnCompartilhar, { backgroundColor: '#B4650E' }]}>
+                  <Text style={styles.btnCompartilharTexto}>Avaliar</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
           </View>
         )}
 
