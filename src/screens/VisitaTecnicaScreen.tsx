@@ -947,7 +947,7 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
     Alert.alert(
       'Finalizar visita',
       `Finalizar a visita de ${nomeDoSetorVisita(setor)} (Loja ${visita.unidade})?` +
-        (visita.unidade === UNIDADE_DA_LOJA ? ` As não conformidades vão virar tarefa para o ${setor === 'geral' ? 'gerente' : 'encarregado do setor'}.` : ''),
+        (visita.unidade === UNIDADE_DA_LOJA ? ` As não conformidades vão virar tarefa para ${setor === 'geral' ? 'a Gerência' : 'o encarregado do setor'}.` : ''),
       [
         { text: 'Cancelar', style: 'cancel' },
         {
