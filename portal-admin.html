@@ -523,7 +523,7 @@
         <button class="nav-item" data-pagina="validade" onclick="irPara('validade')"><span class="dot"></span>Validade</button>
         <button class="nav-item" data-pagina="vendas" onclick="irPara('vendas')"><span class="dot"></span>Vendas</button>
         <button class="nav-item" data-pagina="vendas-comparativo" onclick="irPara('vendas-comparativo')"><span class="dot"></span>Comparativo de Vendas</button>
-        <button class="nav-item" data-pagina="giro-produtos" onclick="irPara('giro-produtos')"><span class="dot"></span>🔄 Giro de Produtos</button>
+        <button class="nav-item" id="nav-giro-produtos" style="display:none" data-pagina="giro-produtos" onclick="irPara('giro-produtos')"><span class="dot"></span>🔄 Giro de Produtos</button>
         <button class="nav-item" data-pagina="painel-resultados" onclick="irPara('painel-resultados')"><span class="dot"></span>Painel Resultados</button>
         <button class="nav-item" data-pagina="conferencias" onclick="irPara('conferencias')"><span class="dot"></span>Conferência (FLV)</button>
         <button class="nav-item" data-pagina="inventario" onclick="irPara('inventario')"><span class="dot"></span>Inventário</button>
@@ -747,6 +747,8 @@ async function fazerLogin() {
     document.getElementById('sidebar-avatar').textContent = iniciais(encontrado.nome);
     document.getElementById('sidebar-nome').textContent = encontrado.nome;
     document.getElementById('sidebar-funcao').textContent = encontrado.funcao;
+    // Giro de Produtos: por enquanto só o Lucas (fase de teste).
+    document.getElementById('nav-giro-produtos').style.display = encontrado.matricula === '7990353' ? '' : 'none';
     irPara('equipe');
   } catch (e) {
     erroBox.innerHTML = '<div class="login-erro">Não consegui conectar: ' + (e.message || 'tenta de novo.') + '</div>';
@@ -3284,6 +3286,10 @@ function giroListaProdutos(lista) {
 }
 
 async function paginaGiroProdutos() {
+  if (!estado.usuario || estado.usuario.matricula !== '7990353') {
+    document.getElementById('conteudo-principal').innerHTML = cabecalho('Giro de Produtos', '') + '<div class="celula-vazio">Página em teste — ainda não liberada.</div>';
+    return;
+  }
   estado.giroFiltro = estado.giroFiltro || { caminho: [], dias: 15, soComEstoque: true, mostrarOcultos: false, busca: '', limite: 100 };
   estado.giroOcultos = giroLerOcultos();
   const el = document.getElementById('conteudo-principal');

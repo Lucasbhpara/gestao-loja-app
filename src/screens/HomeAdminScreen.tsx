@@ -287,14 +287,18 @@ export default function HomeAdminScreen() {
             { label: 'Painel Resultados', icone: 'bar-chart-2' as const, onPress: () => setTela('painelResultados') },
             { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },
             // Produtos sem venda / parados, por setor → subcategoria.
-            { label: 'Giro de Produtos', icone: 'refresh-cw' as const, onPress: () => setTela('giro') },
+            // Por enquanto só o Lucas vê (fase de teste) — pra liberar pros
+            // demais admins, é só tirar o filtro "somenteDono" logo abaixo.
+            { label: 'Giro de Produtos', icone: 'refresh-cw' as const, onPress: () => setTela('giro'), somenteDono: true },
             { label: 'Mapa da Loja', icone: 'map' as const, onPress: () => setTela('mapaLoja') },
             { label: 'Pontas e Pontos Extras', icone: 'layers' as const, onPress: () => setTela('pontasExtras') },
             // Jornal de Ofertas: tile removido — o balão flutuante
             // (JornalOfertasFlutuante, ver App.tsx) já cobre esse acesso em
             // qualquer tela, então essa aba ficava redundante.
             { label: 'Sobre', icone: 'info' as const, onPress: () => setTela('sobre') },
-          ].map((acao) => (
+          ]
+            .filter((acao: { somenteDono?: boolean }) => !acao.somenteDono || usuarioAtual.matricula === MATRICULA_DONO_DA_ABA_IA)
+            .map((acao) => (
             <TouchableOpacity key={acao.label} style={styles.tile} onPress={acao.onPress} disabled={!acao.onPress}>
               <View style={styles.tileDot}>
                 <Feather name={acao.icone} size={17} color={colors.white} />
