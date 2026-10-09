@@ -26,6 +26,7 @@ import {
   diasEmAberto,
   fotoObrigatoria,
 } from '../data/tratativaApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 function formatarDataHoraCurta(iso: string): string {
   const d = new Date(iso);
@@ -91,13 +92,11 @@ export default function TratativasScreen({
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Tratativas</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Tratativas"
+        icone="check-circle"
+        onVoltar={onVoltar}
+      />
 
       <View style={styles.abasRow}>
         <TouchableOpacity
@@ -334,15 +333,11 @@ function DetalheTratativa({
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo} numberOfLines={1}>
-          {t.produto}
-        </Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo={<>{t.produto}</>}
+        icone="check-circle"
+        onVoltar={onVoltar}
+      />
 
       <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
         <View style={styles.formCard}>

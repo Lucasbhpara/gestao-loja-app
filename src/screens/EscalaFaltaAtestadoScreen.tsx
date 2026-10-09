@@ -26,6 +26,7 @@ import {
   enviarFotoAtestado,
 } from '../data/escalaApi';
 import SeletorDataValidade from '../components/SeletorDataValidade';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 // Tela "Colaboradores" (antiga "Faltas e Atestados") — Escala de Folgas +
 // Faltas/Atestados. Aberta pra QUALQUER colaborador logado, não só
@@ -293,13 +294,11 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Colaboradores</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Colaboradores"
+        icone="users"
+        onVoltar={onVoltar}
+      />
 
       <View style={styles.diaNav}>
         <TouchableOpacity onPress={() => trocarDia(-1)} hitSlop={hitSlopPadrao} style={styles.diaSetaBtn}>
@@ -523,11 +522,9 @@ const styles = StyleSheet.create({
   diaNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray100,
+    backgroundColor: 'transparent',
     paddingVertical: spacing.md,
-    paddingHorizontal: spacing.sm,
+    paddingHorizontal: spacing.sm
   },
   diaSetaBtn: { paddingHorizontal: spacing.md, paddingVertical: spacing.sm },
   diaSeta: { fontSize: 20, fontWeight: '700', color: colors.navy700 },

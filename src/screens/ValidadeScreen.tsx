@@ -30,6 +30,7 @@ import { exportarContagemXlsx } from '../lib/exportarPlanilha';
 import { camaraDisponivel } from '../lib/plataforma';
 import { verificarEIniciarTratativa, buscarTratativasAbertas } from '../data/tratativaApi';
 import TratativasScreen from './TratativasScreen';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 // "Todos" não é um setor de colaborador de verdade — é um marcador especial
 // só pra deixar um produto visível em qualquer aba de setor de uma vez (ex.:
@@ -427,13 +428,12 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
   if (modo === 'confirmar') {
     return (
       <View style={styles.flex}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={cancelarConfirmacao} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.voltar}>‹ Cancelar</Text>
-          </TouchableOpacity>
-          <Text style={styles.titulo}>{editandoId ? 'Editar produto' : 'Novo produto'}</Text>
-          <View style={{ width: 70 }} />
-        </View>
+        <CabecalhoTela
+          titulo={<>{editandoId ? 'Editar produto' : 'Novo produto'}</>}
+          icone="calendar"
+          onVoltar={cancelarConfirmacao}
+          rotuloVoltar="Cancelar"
+        />
         <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}>
           {buscandoCatalogo ? (
             <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.xl }} />
@@ -529,19 +529,20 @@ export default function ValidadeScreen({ onVoltar }: { onVoltar: () => void }) {
   // --- Lista principal -----------------------------------------------------
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Validade{!podeGerenciarTudo ? ` · ${nomeSetor(usuarioAtual.setor)}` : ''}</Text>
-        {podeGerenciarTudo ? (
-          <TouchableOpacity onPress={exportarExcel} disabled={exportando} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.exportarTexto}>{exportando ? 'Exportando…' : 'Exportar Excel'}</Text>
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 50 }} />
-        )}
-      </View>
+      <CabecalhoTela
+        titulo={<>Validade{!podeGerenciarTudo ? ` · ${nomeSetor(usuarioAtual.setor)}` : ''}</>}
+        icone="calendar"
+        onVoltar={onVoltar}
+        acao={
+          <>
+            {podeGerenciarTudo ? (
+            <TouchableOpacity onPress={exportarExcel} disabled={exportando} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+              <Text style={styles.exportarTexto}>{exportando ? 'Exportando…' : 'Exportar Excel'}</Text>
+            </TouchableOpacity>
+          ) : null}
+          </>
+        }
+      />
 
       <TouchableOpacity style={styles.btnTratativas} onPress={() => setMostrarTratativas(true)}>
         <Text style={styles.btnTratativasTexto}>📋 Tratativas em aberto</Text>

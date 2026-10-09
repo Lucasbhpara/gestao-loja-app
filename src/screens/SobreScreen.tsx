@@ -1,17 +1,16 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { colors, radius, spacing } from '../theme/colors';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 export default function SobreScreen({ onVoltar }: { onVoltar: () => void }) {
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Sobre</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Sobre"
+        icone="info"
+        onVoltar={onVoltar}
+      />
 
       <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
         <View style={styles.iconeBox}>

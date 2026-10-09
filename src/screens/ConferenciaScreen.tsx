@@ -32,6 +32,7 @@ import {
 } from '../data/conferenciasApi';
 import { JornalOferta, buscarJornalAtual } from '../data/jornalOfertasApi';
 import VisualizadorJornalModal from '../components/VisualizadorJornalModal';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -409,13 +410,12 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
   if (modo === 'nova') {
     return (
       <View style={styles.flex}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => setModo('lista')} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.voltar}>‹ Cancelar</Text>
-          </TouchableOpacity>
-          <Text style={styles.titulo}>{novoTipo === 'jornal' ? 'Folheto de Oferta' : 'Nova conferência'}</Text>
-          <View style={{ width: 70 }} />
-        </View>
+        <CabecalhoTela
+          titulo={<>{novoTipo === 'jornal' ? 'Folheto de Oferta' : 'Nova conferência'}</>}
+          icone="clipboard"
+          onVoltar={() => setModo('lista')}
+          rotuloVoltar="Cancelar"
+        />
         <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 100 }}>
           <View style={styles.formCard}>
             <Text style={styles.formLabel}>Título</Text>
@@ -528,13 +528,11 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
     const todosConferidos = itens.length > 0 && conferidos === itens.length;
     return (
       <View style={styles.flex}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={voltarParaLista} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.voltar}>‹ Voltar</Text>
-          </TouchableOpacity>
-          <Text style={styles.titulo} numberOfLines={1}>{conferenciaAtual.titulo}</Text>
-          <View style={{ width: 50 }} />
-        </View>
+        <CabecalhoTela
+          titulo={<>{conferenciaAtual.titulo}</>}
+          icone="clipboard"
+          onVoltar={voltarParaLista}
+        />
 
         {!carregandoItens && (
           <View style={styles.progressoBox}>
@@ -747,13 +745,11 @@ export default function ConferenciaScreen({ onVoltar }: { onVoltar: () => void }
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Conferência</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Conferência"
+        icone="clipboard"
+        onVoltar={onVoltar}
+      />
 
       <ScrollView
         style={styles.flex}
@@ -818,7 +814,7 @@ const styles = StyleSheet.create({
   },
   voltar: { color: colors.navy700, fontSize: 15, fontWeight: '600' },
   titulo: { fontSize: 16, fontWeight: '700', color: colors.navy900, flex: 1, textAlign: 'center' },
-  progressoBox: { backgroundColor: colors.white, paddingVertical: spacing.sm, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: colors.gray100 },
+  progressoBox: { backgroundColor: 'transparent', paddingVertical: spacing.sm, alignItems: 'center' },
   progressoTexto: { fontSize: 12, fontWeight: '700', color: colors.navy700 },
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.lg },
   chip: { paddingVertical: 6, paddingHorizontal: 12, borderRadius: radius.full, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100 },

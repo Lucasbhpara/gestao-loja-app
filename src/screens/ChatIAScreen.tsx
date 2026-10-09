@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { colors, radius, spacing } from '../theme/colors';
 import { ANTHROPIC_API_KEY, ANTHROPIC_MODEL } from '../config/aiConfig';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 interface Mensagem {
   id: string;
@@ -109,13 +110,11 @@ export default function ChatIAScreen({ onVoltar }: { onVoltar: () => void }) {
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
     >
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Falar com a IA</Text>
-        <View style={{ width: 56 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Falar com a IA"
+        icone="message-circle"
+        onVoltar={onVoltar}
+      />
 
       {!chaveConfigurada && (
         <View style={styles.avisoBox}>

@@ -4,6 +4,7 @@ import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { setores } from '../data/employees';
 import { Perda, buscarPerdasDoSetor } from '../data/perdasApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 function formatarReais(valor: number): string {
   return `R$ ${valor.toFixed(2).replace('.', ',')}`;
@@ -53,13 +54,11 @@ export default function PerdasSetorScreen({ onVoltar }: { onVoltar: () => void }
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Perdas · {nomeSetor}</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo={<>Perdas · {nomeSetor}</>}
+        icone="trending-down"
+        onVoltar={onVoltar}
+      />
 
       <ScrollView
         style={styles.flex}

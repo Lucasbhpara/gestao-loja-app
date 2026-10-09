@@ -14,6 +14,7 @@ import {
   ScrollView,
 } from 'react-native';
 import { supabase } from '../lib/supabase';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -46,7 +47,7 @@ function limparCodigo(raw: string): string {
 
 // ─── Componente principal ─────────────────────────────────────────────────────
 
-export default function PrecificacaoScreen() {
+export default function PrecificacaoScreen({ onVoltar }: { onVoltar?: () => void }) {
   const [input, setInput] = useState('');
   const [fila, setFila] = useState<FilaItem[]>([]);
   const [loading, setLoading] = useState(false);
@@ -225,18 +226,17 @@ export default function PrecificacaoScreen() {
       style={styles.root}
       behavior={Platform.OS === 'ios' ? 'padding' : undefined}
     >
+      <CabecalhoTela
+        titulo="Precificação"
+        subtitulo={`${fila.length} código${fila.length !== 1 ? 's' : ''} na fila`}
+        icone="tag"
+        onVoltar={onVoltar}
+      />
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         keyboardShouldPersistTaps="handled"
       >
-        {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.title}>Precificação</Text>
-          <Text style={styles.subtitle}>
-            {fila.length} código{fila.length !== 1 ? 's' : ''} na fila
-          </Text>
-        </View>
 
         {/* Input de código */}
         <View style={styles.inputCard}>

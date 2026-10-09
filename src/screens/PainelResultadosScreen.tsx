@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'rea
 import { WebView } from 'react-native-webview';
 import { colors, spacing } from '../theme/colors';
 import { PAINEL_RESULTADOS_HTML } from '../data/painelResultadosHtml';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 // Painel só de administrador: essa tela só existe dentro do HomeAdminScreen
 // (quem não é admin nunca vê essa opção — ver HomeColaboradorScreen), então
@@ -13,13 +14,11 @@ import { PAINEL_RESULTADOS_HTML } from '../data/painelResultadosHtml';
 export default function PainelResultadosScreen({ onVoltar }: { onVoltar: () => void }) {
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Painel Resultados</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Painel Resultados"
+        icone="bar-chart-2"
+        onVoltar={onVoltar}
+      />
 
       <WebView
         originWhitelist={['*']}

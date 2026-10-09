@@ -30,6 +30,7 @@ import {
 } from '../data/inventarioApi';
 import { exportarContagemXlsx } from '../lib/exportarPlanilha';
 import { camaraDisponivel } from '../lib/plataforma';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 type Area = 'venda' | 'deposito';
 type Modo = 'pessoa' | 'sortimento' | 'contagem' | 'scanner' | 'comparar';
@@ -349,13 +350,11 @@ export default function InventarioScreen({ onVoltar }: { onVoltar: () => void })
   if (modo === 'pessoa') {
     return (
       <View style={styles.flex}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.voltar}>‹ Voltar</Text>
-          </TouchableOpacity>
-          <Text style={styles.titulo}>Inventário</Text>
-          <View style={{ width: 50 }} />
-        </View>
+        <CabecalhoTela
+          titulo="Inventário"
+          icone="package"
+          onVoltar={onVoltar}
+        />
         <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.xl, paddingTop: spacing.xxxl }}>
           <Text style={styles.perguntaTitulo}>Quem está fazendo a contagem?</Text>
           <TextInput
@@ -402,13 +401,12 @@ export default function InventarioScreen({ onVoltar }: { onVoltar: () => void })
   if (modo === 'sortimento') {
     return (
       <View style={styles.flex}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => setModo('pessoa')} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.voltar}>‹ Trocar pessoa</Text>
-          </TouchableOpacity>
-          <Text style={styles.titulo}>Inventário</Text>
-          <View style={{ width: 100 }} />
-        </View>
+        <CabecalhoTela
+          titulo="Inventário"
+          icone="package"
+          onVoltar={() => setModo('pessoa')}
+          rotuloVoltar="Trocar pessoa"
+        />
         <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.xl, paddingBottom: 40 }}>
           <Text style={styles.saudacao}>Olá, {pessoaNome}</Text>
           <Text style={styles.perguntaTitulo}>Qual inventário você vai contar?</Text>
@@ -488,13 +486,11 @@ export default function InventarioScreen({ onVoltar }: { onVoltar: () => void })
   if (modo === 'comparar') {
     return (
       <View style={styles.flex}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => setModo('contagem')} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.voltar}>‹ Voltar</Text>
-          </TouchableOpacity>
-          <Text style={styles.titulo}>Comparar contagens</Text>
-          <View style={{ width: 50 }} />
-        </View>
+        <CabecalhoTela
+          titulo="Comparar contagens"
+          icone="package"
+          onVoltar={() => setModo('contagem')}
+        />
         <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}>
           {carregandoComparacao ? (
             <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.xxl }} />
@@ -534,15 +530,11 @@ export default function InventarioScreen({ onVoltar }: { onVoltar: () => void })
 
   return (
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => setModo('sortimento')} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>
-          {nomeDoSortimento(sortimento)} · {pessoaNome}
-        </Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo={<>{nomeDoSortimento(sortimento)} · {pessoaNome}</>}
+        icone="package"
+        onVoltar={() => setModo('sortimento')}
+      />
 
       <View style={styles.buscaContainer}>
         <TextInput
@@ -801,23 +793,20 @@ const styles = StyleSheet.create({
   sortimentoIconeTexto: { color: colors.white, fontSize: 16, fontWeight: '700' },
   sortimentoNome: { fontSize: 14.5, fontWeight: '700', color: colors.gray900 },
   sortimentoDescricao: { fontSize: 11.5, color: colors.gray600, marginTop: 2 },
-  buscaContainer: {
+  buscaContainer: { paddingTop: spacing.md,
     flexDirection: 'row',
     gap: spacing.sm,
-    backgroundColor: colors.white,
-    padding: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray100,
+    backgroundColor: 'transparent',
+    padding: spacing.md
   },
   buscaInput: {
     flex: 1,
-    backgroundColor: colors.gray50,
+    backgroundColor: colors.white,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     fontSize: 13,
-    color: colors.gray900,
-  },
+    color: colors.gray900, borderWidth: 1, borderColor: colors.gray100 },
   btnScan: { backgroundColor: colors.navy700, borderRadius: radius.md, paddingHorizontal: spacing.lg, justifyContent: 'center' },
   btnScanTexto: { color: colors.white, fontSize: 12, fontWeight: '700' },
   resultadosBox: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.gray100, maxHeight: 220 },
@@ -859,7 +848,7 @@ const styles = StyleSheet.create({
   btnConfirmarQtdTexto: { color: colors.white, fontSize: 12.5, fontWeight: '700' },
   btnCancelarQtd: { paddingHorizontal: spacing.md, paddingVertical: 10 },
   btnCancelarQtdTexto: { color: colors.gray600, fontSize: 12, fontWeight: '600' },
-  tabsRow: { flexDirection: 'row', backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.gray100 },
+  tabsRow: { paddingTop: spacing.md, flexDirection: 'row', backgroundColor: 'transparent' },
   tab: { flex: 1, paddingVertical: 12, alignItems: 'center', borderBottomWidth: 2, borderBottomColor: 'transparent' },
   tabAtiva: { borderBottomColor: colors.navy700 },
   tabTexto: { fontSize: 12.5, fontWeight: '600', color: colors.gray400 },

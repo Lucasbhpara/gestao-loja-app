@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { colors, radius, spacing } from '../theme/colors';
 import { setores, SetorKey } from '../data/employees';
 import { Perda, buscarTodasPerdas } from '../data/perdasApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 function formatarReais(valor: number): string {
   return `R$ ${valor.toFixed(2).replace('.', ',')}`;
@@ -68,13 +69,11 @@ export default function PerdasAdminScreen({ onVoltar }: { onVoltar: () => void }
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Perdas e Desperdício</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Perdas e Desperdício"
+        icone="trending-down"
+        onVoltar={onVoltar}
+      />
 
       <ScrollView
         style={styles.flex}

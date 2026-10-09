@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { colors, radius, spacing } from '../theme/colors';
 import { AreaMapa, FotoMapa, buscarAreasMapa, buscarFotosDaArea } from '../data/mapaLojaApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 // Mapa da loja: a planta real da loja (imagem embutida no app) com um botão
 // invisível em cima de cada corredor/setor/ponto extra. Tocar numa área abre
@@ -49,13 +50,11 @@ export default function MapaLojaScreen({ onVoltar }: { onVoltar: () => void }) {
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Mapa da Loja</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Mapa da Loja"
+        icone="map"
+        onVoltar={onVoltar}
+      />
 
       {carregando ? (
         <View style={styles.centro}>

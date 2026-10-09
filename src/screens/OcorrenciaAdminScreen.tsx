@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { colors, radius, spacing } from '../theme/colors';
 import { setores, SetorKey } from '../data/employees';
 import { Ocorrencia, buscarTodasOcorrencias, marcarOcorrenciaResolvida } from '../data/ocorrenciasApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 function formatarDataHora(iso: string): string {
   const d = new Date(iso);
@@ -54,13 +55,11 @@ export default function OcorrenciaAdminScreen({ onVoltar }: { onVoltar: () => vo
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Ocorrências</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Ocorrências"
+        icone="alert-triangle"
+        onVoltar={onVoltar}
+      />
 
       <ScrollView
         style={styles.flex}

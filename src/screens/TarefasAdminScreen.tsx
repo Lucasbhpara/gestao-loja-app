@@ -16,6 +16,7 @@ import { useAuth } from '../context/AuthContext';
 import { Tarefa, PrioridadeTarefa, buscarTodasTarefas, criarTarefa, removerTarefa } from '../data/tarefasApi';
 import CorrecaoScreen from './CorrecaoScreen';
 import { origemDaTarefa } from '../data/correcaoApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 // Confere se o texto digitado é uma data real no formato AAAA-MM-DD.
 // Campo vazio é válido (o prazo é opcional).
@@ -135,15 +136,18 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Tarefas</Text>
-        <TouchableOpacity onPress={() => setMostrarForm((v) => !v)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.novaTarefa}>{mostrarForm ? 'Cancelar' : '+ Nova'}</Text>
-        </TouchableOpacity>
-      </View>
+      <CabecalhoTela
+        titulo="Tarefas"
+        icone="edit-3"
+        onVoltar={onVoltar}
+        acao={
+          <>
+            <TouchableOpacity onPress={() => setMostrarForm((v) => !v)} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+            <Text style={styles.novaTarefa}>{mostrarForm ? 'Cancelar' : '+ Nova'}</Text>
+          </TouchableOpacity>
+          </>
+        }
+      />
 
       <ScrollView
         style={styles.flex}

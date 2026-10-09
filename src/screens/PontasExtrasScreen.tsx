@@ -29,6 +29,7 @@ import {
   removerProduto,
   enviarFotoProdutoPonta,
 } from '../data/pontasExtrasApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 // Pontas e Pontos Extras: diferente do Mapa da Loja (que mostra ONDE cada
 // ponta fica), aqui mostra O QUE está montado em cada uma agora — até 4
@@ -70,23 +71,24 @@ export default function PontasExtrasScreen({ onVoltar }: { onVoltar: () => void 
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Pontas e Pontos Extras</Text>
-        {souAdmin ? (
-          <TouchableOpacity
-            onPress={() => setNovaPontaVisivel(true)}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-            style={styles.novaPontaBotao}
-          >
-            <Feather name="plus" size={18} color={colors.navy700} />
-          </TouchableOpacity>
-        ) : (
-          <View style={{ width: 26 }} />
-        )}
-      </View>
+      <CabecalhoTela
+        titulo="Pontas e Pontos Extras"
+        icone="layers"
+        onVoltar={onVoltar}
+        acao={
+          <>
+            {souAdmin ? (
+            <TouchableOpacity
+              onPress={() => setNovaPontaVisivel(true)}
+              hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+              style={styles.novaPontaBotao}
+            >
+              <Feather name="plus" size={18} color={colors.navy700} />
+            </TouchableOpacity>
+          ) : null}
+          </>
+        }
+      />
 
       {carregando ? (
         <View style={styles.centro}>
