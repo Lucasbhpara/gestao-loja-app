@@ -18,7 +18,7 @@ import { SetorKey } from './employees';
 //   - pergunta pode exigir foto e pode ser "crítica";
 //   - ao finalizar, os "Não" viram UMA tarefa pro encarregado do setor —
 //     SÓ quando a unidade visitada é a própria loja do ULVA
-//     (UNIDADE_DA_LOJA). Em outras unidades a visita fica registrada (PDF,
+//     (UNIDADE_DA_LOJA); 'Geral e Documentos' vai pra Gerência. Em outras unidades a visita fica registrada (PDF,
 //     Portal), mas não gera tarefa pra equipe da 327.
 //
 // Tabelas: visita_tecnica_perguntas / visitas_tecnicas /
@@ -365,7 +365,9 @@ export async function finalizarVisita(dados: {
       .insert({
         titulo: `Visita Técnica — ${nomeSetor}`,
         descricao,
-        setor: dados.setor === 'geral' ? null : (dados.setor as SetorKey),
+        // 'geral' (documentos da loja) vai pra Gerência — setor nulo faria a
+        // tarefa aparecer e notificar TODOS os colaboradores.
+        setor: dados.setor === 'geral' ? 'gerencia' : (dados.setor as SetorKey),
         criado_por_nome: dados.veterinarioNome,
         prioridade: criticos.length > 0 ? 'alta' : 'normal',
         visita_tecnica_id: dados.visitaId,
