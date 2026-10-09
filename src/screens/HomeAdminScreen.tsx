@@ -32,8 +32,8 @@ import PrecificacaoScreen from './PrecificacaoScreen';
 // demais administradores. Identificado pela matrícula (e não pelo id),
 // porque o id muda de formato ao migrar para o Supabase.
 const MATRICULA_DONO_DA_ABA_IA = '7990353';
-// Giro de Produtos: por enquanto só Lucas e Rodrigo.
-const MATRICULAS_GIRO = ['7990353', '9728010'];
+// Giro de Produtos: Lucas, Rodrigo e Valmir.
+const MATRICULAS_GIRO = ['7990353', '9728010', '999999'];
 
 export default function HomeAdminScreen() {
   const { usuarioAtual, logout, usandoNuvem } = useAuth();

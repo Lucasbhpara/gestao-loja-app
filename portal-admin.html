@@ -750,7 +750,7 @@ async function fazerLogin() {
     document.getElementById('sidebar-nome').textContent = encontrado.nome;
     document.getElementById('sidebar-funcao').textContent = encontrado.funcao;
     // Giro de Produtos: por enquanto só o Lucas (fase de teste).
-    // Giro de Produtos e Importar vendas: por enquanto só Lucas e Rodrigo.
+    // Giro de Produtos e Importar vendas: Lucas, Rodrigo e Valmir.
     document.getElementById('nav-giro-produtos').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-importar-vendas').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     irPara('equipe');
@@ -3193,8 +3193,8 @@ function renderizarTabelaVendas() {
 // último dia de venda carregado. Ocultos (insumos, embalagens) ficam salvos
 // neste navegador; setores que nunca são de venda já vêm ocultos.
 // =============================================================================
-// Quem acessa o Giro de Produtos e o Importar vendas (Lucas e Rodrigo).
-const MATRICULAS_GIRO = ['7990353', '9728010'];
+// Quem acessa o Giro de Produtos e o Importar vendas (Lucas, Rodrigo e Valmir).
+const MATRICULAS_GIRO = ['7990353', '9728010', '999999'];
 const GIRO_NIVEIS = ['setor', 'subsetor', 'categoria', 'subcategoria'];
 const GIRO_ROTULO = { setor: 'Setor', subsetor: 'Subsetor', categoria: 'Categoria', subcategoria: 'Subcategoria' };
 const GIRO_SETORES_FORA = ['NI', 'EMBALAGENS', 'EMBALAGEM/GARRAFEIRA/GF', 'MANUTENCAO', 'ALMOX/RH/MANUT/EPI/ARTES', 'DIVERSOS'];
