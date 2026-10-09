@@ -3249,6 +3249,15 @@ async function giroCarregarBase(forcar) {
   return estado.giroBase;
 }
 
+// Dias sem venda: número exato para quem vendeu no período; "31+" (o
+// período todo) para quem não vendeu nenhuma vez.
+function giroDiasSemVenda(p) {
+  const b = estado.giroBase;
+  if (p.diasParado !== null) return String(p.diasParado);
+  const total = b && b.periodoInicio ? giroDiasEntre(b.periodoInicio, b.periodoFim) + 1 : 0;
+  return total ? total + '+' : '—';
+}
+
 function giroProblema(p, dias) { return p.ultimaVenda === null || (p.diasParado !== null && p.diasParado >= dias); }
 
 function giroFiltrados() {
@@ -3274,16 +3283,20 @@ function giroResumir(lista, dias, grupo) {
 }
 
 function giroListaProdutos(lista) {
-  const dias = estado.giroFiltro.dias;
-  const termo = (estado.giroFiltro.busca || '').trim().toUpperCase();
+  const f = estado.giroFiltro;
+  const termo = (f.busca || '').trim().toUpperCase();
+  const dp = (p) => (p.diasParado === null ? Infinity : p.diasParado);
   return lista
-    .filter((p) => giroProblema(p, dias))
+    .filter((p) => giroProblema(p, f.dias))
     .filter((p) => !termo || p.nome.toUpperCase().includes(termo) || p.codigo.includes(termo))
-    .sort((a, b) => {
-      const da = a.diasParado === null ? Infinity : a.diasParado;
-      const db = b.diasParado === null ? Infinity : b.diasParado;
-      return da !== db ? db - da : b.custoEstoque - a.custoEstoque;
-    });
+    .sort((a, b) => (f.crescente ? a.estoque - b.estoque : b.estoque - a.estoque) || dp(b) - dp(a));
+}
+
+function giroOpcoes(lista, nivel) {
+  const dias = estado.giroFiltro.dias;
+  const mapa = new Map();
+  lista.forEach((p) => { if (giroProblema(p, dias)) mapa.set(p[nivel], (mapa.get(p[nivel]) || 0) + 1); });
+  return [...mapa.entries()].map(([valor, qtd]) => ({ valor, qtd })).sort((a, b) => b.qtd - a.qtd);
 }
 
 async function paginaGiroProdutos() {
@@ -3291,10 +3304,10 @@ async function paginaGiroProdutos() {
     document.getElementById('conteudo-principal').innerHTML = cabecalho('Giro de Produtos', '') + '<div class="celula-vazio">Página em teste — ainda não liberada.</div>';
     return;
   }
-  estado.giroFiltro = estado.giroFiltro || { caminho: [], dias: 15, soComEstoque: true, mostrarOcultos: false, busca: '', limite: 100 };
+  estado.giroFiltro = estado.giroFiltro || { caminho: [], dias: 15, soComEstoque: true, mostrarOcultos: false, busca: '', limite: 100, crescente: false, painel: false };
   estado.giroOcultos = giroLerOcultos();
   const el = document.getElementById('conteudo-principal');
-  el.innerHTML = cabecalho('Giro de Produtos', 'Produtos sem venda ou parados, do setor até a subcategoria') +
+  el.innerHTML = cabecalho('Giro de Produtos', 'Produtos sem venda ou parados, do maior estoque para o menor') +
     '<div class="carregando">Carregando quase 10 mil produtos…</div>';
   try {
     await giroCarregarBase(false);
@@ -3310,98 +3323,109 @@ function renderizarGiro() {
   const f = estado.giroFiltro;
   const lista = giroFiltrados();
   const r = giroResumir(lista, f.dias);
-  const nivel = GIRO_NIVEIS[Math.min(f.caminho.length, GIRO_NIVEIS.length - 1)];
-  const qtdOcultos = base.produtos.filter((p) => p.ocultoPorSetor || estado.giroOcultos.has(p.codigo)).length;
+  const qtdFiltros = f.caminho.length + (f.dias !== 15 ? 1 : 0) + (!f.soComEstoque ? 1 : 0) + (f.mostrarOcultos ? 1 : 0);
+  const chip = (txt, ativo, onclick, extra) => '<button class="pill' + (ativo ? ' admin' : '') + '" style="cursor:pointer;margin:0;gap:6px;' + (extra || '') + '" onclick="' + onclick + '">' + txt + '</button>';
 
-  // Trilha
-  const trilha = '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:4px 0 16px;">' +
-    '<button class="pill' + (f.caminho.length === 0 ? ' admin' : '') + '" style="cursor:pointer;margin:0;" onclick="giroSubir(0)">🏬 Loja toda</button>' +
-    f.caminho.map((c, i) => '<span style="color:var(--text-muted);">›</span><button class="pill' + (i === f.caminho.length - 1 ? ' admin' : '') + '" style="cursor:pointer;margin:0;" onclick="giroSubir(' + (i + 1) + ')">' + giroEsc(giroNome(c)) + '</button>').join('') +
-    '</div>';
-
-  const resumo = '<div class="resumo-perdas">' +
-    '<div class="box"><div class="rotulo">Sem nenhuma venda</div><div class="valor" style="color:var(--red);">' + r.semVenda.toLocaleString('pt-BR') + '</div></div>' +
-    '<div class="box"><div class="rotulo">Parados ' + f.dias + '+ dias</div><div class="valor" style="color:var(--orange);">' + r.parados.toLocaleString('pt-BR') + '</div></div>' +
-    '<div class="box"><div class="rotulo">Estoque parado (custo)</div><div class="valor">' + giroReais(r.custoParado) + '</div></div>' +
-    '<div class="box"><div class="rotulo">Produtos no filtro</div><div class="valor">' + r.produtos.toLocaleString('pt-BR') + '</div></div>' +
-    '</div>';
-
-  const filtros = '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:18px;">' +
-    '<label style="font-size:12.5px;color:var(--text-secondary);">Parado há pelo menos ' +
-      '<select class="select-filtro" style="padding:7px 10px;" onchange="estado.giroFiltro.dias=Number(this.value);estado.giroFiltro.limite=100;renderizarGiro()">' +
-      [7, 15, 30].map((d) => '<option value="' + d + '"' + (f.dias === d ? ' selected' : '') + '>' + d + ' dias</option>').join('') +
-      '</select></label>' +
-    '<label class="pill" style="cursor:pointer;margin:0;gap:6px;"><input type="checkbox"' + (f.soComEstoque ? ' checked' : '') + ' onchange="estado.giroFiltro.soComEstoque=this.checked;renderizarGiro()"> Só com estoque</label>' +
-    '<label class="pill" style="cursor:pointer;margin:0;gap:6px;"><input type="checkbox"' + (f.mostrarOcultos ? ' checked' : '') + ' onchange="estado.giroFiltro.mostrarOcultos=this.checked;renderizarGiro()"> Mostrar ocultos (' + qtdOcultos + ')</label>' +
+  // Barra: busca + Filtro + Limpar + ordem
+  const barra = '<div style="display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-bottom:12px;">' +
+    '<input class="input-busca" id="giro-busca" style="max-width:320px;" placeholder="Buscar produto ou código" value="' + giroEsc(f.busca) + '" oninput="giroBuscar(this.value)">' +
+    '<button class="btn-acao' + (f.painel ? '' : ' secundario') + '" onclick="estado.giroFiltro.painel=!estado.giroFiltro.painel;renderizarGiro()">⚲ Filtro' + (qtdFiltros ? ' (' + qtdFiltros + ')' : '') + '</button>' +
+    (qtdFiltros || f.busca ? '<button class="btn-acao secundario" style="color:var(--red);" onclick="giroLimpar()">✕ Limpar filtro</button>' : '') +
+    '<button class="btn-acao secundario" title="Inverter ordem do estoque" onclick="giroInverter()">Estoque ' + (f.crescente ? '↑ menor → maior' : '↓ maior → menor') + '</button>' +
     '<span style="margin-left:auto;display:flex;gap:8px;">' +
       '<button class="btn-acao secundario" onclick="giroAtualizar()">↻ Atualizar</button>' +
       '<button class="btn-acao secundario" onclick="giroExportar()">Exportar (Excel)</button>' +
     '</span></div>';
 
-  // Grupos do nível atual
-  let gruposHtml = '';
-  if (f.caminho.length < GIRO_NIVEIS.length) {
-    const mapa = new Map();
-    lista.forEach((p) => { const k = p[nivel]; if (!mapa.has(k)) mapa.set(k, []); mapa.get(k).push(p); });
-    const grupos = [...mapa.entries()].map(([k, ps]) => giroResumir(ps, f.dias, k))
-      .sort((a, b) => (b.semVenda + b.parados) - (a.semVenda + a.parados) || b.custoParado - a.custoParado);
-    estado.giroGrupos = grupos.map((g) => g.grupo);
-    const linhas = grupos.map((g, i) => {
-      const prob = g.semVenda + g.parados;
-      const pct = g.produtos ? Math.round((prob / g.produtos) * 100) : 0;
-      return '<tr style="cursor:pointer;" onclick="giroEntrar(' + i + ')">' +
-        '<td class="nome-forte">' + giroEsc(giroNome(g.grupo)) + '</td>' +
-        '<td style="text-align:right;">' + g.produtos + '</td>' +
-        '<td style="text-align:right;color:var(--red);font-weight:700;">' + g.semVenda + '</td>' +
-        '<td style="text-align:right;color:var(--orange);font-weight:700;">' + g.parados + '</td>' +
-        '<td style="min-width:140px;"><div style="display:flex;align-items:center;gap:8px;"><div style="flex:1;height:7px;border-radius:9px;background:var(--border);overflow:hidden;"><div style="height:7px;width:' + pct + '%;background:' + (pct > 40 ? 'var(--red)' : 'var(--orange)') + ';"></div></div><span style="font-size:11.5px;color:var(--text-muted);width:34px;text-align:right;">' + pct + '%</span></div></td>' +
-        '<td style="text-align:right;font-weight:700;">' + giroReais(g.custoParado) + '</td>' +
-        '<td style="text-align:right;color:var(--text-muted);">›</td>' +
-      '</tr>';
-    }).join('');
-    gruposHtml = '<h3 style="font-size:15px;margin:0 0 10px;">Por ' + GIRO_ROTULO[nivel].toLowerCase() + ' <span style="font-size:12px;color:var(--text-muted);font-weight:400;">— clique para descer um nível</span></h3>' +
-      '<div class="tabela-wrap" style="margin-bottom:24px;"><table><thead><tr><th>' + GIRO_ROTULO[nivel] + '</th><th style="text-align:right;">Produtos</th><th style="text-align:right;">Sem venda</th><th style="text-align:right;">Parados</th><th>% com problema</th><th style="text-align:right;">Estoque parado</th><th></th></tr></thead><tbody>' +
-      (linhas || '<tr><td colspan="7"><div class="celula-vazio">Nada com esses filtros.</div></td></tr>') + '</tbody></table></div>';
+  // Filtros ativos
+  const ativos = !qtdFiltros ? '' : '<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:14px;">' +
+    f.caminho.map((c, i) => chip('<span style="opacity:.75;">' + GIRO_ROTULO[GIRO_NIVEIS[i]] + ':</span> ' + giroEsc(giroNome(c)) + ' ✕', true, 'giroRemoverNivel(' + i + ')')).join('') +
+    (f.dias !== 15 ? chip('Parado ' + f.dias + '+ dias', true, 'estado.giroFiltro.painel=true;renderizarGiro()') : '') +
+    (!f.soComEstoque ? chip('Inclui sem estoque', true, 'estado.giroFiltro.painel=true;renderizarGiro()') : '') +
+    (f.mostrarOcultos ? chip('Mostrando ocultos', true, 'estado.giroFiltro.painel=true;renderizarGiro()') : '') +
+    '</div>';
+
+  // Painel do filtro: cada nível aparece depois de escolher o anterior
+  let painel = '';
+  if (f.painel) {
+    const semCaminho = estado.giroBase.produtos.filter((p) =>
+      (f.mostrarOcultos || !(p.ocultoPorSetor || estado.giroOcultos.has(p.codigo))) && (!f.soComEstoque || p.estoque > 0));
+    let atual = semCaminho;
+    let niveis = '';
+    for (let i = 0; i < GIRO_NIVEIS.length; i++) {
+      const nivel = GIRO_NIVEIS[i];
+      const ops = giroOpcoes(atual, nivel);
+      estado['giroOps' + i] = ops.map((o) => o.valor);
+      niveis += '<div style="margin-bottom:14px;"><div style="font-size:11.5px;font-weight:800;text-transform:uppercase;letter-spacing:.4px;margin-bottom:8px;">' + (i + 1) + '. ' + GIRO_ROTULO[nivel] +
+        (i > 0 ? ' <span style="font-weight:500;text-transform:none;color:var(--text-muted);">de ' + giroEsc(giroNome(f.caminho[i - 1])) + '</span>' : '') + '</div>' +
+        '<div style="display:flex;flex-wrap:wrap;gap:6px;">' +
+        (ops.length ? ops.map((o, j) => chip(giroEsc(giroNome(o.valor)) + ' <span style="opacity:.7;">' + o.qtd + '</span>', f.caminho[i] === o.valor, 'giroEscolher(' + i + ',' + j + ')')).join('') : '<span style="font-size:12px;color:var(--text-muted);">Nada parado aqui.</span>') +
+        '</div></div>';
+      if (!f.caminho[i]) break;
+      atual = atual.filter((p) => p[nivel] === f.caminho[i]);
+    }
+    painel = '<div class="item-card" style="margin-bottom:18px;">' + niveis +
+      '<div style="display:flex;flex-wrap:wrap;gap:12px;align-items:center;border-top:1px solid var(--border);padding-top:12px;">' +
+        '<label style="font-size:12.5px;color:var(--text-secondary);">Parado há pelo menos <select class="select-filtro" style="padding:7px 10px;" onchange="estado.giroFiltro.dias=Number(this.value);estado.giroFiltro.limite=100;renderizarGiro()">' +
+          [7, 15, 30].map((d) => '<option value="' + d + '"' + (f.dias === d ? ' selected' : '') + '>' + d + ' dias</option>').join('') + '</select></label>' +
+        '<label class="pill" style="cursor:pointer;margin:0;gap:6px;"><input type="checkbox"' + (f.soComEstoque ? ' checked' : '') + ' onchange="estado.giroFiltro.soComEstoque=this.checked;renderizarGiro()"> Só com estoque</label>' +
+        '<label class="pill" style="cursor:pointer;margin:0;gap:6px;"><input type="checkbox"' + (f.mostrarOcultos ? ' checked' : '') + ' onchange="estado.giroFiltro.mostrarOcultos=this.checked;renderizarGiro()"> Mostrar ocultos</label>' +
+        '<button class="btn-acao" style="margin-left:auto;" onclick="estado.giroFiltro.painel=false;renderizarGiro()">Ver produtos</button>' +
+      '</div></div>';
   }
 
-  // Produtos
+  const resumo = '<div class="resumo-perdas">' +
+    '<div class="box"><div class="rotulo">Sem nenhuma venda</div><div class="valor" style="color:var(--red);">' + r.semVenda.toLocaleString('pt-BR') + '</div></div>' +
+    '<div class="box"><div class="rotulo">Parados ' + f.dias + '+ dias</div><div class="valor" style="color:var(--orange);">' + r.parados.toLocaleString('pt-BR') + '</div></div>' +
+    '<div class="box"><div class="rotulo">Estoque parado (custo)</div><div class="valor">' + giroReais(r.custoParado) + '</div></div>' +
+    '</div>';
+
   const produtos = giroListaProdutos(lista);
-  const mostrar = produtos.slice(0, f.limite);
-  const linhasProd = mostrar.map((p) => {
+  const linhasProd = produtos.slice(0, f.limite).map((p) => {
     const oculto = p.ocultoPorSetor || estado.giroOcultos.has(p.codigo);
-    const selo = p.ultimaVenda === null ? '<span class="pill vermelho">Sem venda</span>' : '<span class="pill laranja">' + p.diasParado + ' dias</span>';
+    const selo = p.ultimaVenda === null ? '<span class="pill vermelho">Sem venda no período</span>' : '<span class="pill laranja">Parado</span>';
     const acao = p.ocultoPorSetor ? '<span style="font-size:11px;color:var(--text-muted);">insumo / fora de venda</span>'
       : '<button class="btn-acao secundario" style="padding:5px 10px;font-size:11.5px;" onclick="giroAlternarOculto(\'' + giroEsc(p.codigo) + '\')">' + (oculto ? 'Mostrar' : 'Ocultar') + '</button>';
     return '<tr' + (oculto ? ' style="opacity:.55;"' : '') + '>' +
       '<td>' + selo + '</td>' +
-      '<td><div class="nome-forte">' + giroEsc(p.nome) + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + giroEsc(p.codigo) + ' · ' + giroEsc(giroNome(p.subcategoria)) + '</div></td>' +
-      '<td style="text-align:right;">' + p.estoque.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '</td>' +
+      '<td><div class="nome-forte">' + giroEsc(p.nome) + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + giroEsc(p.codigo) + ' · ' + giroEsc(giroNome(p.setor)) + ' › ' + giroEsc(giroNome(p.subcategoria)) + '</div></td>' +
+      '<td style="text-align:right;font-weight:800;">' + p.estoque.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '</td>' +
       '<td style="text-align:right;">' + giroData(p.ultimaVenda) + '</td>' +
-      '<td style="text-align:right;">' + p.diasComVenda + '</td>' +
+      '<td style="text-align:right;font-weight:800;color:' + (p.ultimaVenda === null ? 'var(--red)' : 'var(--orange)') + ';">' + giroDiasSemVenda(p) + '</td>' +
       '<td style="text-align:right;font-weight:700;">' + giroReais(p.custoEstoque) + '</td>' +
       '<td style="text-align:right;">' + acao + '</td>' +
     '</tr>';
   }).join('');
-  const produtosHtml =
-    '<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin:0 0 10px;">' +
-      '<h3 style="font-size:15px;margin:0;">Produtos sem venda ou parados <span style="font-size:12px;color:var(--text-muted);font-weight:400;">(' + produtos.length.toLocaleString('pt-BR') + ') — os mais parados primeiro</span></h3>' +
-      '<input class="input-busca" id="giro-busca" style="max-width:280px;margin-left:auto;" placeholder="Buscar por nome ou código" value="' + giroEsc(f.busca) + '" oninput="giroBuscar(this.value)">' +
-    '</div>' +
-    '<div class="tabela-wrap"><table><thead><tr><th>Situação</th><th>Produto</th><th style="text-align:right;">Estoque</th><th style="text-align:right;">Última venda</th><th style="text-align:right;">Dias c/ venda</th><th style="text-align:right;">Estoque parado</th><th></th></tr></thead><tbody>' +
+  const tabela =
+    '<h3 style="font-size:15px;margin:0 0 10px;">' + produtos.length.toLocaleString('pt-BR') + ' produtos sem venda ou parados</h3>' +
+    '<div class="tabela-wrap"><table><thead><tr><th>Situação</th><th>Produto</th>' +
+    '<th style="text-align:right;cursor:pointer;user-select:none;" onclick="giroInverter()" title="Inverter ordem">Estoque ' + (f.crescente ? '▲' : '▼') + '</th>' +
+    '<th style="text-align:right;">Última venda</th><th style="text-align:right;">Dias sem venda</th><th style="text-align:right;">Estoque parado</th><th></th></tr></thead><tbody>' +
     (linhasProd || '<tr><td colspan="7"><div class="celula-vazio">Nenhum produto parado com esses filtros. 🎉</div></td></tr>') +
     '</tbody></table></div>' +
     (produtos.length > f.limite ? '<div style="text-align:center;margin-top:12px;"><button class="btn-acao secundario" onclick="estado.giroFiltro.limite+=200;renderizarGiro()">Mostrar mais (' + (produtos.length - f.limite).toLocaleString('pt-BR') + ' restantes)</button></div>' : '');
 
   const periodo = base.periodoInicio ? 'Vendas de ' + giroData(base.periodoInicio) + ' a ' + giroData(base.periodoFim) + ' · "dias parado" contados até ' + giroData(base.periodoFim) : 'Nenhuma venda carregada';
   document.getElementById('conteudo-principal').innerHTML =
-    cabecalho('Giro de Produtos', periodo) + trilha + resumo + filtros + gruposHtml + produtosHtml;
+    cabecalho('Giro de Produtos', periodo) + barra + ativos + painel + resumo + tabela;
 
   const busca = document.getElementById('giro-busca');
   if (busca && estado.giroFocoBusca) { busca.focus(); busca.setSelectionRange(busca.value.length, busca.value.length); estado.giroFocoBusca = false; }
 }
 
-function giroSubir(n) { estado.giroFiltro.caminho = estado.giroFiltro.caminho.slice(0, n); estado.giroFiltro.limite = 100; renderizarGiro(); }
-function giroEntrar(i) { estado.giroFiltro.caminho.push(estado.giroGrupos[i]); estado.giroFiltro.limite = 100; renderizarGiro(); window.scrollTo(0, 0); }
+function giroEscolher(i, j) {
+  const f = estado.giroFiltro;
+  const valor = estado['giroOps' + i][j];
+  f.caminho = f.caminho[i] === valor ? f.caminho.slice(0, i) : f.caminho.slice(0, i).concat([valor]);
+  f.limite = 100;
+  renderizarGiro();
+}
+function giroRemoverNivel(i) { estado.giroFiltro.caminho = estado.giroFiltro.caminho.slice(0, i); estado.giroFiltro.limite = 100; renderizarGiro(); }
+function giroInverter() { estado.giroFiltro.crescente = !estado.giroFiltro.crescente; renderizarGiro(); }
+function giroLimpar() {
+  Object.assign(estado.giroFiltro, { caminho: [], dias: 15, soComEstoque: true, mostrarOcultos: false, busca: '', limite: 100 });
+  renderizarGiro();
+}
 function giroBuscar(v) {
   estado.giroFiltro.busca = v; estado.giroFiltro.limite = 100;
   clearTimeout(estado.giroTimerBusca);
@@ -3422,12 +3446,12 @@ function giroExportar() {
   const produtos = giroListaProdutos(giroFiltrados());
   if (!produtos.length) { mostrarToast('Nada pra exportar com esses filtros.', 'erro'); return; }
   const linhas = produtos.map((p) => ({
-    'Situação': p.ultimaVenda === null ? 'Sem venda' : 'Parado ' + p.diasParado + ' dias',
+    'Situação': p.ultimaVenda === null ? 'Sem venda no período' : 'Parado',
     'Código': p.codigo, Produto: p.nome,
     Setor: p.setor, Subsetor: p.subsetor, Categoria: p.categoria, Subcategoria: p.subcategoria,
     Estoque: p.estoque, 'Custo médio': Number(p.custoMedio.toFixed(2)),
     'Estoque parado (R$)': Number(p.custoEstoque.toFixed(2)),
-    'Última venda': p.ultimaVenda || '', 'Dias com venda': p.diasComVenda,
+    'Última venda': p.ultimaVenda || '', 'Dias sem venda': giroDiasSemVenda(p), 'Dias com venda': p.diasComVenda,
     'Venda no período (R$)': Number(p.vendaPeriodo.toFixed(2)),
   }));
   const ws = XLSX.utils.json_to_sheet(linhas);

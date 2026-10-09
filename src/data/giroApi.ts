@@ -218,6 +218,30 @@ export function ordenarProblemas(lista: ProdutoGiro[], dias: number): ProdutoGir
     });
 }
 
+// Dias sem venda: número exato pra quem vendeu no período; "31+" (o período
+// todo) pra quem não vendeu nenhuma vez.
+export function diasSemVendaTexto(p: ProdutoGiro, base: Pick<BaseGiro, 'periodoInicio' | 'periodoFim'> | null): string {
+  if (p.diasParado !== null) return String(p.diasParado);
+  if (!base?.periodoInicio || !base.periodoFim) return '—';
+  return `${diasEntre(base.periodoInicio, base.periodoFim) + 1}+`;
+}
+
+// Lista da tela inicial: só sem venda/parados, por quantidade em estoque
+// (maior primeiro, ou menor primeiro se "crescente"); empate → mais parado.
+export function ordenarPorEstoque(lista: ProdutoGiro[], dias: number, crescente: boolean): ProdutoGiro[] {
+  const dp = (p: ProdutoGiro) => p.diasParado ?? Number.POSITIVE_INFINITY;
+  return lista
+    .filter((p) => ehProblema(p, dias))
+    .sort((a, b) => (crescente ? a.estoque - b.estoque : b.estoque - a.estoque) || dp(b) - dp(a));
+}
+
+// Opções de um nível do filtro (com quantos produtos problemáticos cada uma tem).
+export function opcoesDoNivel(lista: ProdutoGiro[], nivel: NivelGiro, dias: number): { valor: string; qtd: number }[] {
+  const mapa = new Map<string, number>();
+  for (const p of lista) if (ehProblema(p, dias)) mapa.set(p[nivel], (mapa.get(p[nivel]) ?? 0) + 1);
+  return [...mapa.entries()].map(([valor, qtd]) => ({ valor, qtd })).sort((a, b) => b.qtd - a.qtd);
+}
+
 // --- Ocultos (por aparelho) ----------------------------------------------------
 
 const CHAVE_OCULTOS = 'giro_ocultos_v1';
