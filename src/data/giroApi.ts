@@ -8,7 +8,9 @@ import { supabase } from '../lib/supabase';
 //   - giro_produtos (view): por produto, setor/subsetor/categoria/subcategoria
 //     (classes do Falcon), dias com venda, última venda, venda no período.
 //     Calculada a partir de vendas_diarias (venda em R$ por produto por dia).
-//   - produtos_classes: estoque atual (qtd) e custo médio.
+//   - estoque_loja_itens: estoque atual da loja 327 (o mesmo do "Estoque Loja",
+//     que é atualizado pelo Portal → "Atualizar estoque (planilha)") e o custo.
+//     Produto que não está lá = estoque zero.
 //
 // "Dias parado" conta a partir do ÚLTIMO dia de venda carregado no banco
 // (não de hoje), pra não inflar quando a carga das vendas atrasa.
@@ -40,6 +42,7 @@ export interface BaseGiro {
   produtos: ProdutoGiro[];
   periodoInicio: string | null;
   periodoFim: string | null;
+  estoqueData: string | null; // data da planilha do Estoque Loja
   carregadoEm: number;
 }
 
@@ -93,13 +96,13 @@ function diasEntre(de: string, ate: string): number {
 export async function carregarBaseGiro(forcar = false): Promise<BaseGiro> {
   if (!forcar && cache && Date.now() - cache.carregadoEm < 10 * 60_000) return cache;
 
-  const [giro, classes, periodo] = await Promise.all([
+  const [giro, estoqueLoja, periodo] = await Promise.all([
     buscarTudo<any>(
       'giro_produtos',
       'codigo_produto,nome_produto,setor,subsetor,categoria,subcategoria,custo_medio,dias_com_venda,ultima_venda,venda_total_periodo',
       'codigo_produto'
     ),
-    buscarTudo<any>('produtos_classes', 'codigo_produto,qtd', 'codigo_produto'),
+    buscarTudo<any>('estoque_loja_itens', 'codigo_interno,quantidade,preco_custo,data_planilha', 'id'),
     Promise.all([
       supabase.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: true }).limit(1),
       supabase.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: false }).limit(1),
@@ -108,11 +111,21 @@ export async function carregarBaseGiro(forcar = false): Promise<BaseGiro> {
 
   const periodoInicio: string | null = periodo[0].data?.[0]?.data_venda ?? null;
   const periodoFim: string | null = periodo[1].data?.[0]?.data_venda ?? null;
-  const estoquePorCodigo = new Map<string, number>(classes.map((c) => [c.codigo_produto, Number(c.qtd ?? 0)]));
+  const estoquePorCodigo = new Map<string, { qtd: number; custo: number | null }>();
+  let estoqueData: string | null = null;
+  for (const e of estoqueLoja) {
+    const cod = String(e.codigo_interno ?? '').trim();
+    if (!cod) continue;
+    if (e.data_planilha && (!estoqueData || e.data_planilha > estoqueData)) estoqueData = e.data_planilha;
+    if (!estoquePorCodigo.has(cod)) {
+      estoquePorCodigo.set(cod, { qtd: Number(e.quantidade ?? 0), custo: e.preco_custo != null ? Number(e.preco_custo) : null });
+    }
+  }
 
   const produtos: ProdutoGiro[] = giro.map((g) => {
-    const estoque = estoquePorCodigo.get(g.codigo_produto) ?? 0;
-    const custoMedio = Number(g.custo_medio ?? 0);
+    const el = estoquePorCodigo.get(g.codigo_produto);
+    const estoque = el?.qtd ?? 0;
+    const custoMedio = el?.custo && el.custo > 0 ? el.custo : Number(g.custo_medio ?? 0);
     const setor = limpa(g.setor, 'SEM SETOR');
     const subcategoria = limpa(g.subcategoria, 'SEM SUBCATEGORIA');
     const ultimaVenda: string | null = g.ultima_venda ?? null;
@@ -134,7 +147,7 @@ export async function carregarBaseGiro(forcar = false): Promise<BaseGiro> {
     };
   });
 
-  cache = { produtos, periodoInicio, periodoFim, carregadoEm: Date.now() };
+  cache = { produtos, periodoInicio, periodoFim, estoqueData, carregadoEm: Date.now() };
   return cache;
 }
 
