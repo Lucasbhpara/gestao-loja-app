@@ -42,6 +42,8 @@ export interface AvaliacaoPergunta {
   // comportamento original). Um valor específico (hoje só 'area_externa')
   // restringe a pergunta só àquele setor — ver buscarPerguntasAtivas.
   setor: SetorKey | null;
+  // Subcategoria (gaveta na tela): Limpeza e manipulação, Exposição e preços…
+  grupo: string | null;
 }
 
 export type RespostaValor = 'sim' | 'nao' | 'na';
@@ -53,7 +55,8 @@ export interface AvaliacaoResposta {
   perguntaTexto: string;
   resposta: RespostaValor;
   justificativa: string | null;
-  fotoUrl: string | null;
+  fotoUrl: string | null; // primeira foto (compatibilidade)
+  fotosUrls: string[];
   respondidaEm: string;
 }
 
@@ -80,10 +83,12 @@ export interface AvaliacaoSetor {
   localizacaoLat: number | null;
   localizacaoLng: number | null;
   localizacaoEndereco: string | null;
+  consideracoesFinais: string | null;
+  perguntasNaoAvaliadas: number | null;
 }
 
 function linhaParaPergunta(l: any): AvaliacaoPergunta {
-  return { id: l.id, texto: l.texto, ordem: l.ordem, ativo: l.ativo, setor: l.setor };
+  return { id: l.id, texto: l.texto, ordem: l.ordem, ativo: l.ativo, setor: l.setor, grupo: l.grupo ?? null };
 }
 
 function linhaParaAvaliacao(l: any): AvaliacaoSetor {
@@ -103,6 +108,8 @@ function linhaParaAvaliacao(l: any): AvaliacaoSetor {
     localizacaoLat: l.localizacao_lat,
     localizacaoLng: l.localizacao_lng,
     localizacaoEndereco: l.localizacao_endereco,
+    consideracoesFinais: l.consideracoes_finais ?? null,
+    perguntasNaoAvaliadas: l.perguntas_nao_avaliadas ?? null,
   };
 }
 
@@ -115,6 +122,7 @@ function linhaParaResposta(l: any): AvaliacaoResposta {
     resposta: l.resposta,
     justificativa: l.justificativa,
     fotoUrl: l.foto_url,
+    fotosUrls: Array.isArray(l.fotos_urls) && l.fotos_urls.length ? l.fotos_urls : l.foto_url ? [l.foto_url] : [],
     respondidaEm: l.respondida_em,
   };
 }
@@ -222,7 +230,7 @@ export async function salvarResposta(dados: {
   perguntaTexto: string;
   resposta: RespostaValor;
   justificativa: string | null;
-  fotoUrl: string | null;
+  fotosUrls: string[];
 }): Promise<AvaliacaoResposta> {
   const { data, error } = await supabase
     .from('avaliacao_respostas')
@@ -233,7 +241,8 @@ export async function salvarResposta(dados: {
         pergunta_texto: dados.perguntaTexto,
         resposta: dados.resposta,
         justificativa: dados.justificativa,
-        foto_url: dados.fotoUrl,
+        foto_url: dados.fotosUrls[0] ?? null,
+        fotos_urls: dados.fotosUrls,
       },
       { onConflict: 'avaliacao_id,pergunta_id' }
     )
@@ -256,6 +265,8 @@ export async function finalizarAvaliacao(dados: {
   // Opcional — só vem preenchido quando o Pedometer conseguiu contar
   // (celular com sensor + permissão concedida).
   passosContados?: number | null;
+  consideracoesFinais?: string | null;
+  perguntasNaoAvaliadas?: number | null;
 }): Promise<AvaliacaoSetor> {
   const respostas = await buscarRespostasDaAvaliacao(dados.avaliacaoId);
 
@@ -273,7 +284,9 @@ export async function finalizarAvaliacao(dados: {
     const descricao =
       `Checklist de Setor finalizado por ${dados.gerenteNome}.\n` +
       `Aproveitamento: ${aproveitamento}% (${pontosRealizados}/${pontosPossiveis}).\n\n` +
-      `Não conformidades encontradas:\n${linhas}`;
+      `Não conformidades encontradas:\n${linhas}` +
+      (dados.perguntasNaoAvaliadas ? `\n\nPerguntas não avaliadas: ${dados.perguntasNaoAvaliadas}.` : '') +
+      (dados.consideracoesFinais ? `\n\nConsiderações finais: ${dados.consideracoesFinais}` : '');
 
     const { data: tarefa, error: erroTarefa } = await supabase
       .from('tarefas')
@@ -303,6 +316,8 @@ export async function finalizarAvaliacao(dados: {
       aproveitamento,
       tarefa_id: tarefaId,
       passos_contados: dados.passosContados ?? null,
+      consideracoes_finais: dados.consideracoesFinais ?? null,
+      perguntas_nao_avaliadas: dados.perguntasNaoAvaliadas ?? 0,
     })
     .eq('id', dados.avaliacaoId)
     .select()
@@ -367,4 +382,40 @@ export async function enviarFotoNaoConformidade(uriLocal: string): Promise<strin
   if (error) throw error;
   const { data } = supabase.storage.from('avaliacao-setor-fotos').getPublicUrl(nomeArquivo);
   return data.publicUrl;
+}
+
+// Resumo pro painel: avaliação em andamento de cada setor e quantas
+// perguntas já foram respondidas nela (barra de progresso no cartão).
+export async function buscarAndamentoPorSetor(): Promise<Map<SetorKey, { avaliacaoId: string; respondidas: number }>> {
+  const { data: abertas, error } = await supabase
+    .from('avaliacoes_setor')
+    .select('id, setor, iniciada_em')
+    .eq('status', 'em_andamento')
+    .order('iniciada_em', { ascending: false });
+  if (error) throw error;
+  const porSetor = new Map<SetorKey, string>();
+  (abertas ?? []).forEach((a: any) => {
+    if (!porSetor.has(a.setor)) porSetor.set(a.setor, a.id);
+  });
+  const ids = Array.from(porSetor.values());
+  const contagem = new Map<string, number>();
+  if (ids.length) {
+    const { data: resp, error: e2 } = await supabase.from('avaliacao_respostas').select('avaliacao_id').in('avaliacao_id', ids);
+    if (e2) throw e2;
+    (resp ?? []).forEach((r: any) => contagem.set(r.avaliacao_id, (contagem.get(r.avaliacao_id) ?? 0) + 1));
+  }
+  const mapa = new Map<SetorKey, { avaliacaoId: string; respondidas: number }>();
+  porSetor.forEach((id, setor) => mapa.set(setor, { avaliacaoId: id, respondidas: contagem.get(id) ?? 0 }));
+  return mapa;
+}
+
+// Quantas perguntas ativas valem pra cada tipo de setor (os 6 de loja
+// compartilham as genéricas; a Área Externa tem as dela).
+export async function contarPerguntasAtivas(): Promise<{ loja: number; areaExterna: number }> {
+  const { data, error } = await supabase.from('avaliacao_perguntas').select('setor').eq('ativo', true);
+  if (error) throw error;
+  let loja = 0;
+  let areaExterna = 0;
+  (data ?? []).forEach((p: any) => (p.setor === 'area_externa' ? areaExterna++ : !p.setor && loja++));
+  return { loja, areaExterna };
 }

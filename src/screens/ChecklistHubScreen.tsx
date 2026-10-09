@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import ChecklistAdminScreen from './ChecklistAdminScreen';
@@ -26,27 +27,39 @@ export default function ChecklistHubScreen({ onVoltar }: { onVoltar: () => void 
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
+      <View style={styles.hero}>
+        <TouchableOpacity onPress={onVoltar} style={styles.heroBotao} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
+          <Feather name="chevron-left" size={18} color={colors.white} />
+          <Text style={styles.heroBotaoTexto}>Voltar</Text>
         </TouchableOpacity>
-        <Text style={styles.titulo}>Checklist</Text>
-        <View style={{ width: 50 }} />
-      </View>
+        <View style={styles.heroLinha}>
+          <View style={styles.heroIcone}>
+            <Feather name="clipboard" size={22} color={colors.white} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.heroTitulo}>Checklist</Text>
+            <Text style={styles.heroSub}>
+              {aba === 'rotina' ? 'Itens do dia a dia de cada turno' : 'Auditoria de conformidade por setor'}
+            </Text>
+          </View>
+        </View>
 
-      <View style={styles.abasWrap}>
-        <TouchableOpacity
-          style={[styles.aba, aba === 'rotina' && styles.abaAtiva]}
-          onPress={() => setAba('rotina')}
-        >
-          <Text style={[styles.abaTexto, aba === 'rotina' && styles.abaTextoAtivo]}>Rotina do dia</Text>
-        </TouchableOpacity>
-        <TouchableOpacity
-          style={[styles.aba, aba === 'avaliacao' && styles.abaAtiva]}
-          onPress={() => setAba('avaliacao')}
-        >
-          <Text style={[styles.abaTexto, aba === 'avaliacao' && styles.abaTextoAtivo]}>Avaliação de Setor</Text>
-        </TouchableOpacity>
+        <View style={styles.abasWrap}>
+          {(
+            [
+              { k: 'rotina', rotulo: 'Rotina do dia', icone: 'sun' },
+              { k: 'avaliacao', rotulo: 'Avaliação de Setor', icone: 'check-square' },
+            ] as const
+          ).map((a) => {
+            const ativa = aba === a.k;
+            return (
+              <TouchableOpacity key={a.k} style={[styles.aba, ativa && styles.abaAtiva]} onPress={() => setAba(a.k)}>
+                <Feather name={a.icone} size={14} color={ativa ? colors.navy700 : 'rgba(255,255,255,0.85)'} />
+                <Text style={[styles.abaTexto, ativa && styles.abaTextoAtivo]}>{a.rotulo}</Text>
+              </TouchableOpacity>
+            );
+          })}
+        </View>
       </View>
 
       <View style={styles.flex}>
@@ -62,31 +75,45 @@ export default function ChecklistHubScreen({ onVoltar }: { onVoltar: () => void 
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.gray50 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    backgroundColor: colors.white,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray100,
-    paddingTop: 56,
-    paddingBottom: spacing.lg,
+  hero: {
+    backgroundColor: colors.navy700,
+    paddingTop: 52,
     paddingHorizontal: spacing.lg,
+    paddingBottom: spacing.lg,
+    borderBottomLeftRadius: radius.xl,
+    borderBottomRightRadius: radius.xl,
   },
-  voltar: { color: colors.navy700, fontSize: 15, fontWeight: '600' },
-  titulo: { fontSize: 16, fontWeight: '700', color: colors.navy900 },
+  heroBotao: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 2 },
+  heroBotaoTexto: { color: colors.white, fontSize: 15, fontWeight: '600' },
+  heroLinha: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md },
+  heroIcone: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: 'rgba(255,255,255,0.15)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroTitulo: { color: colors.white, fontSize: 22, fontWeight: '800' },
+  heroSub: { color: 'rgba(255,255,255,0.8)', fontSize: 13, marginTop: 2 },
   abasWrap: {
     flexDirection: 'row',
-    backgroundColor: colors.white,
-    paddingHorizontal: spacing.lg,
-    paddingTop: spacing.md,
-    paddingBottom: spacing.md,
     gap: spacing.sm,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray100,
+    marginTop: spacing.lg,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    borderRadius: radius.lg,
+    padding: 4,
   },
-  aba: { flex: 1, paddingVertical: 9, borderRadius: radius.md, backgroundColor: colors.gray50, alignItems: 'center' },
-  abaAtiva: { backgroundColor: colors.navy700 },
-  abaTexto: { fontSize: 12.5, fontWeight: '700', color: colors.gray600 },
-  abaTextoAtivo: { color: colors.white },
+  aba: {
+    flex: 1,
+    flexDirection: 'row',
+    gap: 6,
+    paddingVertical: 9,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  abaAtiva: { backgroundColor: colors.white },
+  abaTexto: { fontSize: 12.5, fontWeight: '700', color: 'rgba(255,255,255,0.85)' },
+  abaTextoAtivo: { color: colors.navy700 },
 });

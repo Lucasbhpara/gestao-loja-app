@@ -5079,6 +5079,10 @@ function fecharAvaliacaoChecklist() {
   renderizarChecklistSetor();
 }
 
+function fotosDaResposta(r) {
+  return (r.fotos_urls && r.fotos_urls.length) ? r.fotos_urls : (r.foto_url ? [r.foto_url] : []);
+}
+
 function renderizarAvaliacaoChecklistDetalhe() {
   const a = estado.checklistDetalheAvaliacao;
   const respostas = estado.checklistDetalheRespostas;
@@ -5106,10 +5110,14 @@ function renderizarAvaliacaoChecklistDetalhe() {
           pill +
         '</div>' +
         (r.justificativa ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:8px;"><b>Justificativa:</b> ' + r.justificativa + '</div>' : '') +
-        (r.foto_url ? '<div style="margin-top:10px;"><img src="' + r.foto_url + '" style="max-width:260px;max-height:220px;border-radius:8px;border:1px solid var(--border);display:block;"></div>' : '') +
+        (fotosDaResposta(r).length ? '<div style="margin-top:10px;display:flex;flex-wrap:wrap;gap:8px;">' + fotosDaResposta(r).map((f) => '<a href="' + f + '" target="_blank"><img src="' + f + '" style="max-width:200px;max-height:180px;border-radius:8px;border:1px solid var(--border);display:block;"></a>').join('') + '</div>' : '') +
       '</div>'
     );
   }).join('');
+
+  const extrasHtml =
+    (a.perguntas_nao_avaliadas ? '<div class="item-card" style="margin-bottom:12px;border-color:var(--orange);font-size:13px;"><b>Finalizado sem responder todas as perguntas.</b> Não avaliadas: ' + a.perguntas_nao_avaliadas + '</div>' : '') +
+    (a.consideracoes_finais ? '<h3 style="font-size:15px;margin:28px 0 14px;">Considerações finais</h3><div class="item-card" style="white-space:pre-wrap;font-size:13.5px;border-color:var(--navy-700);">' + escVisita(a.consideracoes_finais) + '</div>' : '');
 
   const resolucaoHtml = !a.tarefa_id ? '' :
     '<h3 style="font-size:15px;margin:28px 0 14px;">Resolução das não conformidades</h3>' +
@@ -5136,6 +5144,7 @@ function renderizarAvaliacaoChecklistDetalhe() {
     localizacaoHtml +
     '<div class="resumo-perdas">' + boxesResumo + '</div>' +
     itensHtml +
+    extrasHtml +
     (htmlCorrecaoPortal(estado.checklistDetalheTarefaCompleta, estado.checklistDetalheCorrecao || []) || resolucaoHtml);
 }
 
