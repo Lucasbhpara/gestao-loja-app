@@ -5,7 +5,14 @@ import * as ImagePicker from 'expo-image-picker';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { setores } from '../data/employees';
-import { Tarefa, buscarTarefasDoSetor, concluirTarefa, enviarFotoTarefa } from '../data/tarefasApi';
+import {
+  Tarefa,
+  buscarTarefasDoSetor,
+  buscarTarefasDeChecklist,
+  MATRICULAS_ACOMPANHAM_CHECKLISTS,
+  concluirTarefa,
+  enviarFotoTarefa,
+} from '../data/tarefasApi';
 import { buscarAvaliacaoPorId } from '../data/avaliacaoSetorApi';
 import { compartilharAvaliacao } from '../lib/checklistPdf';
 import { compartilharVisita } from '../lib/visitaTecnicaPdf';
@@ -102,8 +109,14 @@ export default function HomeColaboradorScreen() {
 
   function carregarTarefas() {
     if (!usuarioAtual) return;
-    buscarTarefasDoSetor(usuarioAtual.setor)
-      .then((lista) => {
+    const acompanhaChecklists = MATRICULAS_ACOMPANHAM_CHECKLISTS.includes(String(usuarioAtual.matricula));
+    Promise.all([
+      buscarTarefasDoSetor(usuarioAtual.setor),
+      acompanhaChecklists ? buscarTarefasDeChecklist() : Promise.resolve([] as Tarefa[]),
+    ])
+      .then(([doSetor, deChecklist]) => {
+        const vistos = new Set(doSetor.map((t) => t.id));
+        const lista = [...doSetor, ...deChecklist.filter((t) => !vistos.has(t.id))];
         setTarefas(lista);
         setErroTarefas(null);
       })
@@ -414,6 +427,9 @@ export default function HomeColaboradorScreen() {
             <View key={t.id} style={[styles.tarefaCard, t.prioridade === 'alta' && styles.tarefaCardAlta]}>
               {t.prioridade === 'alta' && <Text style={styles.tarefaTagAlta}>🔴 MUITO IMPORTANTE</Text>}
               <Text style={styles.tarefaTitulo}>{t.titulo}</Text>
+              {t.setor && t.setor !== usuarioAtual.setor ? (
+                <Text style={styles.tarefaPrazo}>Setor: {setores.find((x) => x.key === t.setor)?.nome ?? t.setor}</Text>
+              ) : null}
               {!!t.descricao && <Text style={styles.tarefaDescricao}>{t.descricao}</Text>}
               {!!t.prazo && <Text style={styles.tarefaPrazo}>Prazo: {t.prazo}</Text>}
               {origemDaTarefa(t) && t.correcaoStatus ? (
