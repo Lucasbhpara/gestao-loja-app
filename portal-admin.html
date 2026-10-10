@@ -534,12 +534,13 @@
 
     <div class="nav-gaveta" data-gaveta="operacao">
       <button class="nav-gaveta-cabecalho" onclick="alternarGaveta('operacao')">
-        <span><span class="nav-gaveta-nome">🛠️ Operação</span><div class="nav-gaveta-desc">Pedidos, estoque, checklist, mapa e pontas extras</div></span>
+        <span><span class="nav-gaveta-nome">🛠️ Operação</span><div class="nav-gaveta-desc">Pedidos, estoque, uso e consumo, checklist, mapa e pontas extras</div></span>
         <span class="nav-gaveta-seta">›</span>
       </button>
       <div class="nav-gaveta-itens">
         <button class="nav-item" data-pagina="pedidos" onclick="irPara('pedidos')"><span class="dot"></span>Pedidos</button>
         <button class="nav-item" data-pagina="estoque-loja" onclick="irPara('estoque-loja')"><span class="dot"></span>Estoque Loja</button>
+        <button class="nav-item" data-pagina="uso-consumo" onclick="irPara('uso-consumo')"><span class="dot"></span>📦 Uso e Consumo</button>
         <button class="nav-item" data-pagina="checklist-setor" onclick="irPara('checklist-setor')"><span class="dot"></span>📋 Checklist</button>
         <button class="nav-item" data-pagina="visita-tecnica" onclick="irPara('visita-tecnica')"><span class="dot"></span>🩺 Visita Técnica</button>
         <button class="nav-item" data-pagina="mapa-loja" onclick="irPara('mapa-loja')"><span class="dot"></span>Mapa da Loja</button>
@@ -625,6 +626,7 @@ const FERRAMENTAS_APP = [
   { chave: 'mapaLoja', nome: 'Mapa da Loja' },
   { chave: 'pontasExtras', nome: 'Pontas e Pontos Extras' },
   { chave: 'jornalOfertas', nome: 'Jornal de Ofertas' },
+  { chave: 'usoConsumo', nome: 'Uso e Consumo' },
 ];
 
 // Os setores atendidos pelo Checklist de Setor (avaliação diária de
@@ -784,7 +786,7 @@ const GAVETA_POR_PAGINA = {
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
-  pedidos: 'operacao', 'estoque-loja': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'operacao', 'pontas-extras': 'operacao',
+  pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'operacao', 'pontas-extras': 'operacao',
 };
 function alternarGaveta(nome) {
   const el = document.querySelector('.nav-gaveta[data-gaveta="' + nome + '"]');
@@ -825,6 +827,7 @@ async function irPara(pagina) {
     else if (pagina === 'conferencias') await paginaConferencias();
     else if (pagina === 'pedidos') await paginaPedidos();
     else if (pagina === 'estoque-loja') await paginaEstoqueLoja();
+    else if (pagina === 'uso-consumo') await paginaUsoConsumo();
     else if (pagina === 'vendas') await paginaVendas();
     else if (pagina === 'vendas-comparativo') await paginaVendasComparativo();
     else if (pagina === 'giro-produtos') await paginaGiroProdutos();
@@ -2850,6 +2853,293 @@ async function exportarEstoqueLojaTudo() {
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Estoque Loja');
   XLSX.writeFile(wb, 'estoque_loja_' + new Date().toISOString().slice(0,10) + '.xlsx');
+}
+
+// =============================================================================
+// Uso e Consumo — material de uso interno (embalagens, limpeza, EPI,
+// utensílios, gás...). Colaboradores registram retiradas pelo app (quem,
+// setor, quantidade); aqui o admin acompanha o consumo por setor, faz as
+// contagens e cadastra itens. Saldo = última contagem − retiradas depois dela
+// (view uso_consumo_saldo, supabase/schema_uso_consumo.sql).
+// =============================================================================
+const UC_CATEGORIAS = ['Embalagens', 'Limpeza e higiene', 'EPI e descartáveis', 'Utensílios', 'Gás e manutenção', 'Outros'];
+const UC_UNIDADES = ['UN', 'CAIXA', 'PACOTE', 'FARDO', 'ROLO', 'GALÃO', 'PAR', 'KG', 'LITRO'];
+const UC_SETORES = ['Gerência', 'CPD', 'Açougue', 'Frios', 'Padaria', 'FLV', 'Mercearia', 'Frente de Caixa', 'Depósito', 'Prevenção', 'Limpeza'];
+const ucQtd = (v) => Number(v || 0).toLocaleString('pt-BR', { maximumFractionDigits: 2 });
+const ucReais = (v) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ucDataHora = (iso) => { const d = new Date(iso); return d.toLocaleDateString('pt-BR') + ' ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }); };
+const ucNum = (t) => { const s = String(t || '').trim(); if (!s) return null; const v = Number(s.replace(/\./g, '').replace(',', '.')); return isFinite(v) ? v : null; };
+function ucSituacao(i) {
+  if (i.saldo == null) return ['Sem contagem', ''];
+  if (Number(i.saldo) <= 0) return ['Zerado', 'vermelho'];
+  if (i.estoque_minimo != null && Number(i.saldo) <= Number(i.estoque_minimo)) return ['Baixo', 'laranja'];
+  return ['OK', 'verde'];
+}
+
+async function paginaUsoConsumo() {
+  estado.uc = estado.uc || { aba: 'estoque', busca: '', categoria: '', dias: 30, setor: '', inativos: false };
+  const el = document.getElementById('conteudo-principal');
+  el.innerHTML = cabecalho('Uso e Consumo', 'Retiradas por setor e contagem do material de uso interno') + '<div class="carregando">Carregando…</div>';
+  try {
+    await ucCarregar();
+  } catch (e) {
+    const semBase = /uso_consumo/.test(e.message || '');
+    el.innerHTML = cabecalho('Uso e Consumo', '') + '<div class="celula-vazio">' +
+      (semBase ? 'A base do Uso e Consumo ainda não foi criada. Rode o arquivo <b>supabase/schema_uso_consumo.sql</b> no SQL Editor do Supabase.' : 'Não consegui carregar: ' + giroEsc(e.message || '')) + '</div>';
+    return;
+  }
+  renderizarUsoConsumo();
+}
+
+async function ucCarregar() {
+  const desde = new Date(Date.now() - estado.uc.dias * 86400000).toISOString();
+  const [itens, ret] = await Promise.all([
+    sb.from('uso_consumo_saldo').select('*').order('nome'),
+    sb.from('uso_consumo_retiradas').select('*, item:uso_consumo_itens(nome, unidade, custo, categoria)').gte('criado_em', desde).order('criado_em', { ascending: false }).limit(5000),
+  ]);
+  if (itens.error) throw itens.error;
+  if (ret.error) throw ret.error;
+  estado.ucItens = itens.data || [];
+  estado.ucRetiradas = ret.data || [];
+}
+
+function renderizarUsoConsumo() {
+  const f = estado.uc;
+  const aba = (k, txt) => '<button class="btn-acao' + (f.aba === k ? '' : ' secundario') + '" onclick="estado.uc.aba=\'' + k + '\';renderizarUsoConsumo()">' + txt + '</button>';
+  const barra = '<div class="toolbar">' + aba('estoque', '📦 Estoque') + aba('retiradas', '📤 Retiradas por setor') +
+    '<span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">' +
+      '<button class="btn-acao secundario" onclick="ucAbrirItem()">+ Novo item</button>' +
+      '<button class="btn-acao secundario" onclick="ucAbrirRetirada()">Registrar retirada</button>' +
+      '<button class="btn-acao secundario" onclick="ucExportar()">Exportar (Excel)</button>' +
+      '<button class="btn-acao secundario" onclick="paginaUsoConsumo()">↻ Atualizar</button>' +
+    '</span></div>';
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Uso e Consumo', 'Retiradas por setor e contagem do material de uso interno') + barra +
+    '<div id="uc-corpo">' + (f.aba === 'estoque' ? ucHtmlEstoque() : ucHtmlRetiradas()) + '</div>';
+  const b = document.getElementById('uc-busca');
+  if (b) b.addEventListener('input', (ev) => { estado.uc.busca = ev.target.value; ucAtualizarTabelaEstoque(); });
+}
+
+function ucItensFiltrados() {
+  const f = estado.uc;
+  const termo = (f.busca || '').trim().toLowerCase();
+  return estado.ucItens.filter((i) => (f.inativos || i.ativo) && (!f.categoria || i.categoria === f.categoria) &&
+    (!termo || i.nome.toLowerCase().includes(termo) || String(i.codigo || '').includes(termo)));
+}
+
+function ucHtmlEstoque() {
+  const f = estado.uc;
+  const ativos = estado.ucItens.filter((i) => i.ativo);
+  const alerta = ativos.filter((i) => ['vermelho', 'laranja'].includes(ucSituacao(i)[1])).length;
+  const semContagem = ativos.filter((i) => i.saldo == null).length;
+  const valorEstoque = ativos.reduce((s, i) => s + Math.max(Number(i.saldo || 0), 0) * Number(i.custo || 0), 0);
+  const resumo = '<div class="resumo-perdas">' +
+    '<div class="box"><div class="rotulo">Itens ativos</div><div class="valor">' + ativos.length + '</div></div>' +
+    '<div class="box"><div class="rotulo">Zerados / baixos</div><div class="valor" style="color:' + (alerta ? 'var(--red)' : 'inherit') + '">' + alerta + '</div></div>' +
+    '<div class="box"><div class="rotulo">Sem contagem</div><div class="valor">' + semContagem + '</div></div>' +
+    '<div class="box"><div class="rotulo">Valor em estoque (estimado)</div><div class="valor">' + ucReais(valorEstoque) + '</div></div>' +
+  '</div>';
+  const cats = UC_CATEGORIAS.filter((c) => estado.ucItens.some((i) => i.categoria === c));
+  const filtros = '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;">' +
+    '<input class="input-busca" id="uc-busca" style="max-width:300px;" placeholder="Buscar item ou código" value="' + giroEsc(f.busca) + '">' +
+    '<select class="select-filtro" onchange="estado.uc.categoria=this.value;ucAtualizarTabelaEstoque()"><option value="">Todas as categorias</option>' +
+      cats.map((c) => '<option' + (f.categoria === c ? ' selected' : '') + '>' + c + '</option>').join('') + '</select>' +
+    '<label class="pill" style="cursor:pointer;gap:6px;"><input type="checkbox"' + (f.inativos ? ' checked' : '') + ' onchange="estado.uc.inativos=this.checked;ucAtualizarTabelaEstoque()"> Mostrar desativados</label>' +
+  '</div>';
+  return resumo + filtros + '<div id="uc-tabela">' + ucHtmlTabelaEstoque() + '</div>';
+}
+function ucAtualizarTabelaEstoque() { const el = document.getElementById('uc-tabela'); if (el) el.innerHTML = ucHtmlTabelaEstoque(); }
+
+function ucHtmlTabelaEstoque() {
+  const lista = ucItensFiltrados();
+  const linhas = lista.length ? lista.map((i) => {
+    const [txt, cor] = ucSituacao(i);
+    return '<tr' + (i.ativo ? '' : ' style="opacity:.5"') + '>' +
+      '<td><div class="nome-forte">' + giroEsc(i.nome) + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + (i.codigo ? 'Cód. ' + giroEsc(i.codigo) + ' · ' : '') + giroEsc(i.categoria) + '</div></td>' +
+      '<td>' + giroEsc(i.unidade) + '</td>' +
+      '<td>' + (i.contado_em ? ucQtd(i.ultima_contagem) + '<div style="font-size:11px;color:var(--text-muted);">' + ucDataHora(i.contado_em) + (i.contado_por ? ' · ' + giroEsc(i.contado_por) : '') + '</div>' : '<span style="color:var(--text-muted)">—</span>') + '</td>' +
+      '<td>' + ucQtd(i.retirado_desde_contagem) + '</td>' +
+      '<td><span class="pill ' + cor + '">' + (i.saldo == null ? txt : ucQtd(i.saldo)) + '</span></td>' +
+      '<td>' + (i.estoque_minimo != null ? ucQtd(i.estoque_minimo) : '—') + '</td>' +
+      '<td>' + ucQtd(i.retirado_30d) + '</td>' +
+      '<td style="white-space:nowrap;">' +
+        '<button class="btn-acao" style="padding:6px 10px;font-size:12px;" onclick="ucAbrirContagem(\'' + i.id + '\')">Contar</button> ' +
+        '<button class="btn-acao secundario" style="padding:6px 10px;font-size:12px;" onclick="ucAbrirRetirada(\'' + i.id + '\')">Retirar</button> ' +
+        '<button class="btn-acao secundario" style="padding:6px 10px;font-size:12px;" onclick="ucAbrirItem(\'' + i.id + '\')">Editar</button>' +
+      '</td></tr>';
+  }).join('') : '<tr><td colspan="8"><div class="celula-vazio">Nenhum item encontrado.</div></td></tr>';
+  return '<div class="tabela-wrap"><table><thead><tr><th>Item</th><th>Un.</th><th>Última contagem</th><th>Retirado depois</th><th>Saldo</th><th>Mínimo</th><th>Retirado 30 dias</th><th></th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+}
+
+function ucRetiradasFiltradas() {
+  return estado.ucRetiradas.filter((r) => !estado.uc.setor || r.setor === estado.uc.setor);
+}
+
+function ucHtmlRetiradas() {
+  const f = estado.uc;
+  const lista = ucRetiradasFiltradas();
+  const valor = (r) => Number(r.quantidade) * Number((r.item && r.item.custo) || 0);
+  const porSetor = {};
+  estado.ucRetiradas.forEach((r) => {
+    const s = porSetor[r.setor] = porSetor[r.setor] || { qtd: 0, valor: 0, itens: {} };
+    s.qtd++; s.valor += valor(r);
+    const n = r.item ? r.item.nome : '?';
+    s.itens[n] = (s.itens[n] || 0) + Number(r.quantidade);
+  });
+  const setoresOrd = Object.entries(porSetor).sort((a, b) => b[1].valor - a[1].valor || b[1].qtd - a[1].qtd);
+  const total = setoresOrd.reduce((s, [, v]) => s + v.valor, 0);
+  const max = Math.max(1, ...setoresOrd.map(([, v]) => v.valor));
+  const filtros = '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:14px;">' +
+    '<select class="select-filtro" onchange="estado.uc.dias=Number(this.value);paginaUsoConsumo()">' +
+      [7, 30, 60, 90].map((d) => '<option value="' + d + '"' + (f.dias === d ? ' selected' : '') + '>Últimos ' + d + ' dias</option>').join('') + '</select>' +
+    '<select class="select-filtro" onchange="estado.uc.setor=this.value;renderizarUsoConsumo()"><option value="">Todos os setores</option>' +
+      UC_SETORES.map((s) => '<option' + (f.setor === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>' +
+  '</div>';
+  const resumo = '<div class="resumo-perdas">' +
+    '<div class="box"><div class="rotulo">Retiradas</div><div class="valor">' + estado.ucRetiradas.length + '</div></div>' +
+    '<div class="box"><div class="rotulo">Valor estimado</div><div class="valor">' + ucReais(total) + '</div></div>' +
+    '<div class="box"><div class="rotulo">Setores</div><div class="valor">' + setoresOrd.length + '</div></div>' +
+  '</div>';
+  const blocoSetores = setoresOrd.length ? '<div class="item-card" style="margin-bottom:18px;"><div style="font-weight:800;margin-bottom:10px;">Consumo por setor</div>' +
+    setoresOrd.map(([s, v]) => '<div style="display:grid;grid-template-columns:150px 1fr 110px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px dashed var(--border);cursor:pointer;" onclick="estado.uc.setor=\'' + s.replace(/'/g, '') + '\';renderizarUsoConsumo()">' +
+      '<div><b>' + giroEsc(s) + '</b><div style="font-size:11px;color:var(--text-muted);">' + v.qtd + ' retirada' + (v.qtd === 1 ? '' : 's') + '</div></div>' +
+      '<div><div style="height:10px;border-radius:5px;background:var(--accent,#5B7BFF);width:' + Math.max(2, 100 * v.valor / max) + '%"></div>' +
+        '<div style="font-size:11px;color:var(--text-muted);margin-top:3px;">' + Object.entries(v.itens).sort((a, b) => b[1] - a[1]).slice(0, 3).map(([n, q]) => giroEsc(n.toLowerCase()) + ' (' + ucQtd(q) + ')').join(', ') + '</div></div>' +
+      '<div style="text-align:right;font-weight:800;">' + ucReais(v.valor) + '</div></div>').join('') + '</div>' : '';
+  const linhas = lista.length ? lista.map((r) => '<tr>' +
+    '<td>' + ucDataHora(r.criado_em) + '</td>' +
+    '<td class="nome-forte">' + giroEsc(r.item ? r.item.nome : '(item excluído)') + '</td>' +
+    '<td style="white-space:nowrap;">' + ucQtd(r.quantidade) + ' ' + giroEsc(r.item ? r.item.unidade : '') + '</td>' +
+    '<td>' + giroEsc(r.setor) + '</td>' +
+    '<td>' + giroEsc(r.retirado_por || '—') + '</td>' +
+    '<td style="white-space:nowrap;">' + ucReais(valor(r)) + '</td>' +
+    '<td style="font-size:12px;color:var(--text-secondary);">' + giroEsc(r.observacao || '') + '</td>' +
+    '<td><button class="btn-acao secundario" style="padding:5px 9px;font-size:12px;color:var(--red);" onclick="ucExcluirRetirada(\'' + r.id + '\')">Excluir</button></td>' +
+  '</tr>').join('') : '<tr><td colspan="8"><div class="celula-vazio">Nenhuma retirada no período.</div></td></tr>';
+  return filtros + resumo + blocoSetores +
+    (f.setor ? '<div style="margin-bottom:10px;"><span class="pill admin" style="margin-left:0;cursor:pointer;" onclick="estado.uc.setor=\'\';renderizarUsoConsumo()">Setor: ' + giroEsc(f.setor) + ' ✕</span></div>' : '') +
+    '<div class="tabela-wrap"><table><thead><tr><th>Data</th><th>Item</th><th>Qtd</th><th>Setor</th><th>Quem retirou</th><th>Valor</th><th>Obs.</th><th></th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+}
+
+// ---- modais ----
+function ucItem(id) { return estado.ucItens.find((i) => i.id === id); }
+const ucCampo = (rotulo, html) => '<div class="form-linha"><label class="campo-label">' + rotulo + '</label>' + html + '</div>';
+
+function ucAbrirContagem(id) {
+  const i = ucItem(id);
+  abrirModal('Contagem · ' + giroEsc(i.nome),
+    '<p class="sub" style="margin:0 0 12px;">' + (i.saldo != null ? 'O sistema espera <b>' + ucQtd(i.saldo) + ' ' + giroEsc(i.unidade) + '</b>.' : 'Primeira contagem deste item.') + ' A contagem vira o novo saldo.</p>' +
+    ucCampo('Quantidade contada (' + giroEsc(i.unidade) + ')', '<input class="campo-input" id="uc-qtd" inputmode="decimal" style="margin-bottom:0" />'),
+    'Salvar contagem', async () => {
+      const q = ucNum(document.getElementById('uc-qtd').value);
+      if (q === null || q < 0) { mostrarToast('Informe a quantidade contada.', 'erro'); return; }
+      const { error } = await sb.from('uso_consumo_contagens').insert({ item_id: id, quantidade: q, contado_por: estado.usuario ? estado.usuario.nome : null });
+      if (error) { mostrarToast('Não consegui salvar: ' + error.message, 'erro'); return; }
+      fecharModal(); mostrarToast('Contagem salva.', 'sucesso'); await ucCarregar(); renderizarUsoConsumo();
+    });
+  setTimeout(() => { const c = document.getElementById('uc-qtd'); if (c) c.focus(); }, 50);
+}
+
+function ucAbrirRetirada(id) {
+  const opcoesItens = estado.ucItens.filter((i) => i.ativo).map((i) => '<option value="' + i.id + '"' + (i.id === id ? ' selected' : '') + '>' + giroEsc(i.nome) + ' (' + giroEsc(i.unidade) + ')</option>').join('');
+  abrirModal('Registrar retirada',
+    ucCampo('Item', '<select class="campo-input" id="uc-item" style="margin-bottom:0">' + (id ? '' : '<option value="">Escolha o item…</option>') + opcoesItens + '</select>') +
+    ucCampo('Quantidade', '<input class="campo-input" id="uc-qtd" inputmode="decimal" value="1" style="margin-bottom:0" />') +
+    ucCampo('Setor', '<select class="campo-input" id="uc-setor" style="margin-bottom:0">' + UC_SETORES.map((s) => '<option>' + s + '</option>').join('') + '</select>') +
+    ucCampo('Quem retirou', '<input class="campo-input" id="uc-quem" value="' + giroEsc(estado.usuario ? estado.usuario.nome : '') + '" style="margin-bottom:0" />') +
+    ucCampo('Observação (opcional)', '<input class="campo-input" id="uc-obs" style="margin-bottom:0" />'),
+    'Registrar', async () => {
+      const itemId = document.getElementById('uc-item').value;
+      const q = ucNum(document.getElementById('uc-qtd').value);
+      if (!itemId) { mostrarToast('Escolha o item.', 'erro'); return; }
+      if (!q || q <= 0) { mostrarToast('Informe a quantidade.', 'erro'); return; }
+      const { error } = await sb.from('uso_consumo_retiradas').insert({
+        item_id: itemId, quantidade: q, setor: document.getElementById('uc-setor').value,
+        retirado_por: document.getElementById('uc-quem').value.trim() || null,
+        matricula: estado.usuario ? String(estado.usuario.matricula) : null,
+        observacao: document.getElementById('uc-obs').value.trim() || null,
+      });
+      if (error) { mostrarToast('Não consegui registrar: ' + error.message, 'erro'); return; }
+      fecharModal(); mostrarToast('Retirada registrada.', 'sucesso'); await ucCarregar(); renderizarUsoConsumo();
+    });
+}
+
+function ucAbrirItem(id) {
+  const i = id ? ucItem(id) : { unidade: 'UN', categoria: 'Outros', ativo: true };
+  const sel = (idc, lista, atual) => '<select class="campo-input" id="' + idc + '" style="margin-bottom:0">' + lista.map((x) => '<option' + (x === atual ? ' selected' : '') + '>' + x + '</option>').join('') + '</select>';
+  abrirModal(id ? 'Editar item' : 'Novo item',
+    ucCampo('Nome', '<input class="campo-input" id="uc-nome" value="' + giroEsc(i.nome || '') + '" placeholder="Ex.: Detergente neutro 5L" style="margin-bottom:0" />') +
+    ucCampo('Código interno (opcional)', '<input class="campo-input" id="uc-codigo" value="' + giroEsc(i.codigo || '') + '" style="margin-bottom:0" />') +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+      ucCampo('Unidade', sel('uc-unidade', UC_UNIDADES.includes(i.unidade) ? UC_UNIDADES : [i.unidade].concat(UC_UNIDADES), i.unidade)) +
+      ucCampo('Categoria', sel('uc-categoria', UC_CATEGORIAS, i.categoria)) +
+      ucCampo('Estoque mínimo', '<input class="campo-input" id="uc-minimo" inputmode="decimal" value="' + (i.estoque_minimo != null ? String(i.estoque_minimo).replace('.', ',') : '') + '" placeholder="opcional" style="margin-bottom:0" />') +
+      ucCampo('Custo unitário (R$)', '<input class="campo-input" id="uc-custo" inputmode="decimal" value="' + (i.custo != null ? String(i.custo).replace('.', ',') : '') + '" placeholder="opcional" style="margin-bottom:0" />') +
+    '</div>' +
+    (id ? '<label class="pill" style="cursor:pointer;gap:6px;margin-top:6px;"><input type="checkbox" id="uc-ativo"' + (i.ativo ? ' checked' : '') + '> Item ativo</label>'
+        : ucCampo('Quantidade contada agora (opcional)', '<input class="campo-input" id="uc-inicial" inputmode="decimal" style="margin-bottom:0" />')),
+    'Salvar', async () => {
+      const nome = document.getElementById('uc-nome').value.trim().toUpperCase();
+      if (!nome) { mostrarToast('Dê um nome para o item.', 'erro'); return; }
+      const linha = {
+        nome, codigo: document.getElementById('uc-codigo').value.trim() || null,
+        unidade: document.getElementById('uc-unidade').value, categoria: document.getElementById('uc-categoria').value,
+        estoque_minimo: ucNum(document.getElementById('uc-minimo').value), custo: ucNum(document.getElementById('uc-custo').value),
+      };
+      let res;
+      if (id) { linha.ativo = document.getElementById('uc-ativo').checked; res = await sb.from('uso_consumo_itens').update(linha).eq('id', id).select('id').single(); }
+      else { linha.criado_por = estado.usuario ? estado.usuario.nome : null; res = await sb.from('uso_consumo_itens').insert(linha).select('id').single(); }
+      if (res.error) { mostrarToast(/duplicate|unique/i.test(res.error.message) ? 'Já existe um item com esse código.' : 'Não consegui salvar: ' + res.error.message, 'erro'); return; }
+      const inicialEl = document.getElementById('uc-inicial');
+      const inicial = inicialEl ? ucNum(inicialEl.value) : null;
+      if (!id && inicial !== null) await sb.from('uso_consumo_contagens').insert({ item_id: res.data.id, quantidade: inicial, contado_por: estado.usuario ? estado.usuario.nome : null });
+      fecharModal(); mostrarToast('Item salvo.', 'sucesso'); await ucCarregar(); renderizarUsoConsumo();
+    });
+}
+
+async function ucExcluirRetirada(id) {
+  if (!confirm('Excluir esta retirada? Use só para lançamento errado.')) return;
+  const { error } = await sb.from('uso_consumo_retiradas').delete().eq('id', id);
+  if (error) { mostrarToast('Não consegui excluir: ' + error.message, 'erro'); return; }
+  mostrarToast('Retirada excluída.', 'sucesso'); await ucCarregar(); renderizarUsoConsumo();
+}
+
+// ---- Excel: Estoque, Retiradas e Resumo por setor (com fórmulas) ----
+function ucExportar() {
+  const itens = estado.ucItens.filter((i) => i.ativo);
+  const est = [['Código', 'Item', 'Categoria', 'Unidade', 'Última contagem', 'Data da contagem', 'Retirado depois', 'Saldo', 'Estoque mínimo', 'Retirado 30 dias', 'Custo unitário (R$)', 'Valor do saldo (R$)']];
+  itens.forEach((i, k) => {
+    const r = k + 2;
+    est.push([i.codigo || '', i.nome, i.categoria, i.unidade,
+      i.ultima_contagem != null ? Number(i.ultima_contagem) : '', i.contado_em ? new Date(i.contado_em).toLocaleDateString('pt-BR') : '',
+      Number(i.retirado_desde_contagem || 0),
+      i.ultima_contagem != null ? { f: 'E' + r + '-G' + r, t: 'n' } : '',
+      i.estoque_minimo != null ? Number(i.estoque_minimo) : '', Number(i.retirado_30d || 0),
+      i.custo != null ? Number(i.custo) : '', i.ultima_contagem != null ? { f: 'IF(H' + r + '>0,H' + r + '*K' + r + ',0)', t: 'n' } : '']);
+  });
+  const ret = [['Data', 'Item', 'Unidade', 'Quantidade', 'Setor', 'Quem retirou', 'Custo unitário (R$)', 'Valor (R$)', 'Observação']];
+  estado.ucRetiradas.forEach((x, k) => {
+    const r = k + 2;
+    ret.push([ucDataHora(x.criado_em), x.item ? x.item.nome : '', x.item ? x.item.unidade : '', Number(x.quantidade), x.setor, x.retirado_por || '',
+      x.item && x.item.custo != null ? Number(x.item.custo) : 0, { f: 'D' + r + '*G' + r, t: 'n' }, x.observacao || '']);
+  });
+  const ult = Math.max(estado.ucRetiradas.length + 1, 2);
+  const setores = [...new Set(estado.ucRetiradas.map((x) => x.setor))].sort();
+  const res = [['Uso e Consumo — Loja 327'], ['Retiradas dos últimos ' + estado.uc.dias + ' dias · gerado em ' + new Date().toLocaleDateString('pt-BR')], [], ['Setor', 'Retiradas', 'Valor (R$)']];
+  setores.forEach((s, k) => {
+    const r = k + 5;
+    res.push([s, { f: 'COUNTIF(Retiradas!E2:E' + ult + ',A' + r + ')', t: 'n' }, { f: 'SUMIF(Retiradas!E2:E' + ult + ',A' + r + ',Retiradas!H2:H' + ult + ')', t: 'n' }]);
+  });
+  const fim = setores.length + 4;
+  res.push(['TOTAL', { f: 'SUM(B5:B' + fim + ')', t: 'n' }, { f: 'SUM(C5:C' + fim + ')', t: 'n' }]);
+  const wb = XLSX.utils.book_new();
+  const wsRes = XLSX.utils.aoa_to_sheet(res); wsRes['!cols'] = [{ wch: 22 }, { wch: 12 }, { wch: 16 }];
+  const wsEst = XLSX.utils.aoa_to_sheet(est); wsEst['!cols'] = [10, 44, 20, 9, 14, 14, 14, 10, 12, 14, 16, 16].map((wch) => ({ wch }));
+  const wsRet = XLSX.utils.aoa_to_sheet(ret); wsRet['!cols'] = [16, 44, 9, 11, 16, 20, 16, 12, 30].map((wch) => ({ wch }));
+  XLSX.utils.book_append_sheet(wb, wsRes, 'Resumo por setor');
+  XLSX.utils.book_append_sheet(wb, wsEst, 'Estoque');
+  XLSX.utils.book_append_sheet(wb, wsRet, 'Retiradas');
+  XLSX.writeFile(wb, 'uso_consumo_' + new Date().toISOString().slice(0, 10) + '.xlsx');
 }
 
 // =============================================================================
