@@ -544,10 +544,20 @@
         <button class="nav-item" data-pagina="checklist-setor" onclick="irPara('checklist-setor')"><span class="dot"></span>📋 Checklist</button>
         <button class="nav-item" data-pagina="visita-tecnica" onclick="irPara('visita-tecnica')"><span class="dot"></span>🩺 Visita Técnica</button>
         <button class="nav-item" data-pagina="mapa-loja" onclick="irPara('mapa-loja')"><span class="dot"></span>Mapa da Loja</button>
-        <button class="nav-item" data-pagina="jornal-ofertas" onclick="irPara('jornal-ofertas')"><span class="dot"></span>🗞️ Jornal de Ofertas</button>
-        <button class="nav-item" data-pagina="ofertas-whats" onclick="irPara('ofertas-whats')"><span class="dot"></span>📣 Ofertas no WhatsApp</button>
         <button class="nav-item" data-pagina="pontas-extras" onclick="irPara('pontas-extras')"><span class="dot"></span>Pontas e Pontos Extras</button>
         <button class="nav-item" onclick="window.open('https://lucasbhpara.github.io/gestao-loja-app/estacao-etiquetas.html','_blank')"><span class="dot"></span>🏷️ Estação de Etiquetas</button>
+      </div>
+    </div>
+
+    <div class="nav-gaveta" data-gaveta="ofertas">
+      <button class="nav-gaveta-cabecalho" onclick="alternarGaveta('ofertas')">
+        <span><span class="nav-gaveta-nome">🏷️ Ofertas</span><div class="nav-gaveta-desc">Jornal, estoque do jornal e ofertas no WhatsApp</div></span>
+        <span class="nav-gaveta-seta">›</span>
+      </button>
+      <div class="nav-gaveta-itens">
+        <button class="nav-item" data-pagina="jornal-ofertas" onclick="irPara('jornal-ofertas')"><span class="dot"></span>🗞️ Jornal de Ofertas</button>
+        <button class="nav-item" data-pagina="estoque-jornal" onclick="irPara('estoque-jornal')"><span class="dot"></span>📦 Estoque do Jornal</button>
+        <button class="nav-item" data-pagina="ofertas-whats" onclick="irPara('ofertas-whats')"><span class="dot"></span>📣 Ofertas no WhatsApp</button>
       </div>
     </div>
 
@@ -628,7 +638,7 @@ const FERRAMENTAS_APP = [
   { chave: 'pontasExtras', nome: 'Pontas e Pontos Extras' },
   { chave: 'jornalOfertas', nome: 'Jornal de Ofertas' },
   { chave: 'usoConsumo', nome: 'Uso e Consumo' },
-  { chave: 'ofertas', nome: 'Ofertas no WhatsApp' },
+  { chave: 'ofertas', nome: 'Ofertas (WhatsApp e Estoque do Jornal)' },
 ];
 
 // Os setores atendidos pelo Checklist de Setor (avaliação diária de
@@ -788,7 +798,7 @@ const GAVETA_POR_PAGINA = {
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
-  pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'operacao', 'ofertas-whats': 'operacao', 'pontas-extras': 'operacao',
+  pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pontas-extras': 'operacao',
 };
 function alternarGaveta(nome) {
   const el = document.querySelector('.nav-gaveta[data-gaveta="' + nome + '"]');
@@ -840,6 +850,7 @@ async function irPara(pagina) {
     else if (pagina === 'pontas-extras') await paginaPontasExtras();
     else if (pagina === 'jornal-ofertas') await paginaJornalOfertas();
     else if (pagina === 'ofertas-whats') await paginaOfertasWhats();
+    else if (pagina === 'estoque-jornal') await paginaEstoqueJornal();
   } catch (e) {
     el.innerHTML = '<div class="celula-vazio">Não consegui carregar essa página: ' + (e.message || '') + '</div>';
   }
@@ -3959,6 +3970,581 @@ async function ofRenderResultados() {
           '<td><span class="pill ' + (v == null ? '' : v >= 0 ? 'verde' : 'vermelho') + '">' + (v == null ? 'novo' : (v >= 0 ? '+' : '') + v.toFixed(0) + '%') + '</span></td>'
           : '<td colspan="3" style="color:var(--text-muted);font-size:12px;">Aguardando importar as vendas depois do envio.</td>') + '</tr>';
     }).join('') + '</tbody></table></div>';
+}
+
+// =============================================================================
+// Casamento "item do jornal" × "produtos do estoque".
+// O jornal escreve por extenso ("LAVA ROUPAS LÍQUIDO OMO 3L") e o sistema
+// abrevia ("LAVA ROUPA LIQ.OMO LAVANDA 3L FR"), e o jornal não cita sabor /
+// fragrância — então um item do jornal liga a VÁRIOS produtos.
+//
+//   jmPrepararCatalogo(produtos)    -> índice (faz uma vez)
+//   jmCasar(descricao, indice)      -> [{ produto, score, certeza: 'alta'|'media' }]
+// =============================================================================
+var JM_PARADAS = ('DE DA DO DAS DOS EM E A O AS OS C P COM PARA S SEM ' +
+  'PCTE PCT PT PCT CX CXA SC SH LV PG GF LT TP FR BJ PO UN UND VD CP TL BG BD BDJ BAND BANDEJA POTE FRASCO LATA LATAO GARRAFA ' +
+  'SACHE EMB EMBALAGEM ECONOMICA ECONOMICO PRECO ESPECIAL PROMOCIONAL PROM PECA PEDACO PCA PED PEDACOS GTS GRATIS LEVE PAGUE L P ' +
+  'UNIDADE UNID REFIL REF TRADICIONAL TRAD CONG CONGELADO CONGELADA RESF RESFRIADO RESFRIADA OW CT DISPLAY').split(' ');
+var JM_SINONIMOS = {
+  FRANGO: 'FGO', FGO: 'FGO', CREME: 'CR', CREMOSO: 'CR', CREMOSA: 'CR', PETIT: 'P.SUISSE', SUISSE: 'P.SUISSE',
+  REFRIGERANTE: 'REFRIG', REFRI: 'REFRIG', HAMBURGUER: 'HAMB', BOVINO: 'BOV', BOVINA: 'BOV', SUINO: 'SUINA', SUINA: 'SUINA',
+  ROUPAS: 'ROUPA', LIQUIDO: 'LIQ', LIQUIDA: 'LIQ', DETERGENTE: 'DET', DESODORANTE: 'DESOD', AEROSOL: 'AERO',
+  SALGADINHO: 'SALG', BISCOITO: 'BISC', BOLACHA: 'BISC', CHOCOLATE: 'CHOC', ACHOCOLATADO: 'ACHOC',
+  IOGURTE: 'IOG', FERMENTADO: 'FERM', CONDENSADO: 'COND', AMACIANTE: 'AMAC', CERVEJA: 'CERV', SOBREMESA: 'SOBR',
+  MAIONESE: 'MAION', LINGUICA: 'LINGUICA', CALABRESA: 'CALAB', MORANGO: 'MOR', CHOCOLATES: 'CHOC',
+  DESCARTAVEL: 'DESC', UMEDECIDA: 'UMED', INFANTIL: 'INF', DENTAL: 'DENT', ABSORVENTE: 'ABS', DESINFETANTE: 'DESINF',
+  INSETICIDA: 'INSET', LAVA: 'LAVA', TEMPERO: 'TEMP', GRANULADO: 'GRAN', ALIMENTO: 'ALIM', RECHEADO: 'RECH',
+  MISTURA: 'MIST', QUEIJO: 'QJO', QJO: 'QJO', MUSSARELA: 'MUSS', PRESUNTO: 'PRES', MORTADELA: 'MORT', DEFUMADA: 'DEF', DEFUMADO: 'DEF',
+  TEMPERADO: 'TEMP', ZERO: 'ZERO', SEMIDESNATADO: 'S.DESN', DESNATADO: 'DESN', INTEGRAL: 'INT',
+};
+
+// Grafias diferentes entre jornal e sistema
+var JM_FRASES = [
+  [/\bPORTO\s+ALEGRE\b/g, 'PALEGRE'], [/\bP\.\s?ALEGRE\b/g, 'PALEGRE'],
+  [/\bCATCHUP\b/g, 'KETCHUP'], [/\bAGULHINHA\b/g, 'AG'], [/\bMAIONSE\b/g, 'MAIONESE'], [/\bTOLHA\b/g, 'TOALHA'],
+  [/\bSOBRECOXA\b/g, 'SOBR'],
+];
+function jmSemAcento(s) {
+  var t = String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+  JM_FRASES.forEach(function (f) { t = t.replace(f[0], f[1]); });
+  return t;
+}
+
+// Tamanhos: "1,1KG" -> 1100 g; "3L" -> 3000 ml; "1.150G" -> 1150 g; "48G/50G" -> [48, 50]
+function jmTamanhos(txt) {
+  var out = [];
+  var re = /(\d+(?:[.,]\d+)?)\s*(KG|G|GR|ML|LT|L|LITROS?)(?![A-Z])/g, m;
+  while ((m = re.exec(txt))) {
+    var n = m[1], u = m[2];
+    var v;
+    if (u === 'G' || u === 'GR' || u === 'ML') {
+      // "1.150G" = 1150 (ponto de milhar); "1,5G" raro
+      v = /^\d{1,3}[.]\d{3}$/.test(n) ? Number(n.replace('.', '')) : Number(n.replace(',', '.'));
+    } else {
+      v = Number(n.replace(',', '.')) * 1000;
+    }
+    out.push({ v: Math.round(v), tipo: u === 'KG' || u === 'G' || u === 'GR' ? 'g' : 'ml' });
+  }
+  return out;
+}
+function jmPacote(txt) { var m = /\bC\/\s?(\d+)\b/.exec(txt); return m ? Number(m[1]) : null; }
+
+function jmTokens(txt) {
+  var t = jmSemAcento(txt)
+    .replace(/\(.*?\)/g, ' ')
+    .replace(/\d+(?:[.,]\d+)?\s*(?:KG|G|GR|ML|LT|L|LITROS?)(?![A-Z])/g, ' ')
+    .replace(/\bC\/\s?\d+\b/g, ' ')
+    .replace(/'S\b/g, 'S')
+    .replace(/[^A-Z0-9/]+/g, ' ')
+    .replace(/\s*\/\s*/g, '/');
+  var grupos = [];
+  t.split(/\s+/).forEach(function (w) {
+    if (!w) return;
+    var brutos = w.split('/').filter(Boolean);
+    var alts = brutos.filter(function (x) { return JM_PARADAS.indexOf(x) < 0 && !/^\d+$/.test(x); })
+      .map(function (x) { return JM_SINONIMOS[x] || x; });
+    // "TRAD./ZERO": uma das opções é genérica, então o grupo não obriga nada
+    if (brutos.length > 1 && alts.length < brutos.length) return;
+    if (alts.length) grupos.push(alts);
+  });
+  return grupos;
+}
+// Exclusões do jornal: "(EXC. ZERO)", "(EXC. CHOCOLATE)"
+function jmExclusoes(txt) {
+  var out = [], re = /\(\s*EXC[A-Z]*\.?\s*([^)]+)\)/g, m;
+  var s = jmSemAcento(txt);
+  while ((m = re.exec(s))) m[1].split(/[\s,/]+/).forEach(function (w) { if (w.length > 2) out.push(JM_SINONIMOS[w] || w); });
+  return out;
+}
+
+function jmTokensProduto(nome) {
+  // O sistema cola palavras com ponto ("DET.PO", "LIQ.OMO") — separa.
+  var t = jmSemAcento(nome).replace(/\./g, ' ').replace(/'S\b/g, 'S');
+  var lista = [];
+  jmTokens(t).forEach(function (g) { g.forEach(function (x) { lista.push(x); }); });
+  return lista;
+}
+
+function jmPrepararCatalogo(produtos) {
+  var df = {}, itens = [];
+  produtos.forEach(function (p) {
+    var nome = p.produto || '';
+    var toks = jmTokensProduto(nome);
+    var unicos = {};
+    toks.forEach(function (t) { unicos[t] = 1; });
+    Object.keys(unicos).forEach(function (t) { df[t] = (df[t] || 0) + 1; });
+    var sNome = jmSemAcento(nome);
+    itens.push({ p: p, toks: toks, set: unicos, tam: jmTamanhos(sNome.replace(/(\d)\.(\d)(?=\d*\s*(KG|L)\b)/g, '$1,$2')), pac: jmPacote(sNome) });
+  });
+  return { itens: itens, df: df, n: produtos.length, cacheExiste: {} };
+}
+
+// Um token do jornal "bate" com um token do produto se for igual, se um for
+// abreviação do outro (prefixo, 3+ letras) ou sinônimo.
+function jmBate(tj, tp) {
+  if (tj === tp) return true;
+  if (tj.length >= 3 && tp.length >= 3 && (tp.indexOf(tj) === 0 || tj.indexOf(tp) === 0)) return true;
+  return false;
+}
+
+function jmExiste(idx, tok) {
+  if (idx.df[tok]) return true;
+  if (tok.length < 3) return false;
+  if (idx.cacheExiste[tok] !== undefined) return idx.cacheExiste[tok];
+  var ok = false;
+  for (var k in idx.df) if (k.length >= 3 && (k.indexOf(tok) === 0 || tok.indexOf(k) === 0)) { ok = true; break; }
+  idx.cacheExiste[tok] = ok;
+  return ok;
+}
+function jmIdf(idx, tok) {
+  // usa o df do próprio token ou o maior df de token do catálogo que comece com ele
+  var d = idx.df[tok];
+  if (d === undefined) {
+    d = 0;
+    if (tok.length >= 3) for (var k in idx.df) if (k.indexOf(tok) === 0 || (k.length >= 3 && tok.indexOf(k) === 0)) d = Math.max(d, idx.df[k]);
+  }
+  return Math.log((idx.n + 1) / (d + 1)) + 0.1;
+}
+
+function jmCasar(descricao, idx, opcoes) {
+  opcoes = opcoes || {};
+  var s = jmSemAcento(descricao);
+  var grupos = jmTokens(descricao);
+  if (!grupos.length) return [];
+  var exc = jmExclusoes(descricao);
+  var tamJ = jmTamanhos(s.replace(/\(.*?\)/g, ' '));
+  var pacJ = jmPacote(s);
+  // Palavras que não existem em nenhum produto (erro de digitação, "MERCA"...) não contam.
+  grupos = grupos.map(function (g) { return g.filter(function (t) { return jmExiste(idx, t); }); }).filter(function (g) { return g.length; });
+  if (!grupos.length) return [];
+  var pesos = grupos.map(function (g) { return Math.max.apply(null, g.map(function (t) { return jmIdf(idx, t); })); });
+  var total = pesos.reduce(function (a, b) { return a + b; }, 0);
+  // marca: o token mais raro do item tem que aparecer no produto
+  var iMarca = pesos.indexOf(Math.max.apply(null, pesos));
+  var porKg = /\bKG\b/.test(s) && !tamJ.length;
+  var out = [];
+  idx.itens.forEach(function (it) {
+    // tamanho
+    if (tamJ.length && it.tam.length) {
+      var okTam = tamJ.some(function (a) { return it.tam.some(function (b) { return a.tipo === b.tipo && Math.abs(a.v - b.v) <= Math.max(2, a.v * 0.02); }); });
+      if (!okTam) return;
+    } else if (tamJ.length && !it.tam.length) {
+      return;
+    }
+    if (pacJ && it.pac && pacJ !== it.pac) return;
+    if (porKg && !it.set.KG) return;
+    if (exc.some(function (e) { return it.toks.some(function (t) { return jmBate(e, t); }); })) return;
+    var soma = 0, temMarca = false;
+    grupos.forEach(function (g, i) {
+      var ok = g.some(function (tj) { return it.toks.some(function (tp) { return jmBate(tj, tp); }); });
+      if (ok) { soma += pesos[i]; if (i === iMarca) temMarca = true; }
+    });
+    if (!temMarca) return;
+    var score = soma / total;
+    if (pacJ && !it.pac) score -= 0.1;
+    if (score >= (opcoes.minimo || 0.5)) out.push({ produto: it.p, score: Math.round(score * 100) / 100 });
+  });
+  out.sort(function (a, b) { return b.score - a.score; });
+  if (!out.length) return out;
+  var melhor = out[0].score;
+  // "alta": perto do melhor e acima de 0.72; o resto vira "média" (pra conferir)
+  return out.slice(0, opcoes.limite || 25).map(function (r) {
+    r.certeza = r.score >= 0.72 && r.score >= melhor - 0.12 ? 'alta' : 'media';
+    return r;
+  });
+}
+
+// Planilha do jornal (formato "Ofertas - Varejo MG"): grade com 4 colunas de
+// produtos; cada produto ocupa 3 linhas seguidas (nome / marca / tamanho) e os
+// blocos são separados por uma linha vazia. linhas = matriz (array de arrays).
+function jmLerPlanilhaJornal(linhas) {
+  var itens = [];
+  var limpa = function (v) { return v == null ? '' : String(v).replace(/\s+/g, ' ').trim(); };
+  var vazia = function (r) { return !r || r.every(function (v) { return !limpa(v); }); };
+  var i = 0;
+  while (i < linhas.length) {
+    if (vazia(linhas[i])) { i++; continue; }
+    var bloco = [];
+    while (i < linhas.length && !vazia(linhas[i])) { bloco.push(linhas[i]); i++; }
+    if (bloco.length < 2) continue; // título, fornecedores...
+    var ncol = Math.max.apply(null, bloco.map(function (r) { return r.length; }));
+    for (var c = 0; c < ncol; c++) {
+      var partes = bloco.map(function (r) { return limpa(r[c]); });
+      if (!partes[0] || !partes[1]) continue;
+      itens.push({ descricao: partes.filter(Boolean).join(' '), nome: partes[0], marca: partes[1], detalhe: partes.slice(2).join(' ') });
+    }
+  }
+  return itens;
+}
+
+
+// =============================================================================
+// Estoque do Jornal — liga os itens do jornal quinzenal aos produtos do
+// estoque (todas as fragrâncias/sabores) e mostra o que vai acabar antes do
+// fim do jornal. Tabelas: jornal_campanhas, jornal_itens, jornal_item_produtos
+// e a view jornal_itens_status (supabase/schema_jornal_estoque.sql).
+// O casamento automático é o jmCasar (logo acima).
+// =============================================================================
+const EJ_SITUACAO = {
+  zerado: ['Zerado', 'vermelho'], vai_faltar: ['Vai faltar', 'vermelho'], baixo: ['Estoque baixo', 'laranja'],
+  sem_produto: ['Sem produto ligado', ''], ok: ['OK', 'verde'],
+};
+const ejQtd = (v) => v == null ? '—' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+const ejHoje = () => ofHoje();
+
+async function paginaEstoqueJornal() {
+  estado.ej = estado.ej || { campanhaId: null, filtro: 'todos', busca: '', abertos: new Set() };
+  const el = document.getElementById('conteudo-principal');
+  el.innerHTML = cabecalho('Estoque do Jornal', 'Produtos do jornal de ofertas × estoque da loja') + '<div class="carregando">Carregando…</div>';
+  const { data, error } = await sb.from('jornal_campanhas').select('*').order('inicio', { ascending: false }).limit(30);
+  if (error) {
+    el.innerHTML = cabecalho('Estoque do Jornal', '') + '<div class="celula-vazio">' +
+      (/jornal_campanhas/.test(error.message) ? 'A base do Estoque do Jornal ainda não foi criada. Rode <b>supabase/schema_jornal_estoque.sql</b> no SQL Editor do Supabase.' : giroEsc(error.message)) + '</div>';
+    return;
+  }
+  estado.ejCampanhas = data || [];
+  if (!estado.ej.campanhaId || !estado.ejCampanhas.some((c) => c.id === estado.ej.campanhaId)) {
+    const hoje = ejHoje();
+    const atual = estado.ejCampanhas.find((c) => c.inicio <= hoje && c.fim >= hoje) || estado.ejCampanhas[0];
+    estado.ej.campanhaId = atual ? atual.id : null;
+  }
+  await ejCarregarItens();
+  renderizarEstoqueJornal();
+}
+
+async function ejCarregarItens() {
+  estado.ejItens = []; estado.ejLinks = {}; estado.ejEstoque = {};
+  if (!estado.ej.campanhaId) return;
+  const { data, error } = await sb.from('jornal_itens_status').select('*').eq('campanha_id', estado.ej.campanhaId).order('ordem');
+  if (error) throw error;
+  estado.ejItens = data || [];
+  const ids = estado.ejItens.map((i) => i.id);
+  for (let k = 0; k < ids.length; k += 150) {
+    const { data: ls } = await sb.from('jornal_item_produtos').select('*').in('item_id', ids.slice(k, k + 150)).order('produto');
+    (ls || []).forEach((l) => { (estado.ejLinks[l.item_id] = estado.ejLinks[l.item_id] || []).push(l); });
+  }
+  const codigos = [...new Set(Object.values(estado.ejLinks).flat().map((l) => l.codigo).filter(Boolean))];
+  for (let k = 0; k < codigos.length; k += 200) {
+    const { data: es } = await sb.from('estoque_loja_itens').select('codigo_interno, quantidade, preco_venda').in('codigo_interno', codigos.slice(k, k + 200));
+    (es || []).forEach((e) => { if (!(e.codigo_interno in estado.ejEstoque)) estado.ejEstoque[e.codigo_interno] = e; });
+  }
+  const semCod = Object.values(estado.ejLinks).flat().filter((l) => !l.codigo).map((l) => l.produto);
+  for (let k = 0; k < semCod.length; k += 100) {
+    const { data: es } = await sb.from('estoque_loja_itens').select('produto, quantidade, preco_venda').in('produto', semCod.slice(k, k + 100));
+    (es || []).forEach((e) => { estado.ejEstoque['nome:' + e.produto] = e; });
+  }
+}
+const ejEstoqueLink = (l) => estado.ejEstoque[l.codigo || ('nome:' + l.produto)] || null;
+
+function ejFiltrados() {
+  const f = estado.ej, t = (f.busca || '').trim().toLowerCase();
+  return estado.ejItens.filter((i) => {
+    if (f.filtro === 'alertas' && !['zerado', 'vai_faltar', 'baixo'].includes(i.situacao)) return false;
+    if (f.filtro === 'sem' && i.situacao !== 'sem_produto') return false;
+    if (f.filtro === 'confirmar' && !i.sugestoes) return false;
+    if (t && !i.descricao.toLowerCase().includes(t) && !(estado.ejLinks[i.id] || []).some((l) => l.produto.toLowerCase().includes(t) || String(l.codigo || '').includes(t))) return false;
+    return true;
+  });
+}
+
+function renderizarEstoqueJornal() {
+  const f = estado.ej;
+  const camp = estado.ejCampanhas.find((c) => c.id === f.campanhaId);
+  const sel = '<select class="select-filtro" onchange="estado.ej.campanhaId=this.value;estado.ej.abertos=new Set();paginaEstoqueJornal()">' +
+    (estado.ejCampanhas.length ? estado.ejCampanhas.map((c) => '<option value="' + c.id + '"' + (c.id === f.campanhaId ? ' selected' : '') + '>' + giroEsc(c.titulo) + ' (' + ofData(c.inicio) + ' a ' + ofData(c.fim) + ')</option>').join('') : '<option>Nenhum jornal importado</option>') + '</select>';
+  const barra = '<div class="toolbar">' + sel +
+    '<button class="btn-acao" onclick="ejAbrirImportar()">📥 Importar jornal (planilha)</button>' +
+    (camp ? '<button class="btn-acao secundario" onclick="ejAbrirNovoItem()">+ Item</button><button class="btn-acao secundario" onclick="ejExportar()">Exportar (Excel)</button>' +
+      '<button class="btn-acao secundario" onclick="paginaEstoqueJornal()">↻ Atualizar</button>' +
+      '<button class="btn-acao secundario" style="margin-left:auto;color:var(--red);" onclick="ejExcluirCampanha()">Excluir jornal</button>' : '') + '</div>';
+  if (!camp) {
+    document.getElementById('conteudo-principal').innerHTML = cabecalho('Estoque do Jornal', 'Produtos do jornal de ofertas × estoque da loja') + barra +
+      '<div class="celula-vazio">Importe a planilha do jornal (ex.: "Ofertas - Varejo MG 2ª quinzena de Outubro - LOJA.xlsx"). O sistema liga cada item a todos os produtos do estoque que batem — fragrâncias, sabores e tamanhos iguais — e o que ficar em dúvida vocês confirmam.</div>';
+    return;
+  }
+  const it = estado.ejItens;
+  const cont = (s) => it.filter((i) => s.includes(i.situacao)).length;
+  const nConf = it.filter((i) => i.sugestoes > 0).length;
+  const vendasAte = it[0] && it[0].vendas_ate ? ofData(it[0].vendas_ate) : '—';
+  const resumo = '<div class="resumo-perdas">' +
+    '<div class="box"><div class="rotulo">Itens do jornal</div><div class="valor">' + it.length + '</div></div>' +
+    '<div class="box"><div class="rotulo">Zerados</div><div class="valor" style="color:var(--red)">' + cont(['zerado']) + '</div></div>' +
+    '<div class="box"><div class="rotulo">Vão acabar antes do fim</div><div class="valor" style="color:var(--red)">' + cont(['vai_faltar', 'baixo']) + '</div></div>' +
+    '<div class="box"><div class="rotulo">Sem produto ligado</div><div class="valor">' + cont(['sem_produto']) + '</div></div>' +
+    '<div class="box"><div class="rotulo">Com sugestão a confirmar</div><div class="valor">' + nConf + '</div></div>' +
+  '</div>' +
+  '<p class="sub" style="margin:-8px 0 14px;">Jornal de ' + ofData(camp.inicio) + ' a ' + ofData(camp.fim) + ' · faltam ' + (it[0] ? it[0].dias_restantes : '—') + ' dias · venda/dia calculada com as vendas importadas até ' + vendasAte + ' (últimos 14 dias).</p>';
+  const chip = (k, t) => '<button class="pill' + (f.filtro === k ? ' admin' : '') + '" style="cursor:pointer;margin:0;" onclick="estado.ej.filtro=\'' + k + '\';ejAtualizarTabela()">' + t + '</button>';
+  const filtros = '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:12px;">' +
+    chip('todos', 'Todos') + chip('alertas', '⚠️ Alertas') + chip('sem', 'Sem produto') + chip('confirmar', 'A confirmar') +
+    '<input class="input-busca" id="ej-busca" style="max-width:280px;margin-left:auto;" placeholder="Buscar item ou produto" value="' + giroEsc(f.busca) + '"></div>';
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Estoque do Jornal', 'Produtos do jornal de ofertas × estoque da loja') + barra + resumo + filtros + '<div id="ej-tabela"></div>';
+  document.getElementById('ej-busca').addEventListener('input', (e) => { estado.ej.busca = e.target.value; ejAtualizarTabela(); });
+  ejAtualizarTabela();
+}
+
+function ejAtualizarTabela() {
+  const el = document.getElementById('ej-tabela');
+  if (!el) return;
+  const ordemSit = { zerado: 0, vai_faltar: 1, baixo: 2, sem_produto: 3, ok: 4 };
+  const lista = ejFiltrados().slice().sort((a, b) => (ordemSit[a.situacao] - ordemSit[b.situacao]) || (a.ordem - b.ordem));
+  const linhas = lista.map((i) => {
+    const [txt, cor] = EJ_SITUACAO[i.situacao] || ['', ''];
+    const aberto = estado.ej.abertos.has(i.id);
+    let html = '<tr style="cursor:pointer;" onclick="ejAlternar(\'' + i.id + '\')">' +
+      '<td>' + (aberto ? '▾' : '▸') + '</td>' +
+      '<td><div class="nome-forte">' + giroEsc(i.descricao) + '</div>' + (i.preco ? '<div style="font-size:11.5px;color:var(--red);font-weight:700;">' + ofReais(i.preco) + '</div>' : '') + '</td>' +
+      '<td>' + i.produtos + (i.sugestoes ? ' <span class="pill laranja" style="margin-left:4px;white-space:nowrap;">+' + i.sugestoes + ' a confirmar</span>' : '') + (i.produtos_zerados ? '<div style="font-size:11px;color:var(--red);">' + i.produtos_zerados + ' zerado(s)</div>' : '') + '</td>' +
+      '<td style="font-weight:800;">' + ejQtd(i.estoque) + '</td>' +
+      '<td>' + (Number(i.venda_dia_un) > 0 ? ejQtd(i.venda_dia_un) : '—') + '</td>' +
+      '<td style="white-space:nowrap;">' + (i.dias_cobertura != null ? ejQtd(i.dias_cobertura) + (Number(i.dias_cobertura) === 1 ? ' dia' : ' dias') : '—') + '</td>' +
+      '<td>' + (i.necessario_ate_fim != null ? ejQtd(i.necessario_ate_fim) : '—') + '</td>' +
+      '<td><span class="pill ' + cor + '">' + txt + '</span></td></tr>';
+    if (aberto) html += '<tr><td></td><td colspan="7">' + ejHtmlProdutos(i) + '</td></tr>';
+    return html;
+  }).join('');
+  el.innerHTML = '<div class="tabela-wrap"><table><thead><tr><th></th><th>Item do jornal</th><th>Produtos</th><th>Estoque</th><th>Venda/dia</th><th>Dá para</th><th>Precisa até o fim</th><th>Situação</th></tr></thead><tbody>' +
+    (linhas || '<tr><td colspan="8"><div class="celula-vazio">Nada com esse filtro.</div></td></tr>') + '</tbody></table></div>';
+}
+function ejAlternar(id) { estado.ej.abertos.has(id) ? estado.ej.abertos.delete(id) : estado.ej.abertos.add(id); ejAtualizarTabela(); }
+
+function ejHtmlProdutos(i) {
+  const links = (estado.ejLinks[i.id] || []).slice().sort((a, b) => (a.origem === 'sugestao') - (b.origem === 'sugestao') || a.produto.localeCompare(b.produto));
+  const linhas = links.map((l) => {
+    const e = ejEstoqueLink(l);
+    const q = e ? Number(e.quantidade) : null;
+    const sug = l.origem === 'sugestao';
+    return '<div style="display:flex;gap:10px;align-items:center;padding:7px 0;border-bottom:1px dashed var(--border);' + (sug ? 'opacity:.75;' : '') + '">' +
+      '<div style="flex:1;min-width:0;"><b>' + giroEsc(l.produto) + '</b><div style="font-size:11px;color:var(--text-muted);">' + (l.codigo ? 'Cód. ' + giroEsc(l.codigo) : 'sem código') +
+        ' · ' + (sug ? '<span style="color:var(--orange);font-weight:700;">sugestão — confirme se é este produto</span>' : l.origem === 'manual' ? 'adicionado manualmente' : 'ligado automaticamente') + '</div></div>' +
+      '<div style="font-weight:800;min-width:70px;text-align:right;color:' + (q != null && q <= 0 ? 'var(--red)' : 'inherit') + ';">' + (q == null ? '—' : ejQtd(q)) + '</div>' +
+      (sug ? '<button class="btn-acao" style="padding:5px 10px;font-size:12px;background:var(--green);" onclick="ejConfirmar(\'' + l.id + '\')">✓ É este</button>' : '') +
+      '<button class="btn-acao secundario" style="padding:5px 9px;font-size:12px;color:var(--red);" title="Tirar do item" onclick="ejRemover(\'' + l.id + '\')">✕</button></div>';
+  }).join('');
+  return '<div class="item-card" style="padding:12px 14px;">' + (linhas || '<div style="font-size:12.5px;color:var(--text-muted);">Nenhum produto ligado ainda. Busque abaixo.</div>') +
+    (links.filter((l) => l.origem === 'sugestao').length > 1 ? '<button class="btn-acao secundario" style="margin-top:8px;font-size:12px;" onclick="ejConfirmarTodas(\'' + i.id + '\')">✓ Confirmar todas as sugestões</button>' : '') +
+    '<div style="display:flex;gap:8px;align-items:center;margin-top:12px;flex-wrap:wrap;">' +
+      '<input class="input-busca" id="ej-add-' + i.id + '" style="max-width:340px;" placeholder="+ Adicionar produto: nome, código ou código de barras" oninput="ejBuscarAdicionar(\'' + i.id + '\', this.value)">' +
+      '<label style="font-size:12px;color:var(--text-secondary);margin-left:auto;">Alerta se ficar abaixo de <input class="input-busca" style="width:80px;display:inline-block;padding:6px 8px;" value="' + (i.estoque_minimo != null ? i.estoque_minimo : '') + '" placeholder="—" onchange="ejSalvarMinimo(\'' + i.id + '\', this.value)"> un.</label>' +
+      '<button class="btn-acao secundario" style="padding:5px 9px;font-size:12px;color:var(--red);" onclick="ejExcluirItem(\'' + i.id + '\')">Excluir item</button>' +
+    '</div><div id="ej-add-res-' + i.id + '"></div></div>';
+}
+
+let ejTimer = null;
+function ejBuscarAdicionar(itemId, t) {
+  clearTimeout(ejTimer);
+  ejTimer = setTimeout(async () => {
+    const res = document.getElementById('ej-add-res-' + itemId);
+    if (!res) return;
+    if (t.trim().length < 2) { res.innerHTML = ''; return; }
+    const p = '%' + t.trim() + '%';
+    const { data } = await sb.from('estoque_loja_itens').select('codigo_interno, produto, quantidade').or('codigo_interno.ilike.' + p + ',codigo_barras.ilike.' + p + ',produto.ilike.' + p).order('produto').limit(20);
+    estado.ejBusca = data || [];
+    const ja = new Set((estado.ejLinks[itemId] || []).map((l) => l.produto));
+    res.innerHTML = '<div style="margin-top:6px;">' + (estado.ejBusca.length ? estado.ejBusca.map((x, k) =>
+      '<div style="display:flex;gap:10px;align-items:center;padding:6px 4px;border-bottom:1px solid var(--border);">' +
+      '<span style="flex:1;">' + giroEsc(x.produto) + ' <span style="font-size:11px;color:var(--text-muted);">Cód. ' + giroEsc(x.codigo_interno || '—') + '</span></span>' +
+      '<b>' + ejQtd(x.quantidade) + '</b>' +
+      (ja.has(x.produto) ? '<span class="pill verde">já ligado</span>' : '<button class="btn-acao" style="padding:5px 10px;font-size:12px;" onclick="ejAdicionar(\'' + itemId + '\',' + k + ')">+ Ligar</button>') + '</div>').join('')
+      : '<div style="font-size:12px;color:var(--text-muted);padding:6px;">Nada encontrado.</div>') + '</div>';
+  }, 300);
+}
+async function ejAdicionar(itemId, k) {
+  const x = estado.ejBusca[k];
+  const { error } = await sb.from('jornal_item_produtos').upsert({ item_id: itemId, codigo: x.codigo_interno || null, produto: x.produto, origem: 'manual', criado_por: estado.usuario ? estado.usuario.nome : null }, { onConflict: 'item_id,produto' });
+  if (error) { mostrarToast('Não consegui ligar: ' + error.message, 'erro'); return; }
+  await ejRecarregarMantendo();
+}
+async function ejConfirmar(id) {
+  const { error } = await sb.from('jornal_item_produtos').update({ origem: 'manual', criado_por: estado.usuario ? estado.usuario.nome : null }).eq('id', id);
+  if (error) { mostrarToast(error.message, 'erro'); return; }
+  await ejRecarregarMantendo();
+}
+async function ejConfirmarTodas(itemId) {
+  const { error } = await sb.from('jornal_item_produtos').update({ origem: 'manual' }).eq('item_id', itemId).eq('origem', 'sugestao');
+  if (error) { mostrarToast(error.message, 'erro'); return; }
+  await ejRecarregarMantendo();
+}
+async function ejRemover(id) {
+  const { error } = await sb.from('jornal_item_produtos').delete().eq('id', id);
+  if (error) { mostrarToast(error.message, 'erro'); return; }
+  await ejRecarregarMantendo();
+}
+async function ejSalvarMinimo(itemId, v) {
+  const n = ofNum(v);
+  const { error } = await sb.from('jornal_itens').update({ estoque_minimo: n }).eq('id', itemId);
+  if (error) { mostrarToast(error.message, 'erro'); return; }
+  mostrarToast('Alerta salvo.', 'sucesso');
+  await ejRecarregarMantendo();
+}
+async function ejExcluirItem(itemId) {
+  if (!confirm('Excluir este item do jornal?')) return;
+  await sb.from('jornal_itens').delete().eq('id', itemId);
+  await ejRecarregarMantendo();
+}
+async function ejExcluirCampanha() {
+  const c = estado.ejCampanhas.find((x) => x.id === estado.ej.campanhaId);
+  if (!c || !confirm('Excluir o jornal "' + c.titulo + '" e todos os itens ligados?')) return;
+  await sb.from('jornal_campanhas').delete().eq('id', c.id);
+  estado.ej.campanhaId = null;
+  await paginaEstoqueJornal();
+}
+async function ejRecarregarMantendo() {
+  try { await ejCarregarItens(); } catch (e) { mostrarToast(e.message, 'erro'); }
+  renderizarEstoqueJornal();
+}
+
+function ejAbrirNovoItem() {
+  abrirModal('Novo item do jornal',
+    '<div class="form-linha"><label class="campo-label">Descrição (como está no jornal)</label><input class="campo-input" id="ej-novo-desc" placeholder="Ex.: LAVA ROUPAS OMO 3L" style="margin-bottom:0"></div>' +
+    '<div class="form-linha"><label class="campo-label">Preço do jornal (opcional)</label><input class="campo-input" id="ej-novo-preco" inputmode="decimal" style="margin-bottom:0"></div>',
+    'Adicionar e ligar', async () => {
+      const desc = document.getElementById('ej-novo-desc').value.trim();
+      if (!desc) { mostrarToast('Escreva a descrição.', 'erro'); return; }
+      fecharModal();
+      mostrarToast('Procurando os produtos no estoque…', 'sucesso');
+      await ejImportarItens(estado.ej.campanhaId, [{ descricao: desc, preco: ofNum(document.getElementById('ej-novo-preco') ? document.getElementById('ej-novo-preco').value : '') }], estado.ejItens.length);
+      await ejRecarregarMantendo();
+    });
+}
+
+// ---- importar ----
+// "Varejo MG 2ª quinzena de Outubro" -> 16/10 a 31/10 (do ano atual)
+function ejPeriodoDoTitulo(t) {
+  const meses = ['JANEIRO', 'FEVEREIRO', 'MARCO', 'ABRIL', 'MAIO', 'JUNHO', 'JULHO', 'AGOSTO', 'SETEMBRO', 'OUTUBRO', 'NOVEMBRO', 'DEZEMBRO'];
+  const s = jmSemAcento(t);
+  const mi = meses.findIndex((m) => s.includes(m));
+  const q = /([12])\s*[ªAO°º]?\s*QUINZENA/.exec(s);
+  if (mi < 0 || !q) return null;
+  const ano = new Date().getFullYear() + (mi < new Date().getMonth() - 6 ? 1 : 0);
+  const mm = String(mi + 1).padStart(2, '0');
+  const ultimo = new Date(ano, mi + 1, 0).getDate();
+  return q[1] === '1' ? { inicio: ano + '-' + mm + '-01', fim: ano + '-' + mm + '-15' } : { inicio: ano + '-' + mm + '-16', fim: ano + '-' + mm + '-' + ultimo };
+}
+function ejAbrirImportar() {
+  estado.ejImport = { itens: [] };
+  abrirModal('Importar jornal',
+    '<div class="form-linha"><label class="campo-label">Planilha do jornal (.xlsx)</label><input type="file" id="ej-arquivo" accept=".xlsx,.xls,.csv" onchange="ejLerArquivo(this.files[0])"></div>' +
+    '<div class="form-linha"><label class="campo-label">…ou cole a lista (um produto por linha; preço opcional depois de "|")</label><textarea class="campo-input" id="ej-texto" rows="4" placeholder="LAVA ROUPAS OMO 3L | 23,80" oninput="ejLerTexto(this.value)" style="margin-bottom:0;font-family:inherit;"></textarea></div>' +
+    '<div class="form-linha"><label class="campo-label">Nome do jornal</label><input class="campo-input" id="ej-titulo" style="margin-bottom:0" oninput="ejSugerirPeriodo()"></div>' +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+      '<div class="form-linha"><label class="campo-label">Início</label><input type="date" class="campo-input" id="ej-inicio" value="' + ejHoje() + '" style="margin-bottom:0"></div>' +
+      '<div class="form-linha"><label class="campo-label">Fim</label><input type="date" class="campo-input" id="ej-fim" value="' + ofSomar(ejHoje(), 14) + '" style="margin-bottom:0"></div>' +
+    '</div><div id="ej-previa" style="font-size:12.5px;color:var(--text-secondary);"></div>',
+    'Importar e ligar ao estoque', ejConfirmarImportacao);
+  document.querySelector('#overlay-modal .modal-card').style.maxWidth = '620px';
+}
+function ejSugerirPeriodo() {
+  const p = ejPeriodoDoTitulo(document.getElementById('ej-titulo').value);
+  if (p) { document.getElementById('ej-inicio').value = p.inicio; document.getElementById('ej-fim').value = p.fim; }
+}
+function ejMostrarPrevia() {
+  const it = estado.ejImport.itens;
+  document.getElementById('ej-previa').innerHTML = it.length
+    ? '<b>' + it.length + ' itens encontrados</b> (desmarque o que não for produto):<div style="max-height:220px;overflow:auto;margin-top:6px;border:1px solid var(--border);border-radius:10px;padding:6px 10px;">' +
+      it.map((x, k) => '<label style="display:flex;gap:8px;padding:3px 0;"><input type="checkbox" checked onchange="estado.ejImport.itens[' + k + '].fora=!this.checked"> ' + giroEsc(x.descricao) + (x.preco ? ' <b>' + ofReais(x.preco) + '</b>' : '') + '</label>').join('') + '</div>'
+    : '';
+}
+async function ejLerArquivo(arq) {
+  if (!arq) return;
+  try {
+    const wb = XLSX.read(await arq.arrayBuffer(), { type: 'array' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const linhas = XLSX.utils.sheet_to_json(ws, { header: 1, defval: null, raw: false });
+    estado.ejImport.itens = jmLerPlanilhaJornal(linhas);
+    const titulo = (linhas.find((r) => r && r.some((v) => v && /quinzena|ofertas|jornal/i.test(String(v)))) || []).find((v) => v) ||
+      arq.name.replace(/\.[^.]+$/, '');
+    document.getElementById('ej-titulo').value = String(titulo).trim();
+    ejSugerirPeriodo();
+    ejMostrarPrevia();
+  } catch (e) { mostrarToast('Não consegui ler a planilha: ' + e.message, 'erro'); }
+}
+function ejLerTexto(t) {
+  estado.ejImport.itens = String(t || '').split('\n').map((l) => l.trim()).filter(Boolean).map((l) => {
+    const [d, p] = l.split('|');
+    return { descricao: d.trim(), preco: ofNum(p) };
+  });
+  ejMostrarPrevia();
+}
+async function ejConfirmarImportacao() {
+  const itens = estado.ejImport.itens.filter((x) => !x.fora);
+  const titulo = document.getElementById('ej-titulo').value.trim();
+  const inicio = document.getElementById('ej-inicio').value, fim = document.getElementById('ej-fim').value;
+  if (!itens.length) { mostrarToast('Escolha a planilha ou cole a lista.', 'erro'); return; }
+  if (!titulo || !inicio || !fim || fim < inicio) { mostrarToast('Confira o nome e o período do jornal.', 'erro'); return; }
+  const btn = document.getElementById('modal-btn-salvar');
+  btn.disabled = true; btn.textContent = 'Ligando ao estoque…';
+  try {
+    const { data: c, error } = await sb.from('jornal_campanhas').insert({ titulo, inicio, fim, arquivo_nome: (document.getElementById('ej-arquivo').files[0] || {}).name || null, criado_por: estado.usuario ? estado.usuario.nome : null }).select('id').single();
+    if (error) throw error;
+    const r = await ejImportarItens(c.id, itens, 0);
+    fecharModal();
+    mostrarToast(itens.length + ' itens importados · ' + r.auto + ' produtos ligados automaticamente · ' + r.sug + ' sugestões para confirmar.', 'sucesso');
+    estado.ej.campanhaId = c.id; estado.ej.filtro = 'todos';
+    await paginaEstoqueJornal();
+  } catch (e) {
+    btn.disabled = false; btn.textContent = 'Importar e ligar ao estoque';
+    mostrarToast('Não consegui importar: ' + e.message, 'erro');
+  }
+}
+async function ejIndiceCatalogo() {
+  if (estado.ejIndice && Date.now() - estado.ejIndice.em < 600000) return estado.ejIndice.idx;
+  const produtos = await giroBuscarTudo('estoque_loja_itens', 'codigo_interno,produto,quantidade', 'id');
+  const idx = jmPrepararCatalogo(produtos.map((p) => ({ codigo: p.codigo_interno || null, produto: p.produto, qtd: Number(p.quantidade || 0) })));
+  estado.ejIndice = { idx, em: Date.now() };
+  return idx;
+}
+async function ejImportarItens(campanhaId, itens, ordemInicial) {
+  const idx = await ejIndiceCatalogo();
+  const linhas = itens.map((x, k) => ({ campanha_id: campanhaId, ordem: ordemInicial + k, descricao: x.descricao, preco: x.preco || null }));
+  const criados = [];
+  for (let k = 0; k < linhas.length; k += 200) {
+    const { data, error } = await sb.from('jornal_itens').insert(linhas.slice(k, k + 200)).select('id, descricao, ordem');
+    if (error) throw error;
+    criados.push(...data);
+  }
+  const links = [];
+  let auto = 0, sug = 0;
+  criados.forEach((it) => {
+    const r = jmCasar(it.descricao, idx);
+    const vistos = new Set();
+    r.forEach((m) => {
+      const nome = m.produto.produto;
+      if (vistos.has(nome)) return; vistos.add(nome);
+      const alta = m.certeza === 'alta';
+      if (!alta && sug >= 0 && links.filter((l) => l.item_id === it.id && l.origem === 'sugestao').length >= 8) return;
+      links.push({ item_id: it.id, codigo: m.produto.codigo || null, produto: nome, origem: alta ? 'auto' : 'sugestao', score: m.score });
+      alta ? auto++ : sug++;
+    });
+  });
+  for (let k = 0; k < links.length; k += 500) {
+    const { error } = await sb.from('jornal_item_produtos').upsert(links.slice(k, k + 500), { onConflict: 'item_id,produto' });
+    if (error) throw error;
+  }
+  return { auto, sug };
+}
+
+function ejExportar() {
+  const camp = estado.ejCampanhas.find((c) => c.id === estado.ej.campanhaId);
+  const linhas = [['Item do jornal', 'Preço jornal', 'Produto', 'Código', 'Estoque', 'Ligação', 'Estoque total do item', 'Venda/dia (un.)', 'Dá para (dias)', 'Precisa até o fim', 'Situação']];
+  estado.ejItens.forEach((i) => {
+    const ls = (estado.ejLinks[i.id] || []).filter((l) => l.origem !== 'sugestao');
+    const sit = (EJ_SITUACAO[i.situacao] || [''])[0];
+    if (!ls.length) linhas.push([i.descricao, i.preco ? Number(i.preco) : '', '', '', '', '', 0, '', '', '', sit]);
+    ls.forEach((l, k) => {
+      const e = ejEstoqueLink(l);
+      linhas.push([i.descricao, i.preco ? Number(i.preco) : '', l.produto, l.codigo || '', e ? Number(e.quantidade) : '', l.origem === 'manual' ? 'manual' : 'automática',
+        k === 0 ? Number(i.estoque) : '', k === 0 && Number(i.venda_dia_un) > 0 ? Number(i.venda_dia_un) : '', k === 0 && i.dias_cobertura != null ? Number(i.dias_cobertura) : '',
+        k === 0 && i.necessario_ate_fim != null ? Number(i.necessario_ate_fim) : '', k === 0 ? sit : '']);
+    });
+  });
+  const ws = XLSX.utils.aoa_to_sheet(linhas);
+  ws['!cols'] = [44, 12, 44, 10, 10, 12, 14, 12, 12, 14, 16].map((wch) => ({ wch }));
+  ws['!autofilter'] = { ref: 'A1:K' + linhas.length };
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Estoque do jornal');
+  XLSX.writeFile(wb, 'estoque_jornal_' + (camp ? camp.inicio : ejHoje()) + '.xlsx');
 }
 
 // =============================================================================
