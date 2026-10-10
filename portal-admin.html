@@ -6,7 +6,7 @@
 <title>ULVA — Painel Administrativo</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&family=Archivo:ital,wght@0,600;0,800;0,900;1,800;1,900&display=swap" rel="stylesheet">
 <script src="https://unpkg.com/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://unpkg.com/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
@@ -545,6 +545,7 @@
         <button class="nav-item" data-pagina="visita-tecnica" onclick="irPara('visita-tecnica')"><span class="dot"></span>🩺 Visita Técnica</button>
         <button class="nav-item" data-pagina="mapa-loja" onclick="irPara('mapa-loja')"><span class="dot"></span>Mapa da Loja</button>
         <button class="nav-item" data-pagina="jornal-ofertas" onclick="irPara('jornal-ofertas')"><span class="dot"></span>🗞️ Jornal de Ofertas</button>
+        <button class="nav-item" data-pagina="ofertas-whats" onclick="irPara('ofertas-whats')"><span class="dot"></span>📣 Ofertas no WhatsApp</button>
         <button class="nav-item" data-pagina="pontas-extras" onclick="irPara('pontas-extras')"><span class="dot"></span>Pontas e Pontos Extras</button>
         <button class="nav-item" onclick="window.open('https://lucasbhpara.github.io/gestao-loja-app/estacao-etiquetas.html','_blank')"><span class="dot"></span>🏷️ Estação de Etiquetas</button>
       </div>
@@ -627,6 +628,7 @@ const FERRAMENTAS_APP = [
   { chave: 'pontasExtras', nome: 'Pontas e Pontos Extras' },
   { chave: 'jornalOfertas', nome: 'Jornal de Ofertas' },
   { chave: 'usoConsumo', nome: 'Uso e Consumo' },
+  { chave: 'ofertas', nome: 'Ofertas no WhatsApp' },
 ];
 
 // Os setores atendidos pelo Checklist de Setor (avaliação diária de
@@ -786,7 +788,7 @@ const GAVETA_POR_PAGINA = {
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
-  pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'operacao', 'pontas-extras': 'operacao',
+  pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'operacao', 'ofertas-whats': 'operacao', 'pontas-extras': 'operacao',
 };
 function alternarGaveta(nome) {
   const el = document.querySelector('.nav-gaveta[data-gaveta="' + nome + '"]');
@@ -837,6 +839,7 @@ async function irPara(pagina) {
     else if (pagina === 'mapa-loja') await paginaMapaLoja();
     else if (pagina === 'pontas-extras') await paginaPontasExtras();
     else if (pagina === 'jornal-ofertas') await paginaJornalOfertas();
+    else if (pagina === 'ofertas-whats') await paginaOfertasWhats();
   } catch (e) {
     el.innerHTML = '<div class="celula-vazio">Não consegui carregar essa página: ' + (e.message || '') + '</div>';
   }
@@ -3140,6 +3143,725 @@ function ucExportar() {
   XLSX.utils.book_append_sheet(wb, wsEst, 'Estoque');
   XLSX.utils.book_append_sheet(wb, wsRet, 'Retiradas');
   XLSX.writeFile(wb, 'uso_consumo_' + new Date().toISOString().slice(0, 10) + '.xlsx');
+}
+
+// ---- Card de oferta: cópia de src/data/cardOfertaJs.ts (CARD_OFERTA_JS) ----
+var CARD_TEMA = {
+  azulTexto: '#0A1A6D',
+  azulSelo: '#143B86',
+  vermelho: '#FF0026',
+  fundoTopo: '#D5E6F6',
+  fundoMeio: '#F4F8FD',
+  fundoBaixo: '#E1EDF8',
+  selo: ['Ofertas', 'Exclusivas', 'Minas Gerais'],
+  fonte: 'Archivo, "Arial Black", Arial, sans-serif',
+};
+
+function cardCarregarImagem(src) {
+  return new Promise(function (ok) {
+    if (!src) return ok(null);
+    var img = new Image();
+    if (!/^data:/.test(src)) img.crossOrigin = 'anonymous';
+    img.onload = function () { ok(img); };
+    img.onerror = function () { ok(null); };
+    img.src = src;
+  });
+}
+
+function cardFontesProntas() {
+  if (!document.fonts || !document.fonts.load) return Promise.resolve();
+  var pesos = ['italic 900 100px Archivo', '900 40px Archivo', '800 40px Archivo', '600 30px Archivo'];
+  return Promise.race([
+    Promise.all(pesos.map(function (p) { return document.fonts.load(p); })),
+    new Promise(function (ok) { setTimeout(ok, 2500); }),
+  ]).catch(function () {});
+}
+
+function cardRet(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function cardQuebrar(ctx, texto, larguraMax) {
+  var palavras = String(texto || '').split(/\s+/);
+  var linhas = [], atual = '';
+  for (var i = 0; i < palavras.length; i++) {
+    var teste = atual ? atual + ' ' + palavras[i] : palavras[i];
+    if (ctx.measureText(teste).width > larguraMax && atual) { linhas.push(atual); atual = palavras[i]; }
+    else atual = teste;
+  }
+  if (atual) linhas.push(atual);
+  return linhas;
+}
+
+// Maior fonte (entre tamMax e tamMin) em que o texto cabe em maxLinhas.
+function cardAjustar(ctx, texto, larguraMax, maxLinhas, tamMax, tamMin, estilo) {
+  for (var t = tamMax; t >= tamMin; t -= 2) {
+    ctx.font = estilo + ' ' + t + 'px ' + CARD_TEMA.fonte;
+    var l = cardQuebrar(ctx, texto, larguraMax);
+    if (l.length <= maxLinhas) return { linhas: l, tam: t };
+  }
+  ctx.font = estilo + ' ' + tamMin + 'px ' + CARD_TEMA.fonte;
+  var ls = cardQuebrar(ctx, texto, larguraMax).slice(0, maxLinhas);
+  ls[ls.length - 1] = ls[ls.length - 1] + '…';
+  return { linhas: ls, tam: tamMin };
+}
+
+function cardUnidadeTexto(u) {
+  u = String(u || 'un').toLowerCase();
+  if (u === 'kg') return 'O QUILO';
+  if (u === 'un') return 'CADA';
+  if (u === 'pct') return 'O PACOTE';
+  if (u === 'cx') return 'A CAIXA';
+  if (u === 'bdj') return 'A BANDEJA';
+  if (u === 'dz') return 'A DÚZIA';
+  return u.toUpperCase();
+}
+
+// Fundo azul-claro com brilho no centro e nuvens claras embaixo.
+function cardFundo(ctx, W, H) {
+  var t = CARD_TEMA;
+  var g = ctx.createLinearGradient(0, 0, 0, H);
+  g.addColorStop(0, t.fundoTopo); g.addColorStop(0.45, t.fundoMeio); g.addColorStop(1, t.fundoBaixo);
+  ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  var r = ctx.createRadialGradient(W / 2, H * 0.5, 40, W / 2, H * 0.5, W * 0.62);
+  r.addColorStop(0, 'rgba(255,255,255,0.95)'); r.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = r; ctx.fillRect(0, 0, W, H);
+  ctx.save(); ctx.fillStyle = 'rgba(255,255,255,0.75)';
+  [[W * 0.08, H * 0.93, 110], [W * 0.2, H * 0.97, 90], [W * 0.9, H * 0.95, 120], [W * 0.78, H * 0.99, 80]].forEach(function (c) {
+    ctx.beginPath(); ctx.arc(c[0], c[1], c[2], 0, Math.PI * 2); ctx.fill();
+  });
+  ctx.restore();
+}
+
+// Selo azul no canto superior esquerdo.
+function cardSelo(ctx, x, w, h) {
+  var t = CARD_TEMA;
+  ctx.save();
+  ctx.shadowColor = 'rgba(10,26,109,.35)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 6;
+  ctx.fillStyle = t.azulSelo; cardRet(ctx, x, -30, w, h + 30, 22); ctx.fill();
+  ctx.restore();
+  // triângulo (símbolo de Minas) estilizado
+  var cx = x + w / 2, ty = h * 0.12, ts = w * 0.2;
+  ctx.fillStyle = '#FFFFFF';
+  ctx.beginPath(); ctx.moveTo(cx, ty); ctx.lineTo(cx + ts * 0.62, ty + ts); ctx.lineTo(cx - ts * 0.62, ty + ts); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = t.vermelho;
+  ctx.beginPath(); ctx.moveTo(cx, ty + ts * 0.3); ctx.lineTo(cx + ts * 0.36, ty + ts * 0.88); ctx.lineTo(cx - ts * 0.36, ty + ts * 0.88); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  var tam = Math.round(w * 0.135), y = ty + ts + tam * 1.45;
+  t.selo.forEach(function (linha, i) {
+    ctx.font = (i === t.selo.length - 1 ? '800 ' : '600 ') + tam + 'px ' + t.fonte;
+    var fit = cardAjustar(ctx, linha, w - 24, 1, tam, 10, i === t.selo.length - 1 ? '800' : '600');
+    ctx.fillText(fit.linhas[0], cx, y + i * tam * 1.18);
+  });
+}
+
+function cardLogo(ctx, img, xDir, y, wMax, hMax) {
+  if (!img) return;
+  var r = Math.min(wMax / img.width, hMax / img.height);
+  var w = img.width * r, h = img.height * r;
+  ctx.drawImage(img, xDir - w, y, w, h);
+}
+
+// Foto do produto. "multiply" faz o fundo branco das fotos sumir no fundo claro.
+function cardFoto(ctx, img, x, y, w, h, nome, multiplicar) {
+  if (img) {
+    var r = Math.min(w / img.width, h / img.height);
+    var iw = img.width * r, ih = img.height * r;
+    ctx.save();
+    if (multiplicar) ctx.globalCompositeOperation = 'multiply';
+    ctx.drawImage(img, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
+    ctx.restore();
+    return;
+  }
+  var raio = Math.min(w, h) * 0.34;
+  ctx.fillStyle = 'rgba(20,59,134,0.08)';
+  ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, raio, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = CARD_TEMA.azulSelo; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '900 ' + Math.round(raio) + 'px ' + CARD_TEMA.fonte;
+  ctx.fillText(String(nome || '?').trim().charAt(0).toUpperCase(), x + w / 2, y + h / 2 + raio * 0.05);
+}
+
+// Preço no estilo da arte: "R$" pequeno embaixo à esquerda, número grande em
+// vermelho itálico, unidade em azul embaixo à direita. cx = centro; base = linha
+// de base do número; tam = altura do número.
+function cardPreco(ctx, cx, base, precoPor, unidade, tam) {
+  var t = CARD_TEMA;
+  var valor = Number(precoPor || 0).toFixed(2).replace('.', ',');
+  var tRs = tam * 0.2, tUn = tam * 0.15;
+  ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+  ctx.font = 'italic 900 ' + tam + 'px ' + t.fonte;
+  var wNum = ctx.measureText(valor).width;
+  ctx.font = '900 ' + tRs + 'px ' + t.fonte;
+  var wRs = ctx.measureText('R$').width;
+  var un = cardUnidadeTexto(unidade);
+  ctx.font = '900 ' + tUn + 'px ' + t.fonte;
+  var wUn = ctx.measureText(un).width;
+  var gap = tam * 0.05;
+  var x0 = cx - (wRs + gap + wNum) / 2;
+  ctx.save();
+  ctx.shadowColor = 'rgba(120,0,20,0.25)'; ctx.shadowBlur = tam * 0.06; ctx.shadowOffsetY = tam * 0.025;
+  ctx.fillStyle = t.vermelho;
+  ctx.font = '900 ' + tRs + 'px ' + t.fonte; ctx.fillText('R$', x0, base);
+  ctx.font = 'italic 900 ' + tam + 'px ' + t.fonte; ctx.fillText(valor, x0 + wRs + gap, base);
+  ctx.restore();
+  ctx.fillStyle = t.azulTexto; ctx.font = '900 ' + tUn + 'px ' + t.fonte; ctx.textAlign = 'right';
+  ctx.fillText(un, x0 + wRs + gap + wNum - tam * 0.04, base + tUn * 1.4);
+  return { esquerda: x0, direita: x0 + wRs + gap + wNum };
+}
+
+function cardPrecoDe(ctx, cx, y, precoDe, precoPor, tam) {
+  if (!precoDe || Number(precoDe) <= Number(precoPor)) return;
+  var txt = 'DE R$ ' + Number(precoDe).toFixed(2).replace('.', ',');
+  ctx.font = '800 ' + tam + 'px ' + CARD_TEMA.fonte;
+  ctx.fillStyle = CARD_TEMA.azulTexto; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  ctx.fillText(txt, cx, y);
+  var w = ctx.measureText(txt).width;
+  ctx.strokeStyle = CARD_TEMA.vermelho; ctx.lineWidth = Math.max(3, tam / 8);
+  ctx.beginPath(); ctx.moveTo(cx - w / 2 - 4, y - tam * 0.32); ctx.lineTo(cx + w / 2 + 4, y - tam * 0.32); ctx.stroke();
+}
+
+function cardRodape(ctx, W, H, texto) {
+  if (!texto) return;
+  ctx.fillStyle = CARD_TEMA.azulTexto; ctx.globalAlpha = 0.75;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  var f = cardAjustar(ctx, texto, W - 100, 1, 24, 16, '600');
+  ctx.fillText(f.linhas[0], W / 2, H - 22);
+  ctx.globalAlpha = 1;
+}
+
+function desenharCardOferta(canvas, dados) {
+  var lamina = dados.modo === 'lamina' && (dados.ofertas || []).length > 1;
+  var W = 1080, H = lamina ? 1350 : 1080;
+  canvas.width = W; canvas.height = H;
+  var ctx = canvas.getContext('2d');
+  var ofertas = (dados.ofertas || []).slice(0, 6);
+  var multiplicar = dados.multiplicar !== false;
+  return cardFontesProntas().then(function () {
+    return Promise.all([cardCarregarImagem(dados.logo)].concat(ofertas.map(function (o) { return cardCarregarImagem(o.foto); })));
+  }).then(function (imgs) {
+    var logo = imgs[0], fotos = imgs.slice(1);
+    var t = CARD_TEMA;
+    cardFundo(ctx, W, H);
+
+    if (!lamina) {
+      var o = ofertas[0] || { produto: '', precoPor: 0 };
+      cardSelo(ctx, 60, 230, 260);
+      cardLogo(ctx, logo, W - 60, 70, 280, 170);
+      // nome do produto
+      ctx.fillStyle = t.azulTexto; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      var nome = cardAjustar(ctx, String(o.produto).toUpperCase(), 640, 2, 46, 30, '800');
+      var yN = 300;
+      nome.linhas.forEach(function (l, i) { ctx.fillText(l, W / 2, yN + nome.tam * (i + 1) * 1.12); });
+      var fotoTopo = yN + nome.tam * nome.linhas.length * 1.12 + 30;
+      var temDe = o.precoDe && Number(o.precoDe) > Number(o.precoPor);
+      var baseNum = H - 118;
+      var tamNum = 250;
+      var fotoBaixo = baseNum - tamNum * 0.78 - (temDe ? 60 : 20);
+      cardFoto(ctx, fotos[0], 150, fotoTopo, W - 300, fotoBaixo - fotoTopo, o.produto, multiplicar);
+      if (temDe) cardPrecoDe(ctx, W / 2, baseNum - tamNum * 0.78 - 14, o.precoDe, o.precoPor, 40);
+      // número encolhe se o valor for comprido (ex.: 1.299,90)
+      ctx.font = 'italic 900 ' + tamNum + 'px ' + t.fonte;
+      var wTeste = ctx.measureText(Number(o.precoPor || 0).toFixed(2).replace('.', ',')).width;
+      if (wTeste > W - 260) tamNum = Math.floor(tamNum * (W - 260) / wTeste);
+      cardPreco(ctx, W / 2, baseNum, o.precoPor, o.unidade, tamNum);
+    } else {
+      cardSelo(ctx, 50, 190, 215);
+      cardLogo(ctx, logo, W - 50, 50, 230, 140);
+      ctx.fillStyle = t.azulTexto; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      var tit = cardAjustar(ctx, String(dados.titulo || 'OFERTAS').toUpperCase(), 520, 2, 56, 30, '900');
+      tit.linhas.forEach(function (l, i) { ctx.fillText(l, W / 2, 90 + tit.tam * (i + 1) * 1.05); });
+      var n = ofertas.length, cols = 2, rows = Math.ceil(n / cols);
+      var mx = 50, gap = 24, areaTop = 250, areaH = H - areaTop - 70;
+      var cw = (W - mx * 2 - gap) / cols, ch = (areaH - gap * (rows - 1)) / rows;
+      ofertas.forEach(function (o, i) {
+        var c = i % cols, r = Math.floor(i / cols);
+        var x = mx + c * (cw + gap), y = areaTop + r * (ch + gap);
+        if (n % 2 === 1 && i === n - 1) x = (W - cw) / 2;
+        ctx.save(); ctx.shadowColor = 'rgba(10,26,109,.18)'; ctx.shadowBlur = 22; ctx.shadowOffsetY = 6;
+        ctx.fillStyle = '#FFFFFF'; cardRet(ctx, x, y, cw, ch, 28); ctx.fill(); ctx.restore();
+        var tamNum = Math.min(118, ch * 0.3);
+        ctx.font = 'italic 900 ' + tamNum + 'px ' + t.fonte;
+        var wT = ctx.measureText(Number(o.precoPor || 0).toFixed(2).replace('.', ',')).width;
+        if (wT > cw - 110) tamNum = Math.floor(tamNum * (cw - 110) / wT);
+        var nomeTam = Math.max(20, Math.min(28, ch * 0.07));
+        ctx.fillStyle = t.azulTexto; ctx.textAlign = 'center';
+        var nm = cardAjustar(ctx, String(o.produto).toUpperCase(), cw - 40, 2, nomeTam, 16, '800');
+        var baseNum = y + ch - 46;
+        var nomeBase = baseNum - tamNum * 0.8 - 14;
+        var temDe = o.precoDe && Number(o.precoDe) > Number(o.precoPor);
+        if (temDe) nomeBase -= 40;
+        var nomeTopo = nomeBase - nm.tam * nm.linhas.length * 1.12;
+        nm.linhas.forEach(function (l, k) { ctx.fillText(l, x + cw / 2, nomeTopo + nm.tam * (k + 1) * 1.12); });
+        if (temDe) cardPrecoDe(ctx, x + cw / 2, baseNum - tamNum * 0.86 - 12, o.precoDe, o.precoPor, 22);
+        cardFoto(ctx, fotos[i], x + 24, y + 18, cw - 48, nomeTopo - y - 26, o.produto, false);
+        cardPreco(ctx, x + cw / 2, baseNum, o.precoPor, o.unidade, tamNum);
+      });
+    }
+    cardRodape(ctx, W, H, dados.validade);
+  });
+}
+const LOGO_RESERVA_OFERTAS = 'data:image/png;base64,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';
+
+// =============================================================================
+// Ofertas no WhatsApp — mesmo recurso do app (OfertasScreen): monta ofertas,
+// gera o card no padrão da loja (desenharCardOferta, copiado de
+// src/data/cardOfertaJs.ts), baixa a imagem e abre o WhatsApp Web com o texto.
+// Tabelas: ofertas, produto_fotos, ofertas_agenda (schema_ofertas_whatsapp.sql).
+// =============================================================================
+const OF_UNIDADES = [['un', 'Unidade'], ['kg', 'Quilo'], ['pct', 'Pacote'], ['bdj', 'Bandeja'], ['cx', 'Caixa'], ['dz', 'Dúzia']];
+const OF_ORIGEM = { manual: 'Manual', giro: 'Giro', validade: 'Validade', jornal: 'Jornal' };
+const OF_DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+const OF_CODIGO_LOGO = '__logo__';
+const OF_RODAPE = 'Loja 327 · Itatiaiuçu';
+const ofHoje = () => { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const ofSomar = (iso, n) => { const d = new Date(iso + 'T12:00:00'); d.setDate(d.getDate() + n); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); };
+const ofData = (iso) => iso ? iso.slice(0, 10).split('-').reverse().join('/') : '';
+const ofReais = (v) => v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const ofNum = (t) => { const s = String(t || '').trim(); if (!s) return null; const v = Number(s.replace(/[^\d,.-]/g, '').replace(/\./g, '').replace(',', '.')); return isFinite(v) ? v : null; };
+const ofAtiva = (o) => !o.fim || o.fim >= ofHoje();
+function ofPrecoSugerido(preco, custo, desc) {
+  if (!preco) return null;
+  let p = preco * (1 - (desc || 0.15));
+  if (custo && p < custo * 1.05) p = custo * 1.05;
+  if (p >= preco) return null;
+  return Math.floor(p * 10) / 10 + 0.09;
+}
+function ofTextoValidade(lista) {
+  const fins = lista.map((o) => o.fim).filter(Boolean).sort();
+  return (fins.length ? 'Válido até ' + ofData(fins[0]) + ' ou enquanto durarem os estoques' : 'Ofertas válidas enquanto durarem os estoques') + ' · ' + OF_RODAPE;
+}
+function ofTextoWhats(lista, titulo) {
+  const r = (v) => 'R$ ' + Number(v).toFixed(2).replace('.', ',');
+  const un = (u) => u === 'kg' ? '/kg' : u === 'un' ? '' : '/' + u;
+  const linhas = lista.map((o) => '✅ *' + o.produto + '*\n' + (o.preco_de && Number(o.preco_de) > Number(o.preco_por) ? '~' + r(o.preco_de) + '~ ' : '') + '*' + r(o.preco_por) + un(o.unidade_venda) + '*');
+  const fins = lista.map((o) => o.fim).filter(Boolean).sort();
+  return '🔥 *' + (titulo || 'OFERTAS DO DIA') + '* 🔥\n\n' + linhas.join('\n\n') + '\n\n' +
+    (fins.length ? '📅 Válido até ' + ofData(fins[0]) + ' ou enquanto durarem os estoques.' : '📅 Enquanto durarem os estoques.') + '\n📍 ' + OF_RODAPE;
+}
+
+async function paginaOfertasWhats() {
+  estado.of = estado.of || { aba: 'ofertas', sel: new Set(), tipoSug: 'giro', verEncerradas: false };
+  const el = document.getElementById('conteudo-principal');
+  el.innerHTML = cabecalho('Ofertas no WhatsApp', 'Monte a oferta, gere o card no padrão da loja e envie no grupo') + '<div class="carregando">Carregando…</div>';
+  try { await ofCarregar(); } catch (e) {
+    el.innerHTML = cabecalho('Ofertas no WhatsApp', '') + '<div class="celula-vazio">' +
+      (/ofertas|produto_fotos/.test(e.message || '') ? 'A base das ofertas ainda não foi criada. Rode <b>supabase/schema_ofertas_whatsapp.sql</b> no SQL Editor do Supabase.' : 'Não consegui carregar: ' + giroEsc(e.message || '')) + '</div>';
+    return;
+  }
+  renderizarOfertasWhats();
+}
+
+async function ofCarregar() {
+  const { data, error } = await sb.from('ofertas').select('*').gte('criado_em', ofSomar(ofHoje(), -60)).order('criado_em', { ascending: false }).limit(300);
+  if (error) throw error;
+  estado.ofLista = data || [];
+  estado.ofFotos = estado.ofFotos || {};
+  await ofCarregarFotos(estado.ofLista.map((o) => o.codigo).concat([OF_CODIGO_LOGO]));
+}
+async function ofCarregarFotos(codigos) {
+  const lista = [...new Set(codigos.filter(Boolean))];
+  if (!lista.length) return;
+  const { data } = await sb.from('produto_fotos').select('codigo, foto_url, atualizado_em').in('codigo', lista);
+  (data || []).forEach((l) => { estado.ofFotos[l.codigo] = l.foto_url + '?v=' + new Date(l.atualizado_em).getTime(); });
+}
+function ofLogo() { return estado.ofFotos[OF_CODIGO_LOGO] || (typeof LOGO_RESERVA_OFERTAS !== 'undefined' ? LOGO_RESERVA_OFERTAS : null); }
+
+function renderizarOfertasWhats() {
+  const f = estado.of;
+  const aba = (k, t) => '<button class="btn-acao' + (f.aba === k ? '' : ' secundario') + '" onclick="estado.of.aba=\'' + k + '\';renderizarOfertasWhats()">' + t + '</button>';
+  const barra = '<div class="toolbar">' + aba('ofertas', '📣 Ofertas') + aba('sugestoes', '💡 Sugestões') + aba('agenda', '🗓️ Agenda') + aba('resultados', '📈 Resultado') +
+    '<span style="margin-left:auto;display:flex;gap:8px;flex-wrap:wrap;">' +
+    '<button class="btn-acao secundario" onclick="ofAbrirLogo()">Logo da loja</button>' +
+    '<button class="btn-acao" onclick="ofAbrirEditor()">+ Nova oferta</button></span></div>';
+  let corpo = '';
+  if (f.aba === 'ofertas') corpo = ofHtmlOfertas();
+  else if (f.aba === 'sugestoes') corpo = '<div id="of-sug"><div class="carregando">Carregando sugestões…</div></div>';
+  else if (f.aba === 'agenda') corpo = '<div id="of-agenda"><div class="carregando">Carregando…</div></div>';
+  else corpo = '<div id="of-res"><div class="carregando">Calculando…</div></div>';
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Ofertas no WhatsApp', 'Monte a oferta, gere o card no padrão da loja e envie no grupo') + barra + corpo;
+  if (f.aba === 'sugestoes') ofRenderSugestoes();
+  if (f.aba === 'agenda') ofRenderAgenda();
+  if (f.aba === 'resultados') ofRenderResultados();
+}
+
+function ofMini(codigo, produto, semClique) {
+  const url = codigo ? estado.ofFotos[codigo] : null;
+  return '<div ' + (semClique ? '' : 'onclick="ofAbrirFoto(\'' + (codigo || '') + '\')" ') + 'title="Foto do produto" style="width:52px;height:52px;border-radius:10px;border:1px solid var(--border);background:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;overflow:hidden;flex-shrink:0;">' +
+    (url ? '<img src="' + url + '" style="max-width:48px;max-height:48px;object-fit:contain;">' : '<span style="font-size:10px;color:#9AA1B8;font-weight:700;text-align:center;">📷<br>foto</span>') + '</div>';
+}
+
+function ofHtmlOfertas() {
+  const f = estado.of;
+  const ativas = estado.ofLista.filter(ofAtiva), encerradas = estado.ofLista.filter((o) => !ofAtiva(o));
+  const linha = (o) => {
+    const sel = f.sel.has(o.id);
+    const status = o.enviada_em ? '<span class="pill verde">✓ enviada ' + ofData(o.enviada_em) + '</span>' :
+      o.agendada_para ? '<span class="pill laranja">⏰ ' + new Date(o.agendada_para).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) + '</span>' : '<span class="pill">pronta</span>';
+    return '<tr' + (sel ? ' style="background:rgba(91,123,255,.08)"' : '') + '>' +
+      '<td><input type="checkbox"' + (sel ? ' checked' : '') + ' onchange="ofSelecionar(\'' + o.id + '\', this.checked)"></td>' +
+      '<td>' + ofMini(o.codigo, o.produto) + '</td>' +
+      '<td><div class="nome-forte">' + giroEsc(o.produto) + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + (o.codigo ? 'Cód. ' + giroEsc(o.codigo) + ' · ' : '') + (OF_ORIGEM[o.origem] || o.origem) + (o.criado_por ? ' · por ' + giroEsc(o.criado_por) : '') + '</div></td>' +
+      '<td style="white-space:nowrap;color:var(--text-muted);text-decoration:line-through;">' + (o.preco_de ? ofReais(o.preco_de) : '') + '</td>' +
+      '<td style="white-space:nowrap;font-weight:800;color:var(--red);">' + ofReais(o.preco_por) + (o.unidade_venda === 'kg' ? '/kg' : '') + '</td>' +
+      '<td style="white-space:nowrap;">' + (o.fim ? ofData(o.fim) : '—') + '</td>' +
+      '<td>' + status + '</td>' +
+      '<td style="white-space:nowrap;"><button class="btn-acao" style="padding:6px 10px;font-size:12px;" onclick="ofAbrirCard([\'' + o.id + '\'])">Card</button> ' +
+      '<button class="btn-acao secundario" style="padding:6px 10px;font-size:12px;" onclick="ofAbrirEditor(\'' + o.id + '\')">Editar</button> ' +
+      '<button class="btn-acao secundario" style="padding:6px 10px;font-size:12px;color:var(--red);" onclick="ofExcluir(\'' + o.id + '\')">✕</button></td></tr>';
+  };
+  const tabela = (lista) => '<div class="tabela-wrap"><table><thead><tr><th></th><th>Foto</th><th>Produto</th><th>De</th><th>Por</th><th>Até</th><th>Situação</th><th></th></tr></thead><tbody>' +
+    (lista.length ? lista.map(linha).join('') : '<tr><td colspan="8"><div class="celula-vazio">Nenhuma oferta ativa. Crie uma ou veja as Sugestões.</div></td></tr>') + '</tbody></table></div>';
+  const nSel = estado.ofLista.filter((o) => f.sel.has(o.id)).length;
+  return '<div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">' +
+      '<span style="font-size:12.5px;color:var(--text-secondary);">Marque várias para montar uma lâmina (até 6 por imagem).</span>' +
+      (nSel ? '<button class="btn-acao" style="margin-left:auto;" onclick="ofAbrirCard(null)">🖼️ Gerar card (' + nSel + ')</button><button class="btn-acao secundario" onclick="estado.of.sel=new Set();renderizarOfertasWhats()">Limpar</button>' : '') +
+    '</div>' + tabela(ativas) +
+    (encerradas.length ? '<div style="margin-top:16px;"><a href="#" onclick="estado.of.verEncerradas=!estado.of.verEncerradas;renderizarOfertasWhats();return false;" style="font-weight:700;">' + (f.verEncerradas ? '▾' : '▸') + ' Encerradas (' + encerradas.length + ')</a></div>' + (f.verEncerradas ? '<div style="margin-top:10px;">' + tabela(encerradas) + '</div>' : '') : '');
+}
+function ofSelecionar(id, on) { on ? estado.of.sel.add(id) : estado.of.sel.delete(id); renderizarOfertasWhats(); }
+
+async function ofExcluir(id) {
+  const o = estado.ofLista.find((x) => x.id === id);
+  if (!confirm('Excluir a oferta de ' + (o ? o.produto : '') + '?')) return;
+  const { error } = await sb.from('ofertas').delete().eq('id', id);
+  if (error) { mostrarToast('Não consegui excluir: ' + error.message, 'erro'); return; }
+  estado.of.sel.delete(id); await ofCarregar(); renderizarOfertasWhats();
+}
+
+// ---- editor ----
+function ofAbrirEditor(id, base) {
+  const o = id ? estado.ofLista.find((x) => x.id === id) : Object.assign({ unidade_venda: 'un', fim: ofSomar(ofHoje(), 3), origem: 'manual' }, base || {});
+  estado.ofRascunho = Object.assign({}, o);
+  const campo = (r, h) => '<div class="form-linha"><label class="campo-label">' + r + '</label>' + h + '</div>';
+  const agend = o.agendada_para ? new Date(new Date(o.agendada_para).getTime() - new Date().getTimezoneOffset() * 60000).toISOString().slice(0, 16) : '';
+  abrirModal(id ? 'Editar oferta' : 'Nova oferta',
+    (id || o.codigo ? '<div id="of-prod-escolhido"></div>' :
+      campo('Produto', '<input class="campo-input" id="of-busca" placeholder="Buscar por nome, código ou código de barras" style="margin-bottom:6px" oninput="ofBuscarProduto(this.value)"><div id="of-busca-res" style="max-height:220px;overflow:auto;"></div>')) +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+      campo('De (opcional)', '<input class="campo-input" id="of-de" inputmode="decimal" value="' + (o.preco_de != null ? Number(o.preco_de).toFixed(2).replace('.', ',') : '') + '" style="margin-bottom:0">') +
+      campo('Por (oferta)', '<input class="campo-input" id="of-por" inputmode="decimal" value="' + (o.preco_por != null ? Number(o.preco_por).toFixed(2).replace('.', ',') : '') + '" style="margin-bottom:0;border-color:var(--red);color:var(--red);font-weight:800;">') +
+      campo('Vendido por', '<select class="campo-input" id="of-un" style="margin-bottom:0">' + OF_UNIDADES.map((u) => '<option value="' + u[0] + '"' + (o.unidade_venda === u[0] ? ' selected' : '') + '>' + u[1] + '</option>').join('') + '</select>') +
+      campo('Válida até', '<input type="date" class="campo-input" id="of-fim" value="' + (o.fim || '') + '" style="margin-bottom:0">') +
+    '</div>' +
+    campo('Lembrar de postar (opcional)', '<input type="datetime-local" class="campo-input" id="of-agenda" value="' + agend + '" style="margin-bottom:0">') +
+    (o.observacao && o.origem !== 'manual' ? '<p class="sub" style="margin:0;">💡 ' + giroEsc(o.observacao) + '</p>' : ''),
+    'Salvar', ofSalvarEditor);
+  ofMostrarEscolhido();
+}
+function ofMostrarEscolhido() {
+  const el = document.getElementById('of-prod-escolhido');
+  const r = estado.ofRascunho;
+  if (!el || !r) return;
+  el.innerHTML = '<div class="item-card" style="display:flex;gap:12px;align-items:center;margin-bottom:14px;padding:12px;">' + ofMini(r.codigo, r.produto, true) +
+    '<div><div class="nome-forte">' + giroEsc(r.produto || '') + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + (r.codigo ? 'Cód. ' + giroEsc(r.codigo) : 'Sem código') + (r.codigo_barras ? ' · ' + giroEsc(r.codigo_barras) : '') + (r.codigo && !estado.ofFotos[r.codigo] ? ' · sem foto: salve e clique no quadrinho da foto na lista' : '') + '</div></div></div>';
+}
+let ofTimerBusca = null;
+function ofBuscarProduto(t) {
+  estado.ofRascunho.produto = t; estado.ofRascunho.codigo = null; estado.ofRascunho.codigo_barras = null;
+  clearTimeout(ofTimerBusca);
+  ofTimerBusca = setTimeout(async () => {
+    const res = document.getElementById('of-busca-res');
+    if (!res) return;
+    if (t.trim().length < 2) { res.innerHTML = ''; return; }
+    const p = '%' + t.trim() + '%';
+    const { data } = await sb.from('estoque_loja_itens').select('codigo_interno, codigo_barras, produto, preco_venda, quantidade')
+      .or('codigo_interno.ilike.' + p + ',codigo_barras.ilike.' + p + ',produto.ilike.' + p).order('produto').limit(30);
+    estado.ofBusca = data || [];
+    res.innerHTML = estado.ofBusca.length ? estado.ofBusca.map((x, i) => '<div onclick="ofEscolherProduto(' + i + ')" style="display:flex;justify-content:space-between;gap:10px;padding:8px 6px;border-bottom:1px solid var(--border);cursor:pointer;">' +
+      '<span><b>' + giroEsc(x.produto) + '</b><br><span style="font-size:11px;color:var(--text-muted);">Cód. ' + giroEsc(x.codigo_interno || '') + ' · estoque ' + Number(x.quantidade || 0).toLocaleString('pt-BR') + '</span></span>' +
+      '<b style="white-space:nowrap;">' + ofReais(x.preco_venda) + '</b></div>').join('') :
+      '<div style="font-size:12px;color:var(--text-muted);padding:6px;">Nada no estoque com esse nome — a oferta vai com o nome digitado.</div>';
+  }, 300);
+}
+async function ofEscolherProduto(i) {
+  const x = estado.ofBusca[i];
+  Object.assign(estado.ofRascunho, { codigo: x.codigo_interno, codigo_barras: x.codigo_barras, produto: x.produto });
+  if (/\bKG\b/i.test(x.produto)) document.getElementById('of-un').value = 'kg';
+  if (x.preco_venda != null) document.getElementById('of-de').value = Number(x.preco_venda).toFixed(2).replace('.', ',');
+  const busca = document.getElementById('of-busca');
+  busca.value = x.produto;
+  document.getElementById('of-busca-res').innerHTML = '';
+  await ofCarregarFotos([x.codigo_interno]);
+  busca.insertAdjacentHTML('afterend', '<div id="of-prod-escolhido"></div>');
+  ofMostrarEscolhido();
+}
+async function ofSalvarEditor() {
+  const r = estado.ofRascunho;
+  const por = ofNum(document.getElementById('of-por').value), de = ofNum(document.getElementById('of-de').value);
+  if (!r.produto || !String(r.produto).trim()) { mostrarToast('Escolha o produto.', 'erro'); return; }
+  if (!por || por <= 0) { mostrarToast('Informe o preço da oferta.', 'erro'); return; }
+  if (de != null && de <= por) { mostrarToast('O preço "de" precisa ser maior que o da oferta (ou deixe em branco).', 'erro'); return; }
+  const ag = document.getElementById('of-agenda').value;
+  const linha = {
+    codigo: r.codigo || null, codigo_barras: r.codigo_barras || null, produto: String(r.produto).trim(),
+    preco_de: de, preco_por: por, unidade_venda: document.getElementById('of-un').value,
+    fim: document.getElementById('of-fim').value || null, origem: r.origem || 'manual', observacao: r.observacao || null,
+    agendada_para: ag ? new Date(ag).toISOString() : null,
+  };
+  let res;
+  if (r.id) { linha.avisado_em = null; res = await sb.from('ofertas').update(linha).eq('id', r.id); }
+  else { linha.criado_por = estado.usuario ? estado.usuario.nome : null; linha.matricula = estado.usuario ? String(estado.usuario.matricula) : null; res = await sb.from('ofertas').insert(linha); }
+  if (res.error) { mostrarToast('Não consegui salvar: ' + res.error.message, 'erro'); return; }
+  fecharModal(); mostrarToast('Oferta salva.', 'sucesso');
+  estado.of.aba = 'ofertas'; await ofCarregar(); renderizarOfertasWhats();
+}
+
+// ---- fotos ----
+function ofAbrirFoto(codigo) {
+  if (!codigo) { mostrarToast('Essa oferta não tem produto com código — não dá pra salvar foto.', 'erro'); return; }
+  const o = estado.ofLista.find((x) => x.codigo === codigo) || estado.ofRascunho || {};
+  estado.ofFotoAlvo = { codigo, codigo_barras: o.codigo_barras || null };
+  const url = estado.ofFotos[codigo];
+  fecharModal();
+  abrirModal('Foto do produto',
+    (url ? '<img src="' + url + '" style="width:100%;max-height:240px;object-fit:contain;background:#fff;border-radius:12px;margin-bottom:12px;">' : '<p class="sub">Sem foto ainda.</p>') +
+    (estado.ofFotoAlvo.codigo_barras ? '<button class="btn-acao secundario" style="width:100%;margin-bottom:10px;" onclick="ofFotoInternet()">🔎 Buscar na internet (código de barras ' + giroEsc(estado.ofFotoAlvo.codigo_barras) + ')</button>' : '') +
+    '<div class="form-linha"><label class="campo-label">Ou envie uma foto</label><input type="file" id="of-foto-arquivo" accept="image/*"></div>',
+    'Salvar foto', ofSalvarFotoArquivo);
+}
+async function ofSalvarFotoBlob(blob, origem) {
+  const alvo = estado.ofFotoAlvo;
+  const tipo = blob.type && blob.type.startsWith('image/') ? blob.type : 'image/jpeg';
+  const nome = alvo.codigo + (tipo.includes('png') ? '.png' : '.jpg');
+  const up = await sb.storage.from('produtos-fotos').upload(nome, blob, { contentType: tipo, upsert: true });
+  if (up.error) throw up.error;
+  const url = sb.storage.from('produtos-fotos').getPublicUrl(nome).data.publicUrl;
+  const { error } = await sb.from('produto_fotos').upsert({ codigo: alvo.codigo, codigo_barras: alvo.codigo_barras, foto_url: url, origem, atualizado_por: estado.usuario ? estado.usuario.nome : null, atualizado_em: new Date().toISOString() });
+  if (error) throw error;
+  estado.ofFotos[alvo.codigo] = url + '?v=' + Date.now();
+}
+async function ofSalvarFotoArquivo() {
+  const arq = document.getElementById('of-foto-arquivo').files[0];
+  if (!arq) { mostrarToast('Escolha uma foto.', 'erro'); return; }
+  try { await ofSalvarFotoBlob(arq, 'galeria'); fecharModal(); mostrarToast('Foto salva.', 'sucesso'); renderizarOfertasWhats(); }
+  catch (e) { mostrarToast('Não consegui salvar a foto: ' + e.message, 'erro'); }
+}
+async function ofFotoInternet() {
+  const ean = String(estado.ofFotoAlvo.codigo_barras || '').replace(/\D/g, '');
+  mostrarToast('Procurando foto…', 'sucesso');
+  try {
+    let url = null;
+    for (const base of ['https://world.openfoodfacts.org', 'https://br.openfoodfacts.org']) {
+      try {
+        const r = await fetch(base + '/api/v2/product/' + ean + '.json?fields=image_front_url,image_url');
+        if (!r.ok) continue;
+        const j = await r.json();
+        url = j && j.product && (j.product.image_front_url || j.product.image_url);
+        if (url) break;
+      } catch (e) {}
+    }
+    if (!url) { mostrarToast('Não achei foto desse produto na internet. Envie uma foto.', 'erro'); return; }
+    const blob = await (await fetch(url)).blob();
+    await ofSalvarFotoBlob(blob, 'internet');
+    fecharModal(); mostrarToast('Foto encontrada e salva.', 'sucesso'); renderizarOfertasWhats();
+  } catch (e) { mostrarToast('Não consegui salvar a foto: ' + e.message, 'erro'); }
+}
+function ofAbrirLogo() {
+  estado.ofFotoAlvo = { codigo: OF_CODIGO_LOGO, codigo_barras: null };
+  abrirModal('Logo da loja no card',
+    '<p class="sub" style="margin:0 0 12px;">Envie o logo em boa resolução (PNG com fundo transparente fica melhor). Ele aparece no canto do card.</p>' +
+    '<img src="' + ofLogo() + '" style="max-width:220px;display:block;margin:0 auto 14px;">' +
+    '<div class="form-linha"><input type="file" id="of-foto-arquivo" accept="image/png,image/*"></div>',
+    'Salvar logo', ofSalvarFotoArquivo);
+}
+
+// ---- card ----
+function ofAbrirCard(ids) {
+  const lista = ids ? estado.ofLista.filter((o) => ids.includes(o.id)) : estado.ofLista.filter((o) => estado.of.sel.has(o.id));
+  if (!lista.length) return;
+  estado.ofCard = { lista, modo: lista.length > 1 ? 'lamina' : 'unico', indice: 0, titulo: 'OFERTAS DO DIA' };
+  abrirModal('Card da oferta',
+    '<div id="of-card-ctrl"></div><canvas id="of-canvas" style="width:100%;border-radius:12px;display:block;background:#E1EDF8;"></canvas>' +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;">' +
+      '<button class="btn-acao" style="background:#25D366;" onclick="ofBaixarCard()">⬇️ Baixar imagem</button>' +
+      '<button class="btn-acao secundario" onclick="ofCopiarTexto()">📋 Copiar texto</button>' +
+      '<button class="btn-acao secundario" onclick="ofWhatsWeb()">💬 Abrir WhatsApp Web</button>' +
+    '</div><p class="sub" style="margin:10px 0 0;">Baixe a imagem, abra o WhatsApp Web, escolha o grupo e anexe. Depois clique em "Marcar como enviada".</p>',
+    'Marcar como enviada', ofMarcarEnviada);
+  document.querySelector('#overlay-modal .modal-card').style.maxWidth = '560px';
+  ofDesenharCard();
+}
+function ofItensCard() { const c = estado.ofCard; return c.modo === 'lamina' ? c.lista.slice(0, 6) : [c.lista[Math.min(c.indice, c.lista.length - 1)]]; }
+function ofDesenharCard() {
+  const c = estado.ofCard;
+  const ctrl = document.getElementById('of-card-ctrl');
+  if (!ctrl) return;
+  ctrl.innerHTML = c.lista.length > 1 ? '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">' +
+    '<select class="select-filtro" onchange="estado.ofCard.modo=this.value;estado.ofCard.indice=0;ofDesenharCard()"><option value="lamina"' + (c.modo === 'lamina' ? ' selected' : '') + '>Lâmina (' + Math.min(6, c.lista.length) + ' juntas)</option><option value="unico"' + (c.modo === 'unico' ? ' selected' : '') + '>Uma por imagem</option></select>' +
+    (c.modo === 'lamina' ? '<input class="input-busca" style="max-width:220px;" value="' + giroEsc(c.titulo) + '" onchange="estado.ofCard.titulo=this.value;ofDesenharCard()" placeholder="Título">' :
+      '<button class="btn-acao secundario" onclick="estado.ofCard.indice=Math.max(0,estado.ofCard.indice-1);ofDesenharCard()">‹</button><span>' + (c.indice + 1) + ' de ' + c.lista.length + '</span><button class="btn-acao secundario" onclick="estado.ofCard.indice=Math.min(estado.ofCard.lista.length-1,estado.ofCard.indice+1);ofDesenharCard()">›</button>') +
+    '</div>' : '';
+  const itens = ofItensCard();
+  desenharCardOferta(document.getElementById('of-canvas'), {
+    modo: c.modo, titulo: c.titulo, logo: ofLogo(), validade: ofTextoValidade(itens),
+    ofertas: itens.map((o) => ({ produto: o.produto, precoDe: o.preco_de, precoPor: o.preco_por, unidade: o.unidade_venda, foto: o.codigo ? estado.ofFotos[o.codigo] || null : null })),
+  });
+}
+function ofBaixarCard() {
+  const cv = document.getElementById('of-canvas');
+  try {
+    const a = document.createElement('a');
+    a.href = cv.toDataURL('image/jpeg', 0.92);
+    a.download = 'oferta_' + ofItensCard().map((o) => o.produto.split(' ')[0].toLowerCase()).slice(0, 3).join('_') + '_' + ofHoje() + '.jpg';
+    a.click();
+  } catch (e) { mostrarToast('Não consegui gerar a imagem: ' + e.message, 'erro'); }
+}
+function ofTextoAtual() { const c = estado.ofCard; return ofTextoWhats(c.modo === 'lamina' ? c.lista : ofItensCard(), c.titulo); }
+function ofCopiarTexto() {
+  navigator.clipboard.writeText(ofTextoAtual()).then(() => mostrarToast('Texto copiado — é só colar no grupo.', 'sucesso')).catch(() => mostrarToast('Não consegui copiar.', 'erro'));
+}
+function ofWhatsWeb() { window.open('https://web.whatsapp.com/send?text=' + encodeURIComponent(ofTextoAtual()), '_blank'); }
+async function ofMarcarEnviada() {
+  const ids = ofItensCard().filter((o) => !o.enviada_em).map((o) => o.id);
+  if (ids.length) {
+    const { error } = await sb.from('ofertas').update({ enviada_em: new Date().toISOString(), enviada_por: estado.usuario ? estado.usuario.nome : null }).in('id', ids);
+    if (error) { mostrarToast('Não consegui marcar: ' + error.message, 'erro'); return; }
+  }
+  fecharModal(); mostrarToast('Marcada como enviada.', 'sucesso'); estado.of.sel = new Set(); await ofCarregar(); renderizarOfertasWhats();
+}
+
+// ---- sugestões ----
+async function ofRenderSugestoes() {
+  const el = document.getElementById('of-sug');
+  const t = estado.of.tipoSug;
+  const seg = '<div style="display:flex;gap:8px;margin-bottom:12px;">' +
+    ['giro', 'validade'].map((k) => '<button class="btn-acao' + (t === k ? '' : ' secundario') + '" onclick="estado.of.tipoSug=\'' + k + '\';renderizarOfertasWhats()">' + (k === 'giro' ? '🐢 Parados (Giro)' : '⏳ Vencendo (Validade)') + '</button>').join('') + '</div>' +
+    '<p class="sub" style="margin:0 0 12px;">' + (t === 'giro' ? 'Produtos com estoque e 14+ dias sem venda, do maior valor parado pro menor. Preço sugerido: 15% abaixo, sem passar do custo + 5%.' : 'Produtos da Validade que vencem nos próximos 10 dias. Desconto sugerido de 20% (30% se vence em até 3 dias).') + '</p>';
+  try {
+    const lista = t === 'giro' ? await ofSugestoesGiro() : await ofSugestoesValidade();
+    estado.ofSug = lista;
+    await ofCarregarFotos(lista.map((s) => s.codigo));
+    const ativos = new Set(estado.ofLista.filter(ofAtiva).map((o) => o.codigo));
+    el.innerHTML = seg + '<div class="tabela-wrap"><table><thead><tr><th>Foto</th><th>Produto</th><th>Motivo</th><th>Preço</th><th>Sugerido</th><th></th></tr></thead><tbody>' +
+      (lista.length ? lista.map((s, i) => '<tr><td>' + ofMini(s.codigo, s.produto) + '</td><td class="nome-forte">' + giroEsc(s.produto) + '</td>' +
+        '<td style="font-size:12px;color:var(--text-secondary);">' + giroEsc(s.motivo) + '</td><td style="white-space:nowrap;">' + ofReais(s.preco) + '</td>' +
+        '<td style="white-space:nowrap;font-weight:800;color:var(--red);">' + ofReais(s.precoSugerido) + '</td>' +
+        '<td>' + (ativos.has(s.codigo) ? '<span class="pill verde">já em oferta</span>' : '<button class="btn-acao" style="padding:6px 10px;font-size:12px;" onclick="ofCriarDaSugestao(' + i + ')">Criar oferta</button>') + '</td></tr>').join('')
+        : '<tr><td colspan="6"><div class="celula-vazio">Nenhuma sugestão agora.</div></td></tr>') + '</tbody></table></div>';
+  } catch (e) { el.innerHTML = seg + '<div class="celula-vazio">Não consegui carregar: ' + giroEsc(e.message || '') + '</div>'; }
+}
+async function ofPrecos(campo, valores) {
+  const m = {};
+  for (let i = 0; i < valores.length; i += 200) {
+    const { data } = await sb.from('estoque_loja_itens').select('codigo_interno, codigo_barras, produto, preco_venda, preco_custo, quantidade').in(campo, valores.slice(i, i + 200));
+    (data || []).forEach((l) => { m[campo === 'codigo_interno' ? l.codigo_interno : l.codigo_barras] = l; });
+  }
+  return m;
+}
+async function ofSugestoesGiro() {
+  const base = await giroCarregarBase(false);
+  const parados = base.produtos.filter((p) => !p.ocultoPorSetor && p.estoque > 0 && (p.diasParado === null || p.diasParado >= 14))
+    .sort((a, b) => b.custoEstoque - a.custoEstoque).slice(0, 80);
+  const precos = await ofPrecos('codigo_interno', parados.map((p) => p.codigo));
+  const out = [];
+  parados.forEach((p) => {
+    const e = precos[p.codigo]; const preco = e && e.preco_venda != null ? Number(e.preco_venda) : null;
+    if (!preco || out.length >= 40) return;
+    const custo = e.preco_custo != null ? Number(e.preco_custo) : p.custoMedio;
+    out.push({ origem: 'giro', codigo: p.codigo, codigoBarras: e.codigo_barras, produto: e.produto || p.nome, preco, precoSugerido: ofPrecoSugerido(preco, custo),
+      motivo: (p.diasParado === null ? 'Sem venda no período' : p.diasParado + ' dias sem venda') + ' · ' + p.estoque.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' em estoque · ' + ofReais(p.custoEstoque) + ' parados' });
+  });
+  return out;
+}
+async function ofSugestoesValidade() {
+  const hoje = ofHoje();
+  const { data, error } = await sb.from('validades').select('codigo_barras, produto, data_validade, quantidade').gte('data_validade', hoje).lte('data_validade', ofSomar(hoje, 10)).order('data_validade');
+  if (error) throw error;
+  const eans = [...new Set((data || []).map((l) => l.codigo_barras).filter(Boolean))];
+  const precos = await ofPrecos('codigo_barras', eans);
+  const vistos = new Set(), out = [];
+  (data || []).forEach((v) => {
+    const k = v.codigo_barras || v.produto; if (vistos.has(k)) return; vistos.add(k);
+    const e = precos[v.codigo_barras] || {};
+    const preco = e.preco_venda != null ? Number(e.preco_venda) : null;
+    const dias = Math.round((new Date(v.data_validade + 'T12:00:00') - new Date(hoje + 'T12:00:00')) / 86400000);
+    out.push({ origem: 'validade', codigo: e.codigo_interno || null, codigoBarras: v.codigo_barras, produto: e.produto || v.produto, preco,
+      precoSugerido: ofPrecoSugerido(preco, e.preco_custo != null ? Number(e.preco_custo) : null, dias <= 3 ? 0.3 : 0.2),
+      motivo: 'Vence ' + (dias === 0 ? 'hoje' : dias === 1 ? 'amanhã' : 'em ' + dias + ' dias') + ' (' + ofData(v.data_validade) + ')' + (v.quantidade ? ' · ' + Number(v.quantidade).toLocaleString('pt-BR') + ' un.' : '') });
+  });
+  return out;
+}
+function ofCriarDaSugestao(i) {
+  const s = estado.ofSug[i];
+  ofAbrirEditor(null, { codigo: s.codigo, codigo_barras: s.codigoBarras, produto: s.produto, preco_de: s.preco, preco_por: s.precoSugerido || s.preco,
+    origem: s.origem, observacao: s.motivo, unidade_venda: /\bKG\b/i.test(s.produto) ? 'kg' : 'un', fim: ofSomar(ofHoje(), s.origem === 'validade' ? 2 : 7) });
+}
+
+// ---- agenda ----
+async function ofRenderAgenda() {
+  const el = document.getElementById('of-agenda');
+  const { data, error } = await sb.from('ofertas_agenda').select('*').order('dia_semana').order('hora');
+  if (error) { el.innerHTML = '<div class="celula-vazio">' + giroEsc(error.message) + '</div>'; return; }
+  estado.ofAgenda = data || [];
+  el.innerHTML = '<p class="sub" style="margin:0 0 12px;">Dias fixos de oferta no grupo. No dia e horário marcados, todo mundo recebe um aviso no celular para montar e enviar as ofertas.</p>' +
+    '<button class="btn-acao" style="margin-bottom:12px;" onclick="ofAbrirAgenda()">+ Novo dia de oferta</button>' +
+    '<div class="tabela-wrap"><table><thead><tr><th>Dia</th><th>Horário</th><th>Nome</th><th>Setor</th><th>Situação</th><th></th></tr></thead><tbody>' +
+    (estado.ofAgenda.length ? estado.ofAgenda.map((a) => '<tr' + (a.ativo ? '' : ' style="opacity:.5"') + '><td><b>' + OF_DIAS[a.dia_semana] + '</b></td><td>' + String(a.hora).slice(0, 5) + '</td><td>' + giroEsc(a.titulo) + '</td><td>' + giroEsc(a.setor || 'Loja toda') + '</td>' +
+      '<td>' + (a.ativo ? '<span class="pill verde">ativo</span>' : '<span class="pill">pausado</span>') + '</td>' +
+      '<td><button class="btn-acao secundario" style="padding:6px 10px;font-size:12px;" onclick="ofAbrirAgenda(\'' + a.id + '\')">Editar</button></td></tr>').join('')
+      : '<tr><td colspan="6"><div class="celula-vazio">Nenhum dia fixo ainda. Ex.: "Terça do FLV", "Quinta da Carne".</div></td></tr>') + '</tbody></table></div>';
+}
+function ofAbrirAgenda(id) {
+  const a = id ? estado.ofAgenda.find((x) => x.id === id) : { dia_semana: 2, hora: '09:00', titulo: '', setor: null, ativo: true };
+  const campo = (r, h) => '<div class="form-linha"><label class="campo-label">' + r + '</label>' + h + '</div>';
+  abrirModal(id ? 'Editar dia de oferta' : 'Novo dia de oferta',
+    campo('Nome', '<input class="campo-input" id="ag-titulo" value="' + giroEsc(a.titulo) + '" placeholder="Ex.: Terça do FLV" style="margin-bottom:0">') +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+      campo('Dia', '<select class="campo-input" id="ag-dia" style="margin-bottom:0">' + OF_DIAS.map((d, i) => '<option value="' + i + '"' + (a.dia_semana === i ? ' selected' : '') + '>' + d + '</option>').join('') + '</select>') +
+      campo('Horário do aviso', '<input type="time" class="campo-input" id="ag-hora" value="' + String(a.hora).slice(0, 5) + '" style="margin-bottom:0">') +
+    '</div>' +
+    campo('Setor (opcional)', '<select class="campo-input" id="ag-setor" style="margin-bottom:0"><option value="">Loja toda</option>' + ['Açougue', 'FLV', 'Frios', 'Padaria', 'Mercearia'].map((s) => '<option' + (a.setor === s ? ' selected' : '') + '>' + s + '</option>').join('') + '</select>') +
+    (id ? '<label class="form-check"><input type="checkbox" id="ag-ativo"' + (a.ativo ? ' checked' : '') + '><span class="txt">Ativo</span></label><button class="btn-acao secundario" style="color:var(--red);" onclick="ofExcluirAgenda(\'' + id + '\')">Excluir</button>' : ''),
+    'Salvar', async () => {
+      const linha = { titulo: document.getElementById('ag-titulo').value.trim(), dia_semana: Number(document.getElementById('ag-dia').value), hora: document.getElementById('ag-hora').value || '09:00', setor: document.getElementById('ag-setor').value || null };
+      if (!linha.titulo) { mostrarToast('Dê um nome.', 'erro'); return; }
+      let r;
+      if (id) { linha.ativo = document.getElementById('ag-ativo').checked; r = await sb.from('ofertas_agenda').update(linha).eq('id', id); }
+      else { linha.criado_por = estado.usuario ? estado.usuario.nome : null; r = await sb.from('ofertas_agenda').insert(linha); }
+      if (r.error) { mostrarToast('Não consegui salvar: ' + r.error.message, 'erro'); return; }
+      fecharModal(); ofRenderAgenda();
+    });
+}
+async function ofExcluirAgenda(id) {
+  if (!confirm('Excluir este dia de oferta?')) return;
+  await sb.from('ofertas_agenda').delete().eq('id', id);
+  fecharModal(); ofRenderAgenda();
+}
+
+// ---- resultado ----
+async function ofRenderResultados() {
+  const el = document.getElementById('of-res');
+  const enviadas = estado.ofLista.filter((o) => o.enviada_em && o.codigo).slice(0, 60);
+  if (!enviadas.length) { el.innerHTML = '<div class="celula-vazio">Assim que uma oferta for enviada no grupo, o resultado de venda aparece aqui.</div>'; return; }
+  const { data: ult } = await sb.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: false }).limit(1);
+  const ultima = ult && ult[0] ? ult[0].data_venda : null;
+  const linhas = [];
+  for (const o of enviadas) {
+    const envio = o.enviada_em.slice(0, 10);
+    if (!ultima || ultima < envio) { linhas.push([o, null]); continue; }
+    const fim = o.fim && o.fim < ultima ? o.fim : ultima;
+    const { data } = await sb.from('vendas_diarias').select('data_venda, venda_valor').eq('codigo_produto', o.codigo).gte('data_venda', ofSomar(envio, -14)).lte('data_venda', fim);
+    let antes = 0, depois = 0;
+    (data || []).forEach((l) => { if (l.data_venda < envio) antes += Number(l.venda_valor || 0); else depois += Number(l.venda_valor || 0); });
+    const dias = Math.max(1, Math.round((new Date(fim + 'T12:00:00') - new Date(envio + 'T12:00:00')) / 86400000) + 1);
+    linhas.push([o, { antes: antes / 14, depois: depois / dias, dias }]);
+  }
+  el.innerHTML = '<p class="sub" style="margin:0 0 12px;">Venda média por dia (R$) nos 14 dias antes do envio × do envio até o fim da oferta. Última venda importada: <b>' + (ultima ? ofData(ultima) : '—') + '</b>.</p>' +
+    '<div class="tabela-wrap"><table><thead><tr><th>Produto</th><th>Oferta</th><th>Enviada</th><th>Antes (R$/dia)</th><th>Com a oferta</th><th>Variação</th></tr></thead><tbody>' +
+    linhas.map(([o, r]) => {
+      const v = r && r.antes > 0 ? (r.depois - r.antes) / r.antes * 100 : null;
+      return '<tr><td class="nome-forte">' + giroEsc(o.produto) + '</td><td style="white-space:nowrap;">' + ofReais(o.preco_por) + '</td><td style="white-space:nowrap;">' + ofData(o.enviada_em) + (o.enviada_por ? '<div style="font-size:11px;color:var(--text-muted);">' + giroEsc(o.enviada_por) + '</div>' : '') + '</td>' +
+        (r ? '<td>' + ofReais(r.antes) + '</td><td>' + ofReais(r.depois) + ' <span style="font-size:11px;color:var(--text-muted);">(' + r.dias + 'd)</span></td>' +
+          '<td><span class="pill ' + (v == null ? '' : v >= 0 ? 'verde' : 'vermelho') + '">' + (v == null ? 'novo' : (v >= 0 ? '+' : '') + v.toFixed(0) + '%') + '</span></td>'
+          : '<td colspan="3" style="color:var(--text-muted);font-size:12px;">Aguardando importar as vendas depois do envio.</td>') + '</tr>';
+    }).join('') + '</tbody></table></div>';
 }
 
 // =============================================================================
