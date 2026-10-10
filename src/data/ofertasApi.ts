@@ -10,9 +10,48 @@ import { LOGO_RESERVA } from './logoReserva';
 // sistema nenhum postar sozinho em grupo. As sugestões vêm do Giro (produto
 // parado com estoque) e da Validade (vencendo). Depois do envio, o app compara
 // a venda do produto antes e depois (vendas_diarias).
+//
+// Trava: colaborador sugere → gerente valida → quem dispara (Marcela S.)
+// recebe o aviso e envia no grupo. Os avisos saem do próprio banco (trigger
+// ofertas_avisar_mudanca no schema_ofertas_whatsapp.sql).
 // =============================================================================
 
-export type OrigemOferta = 'manual' | 'giro' | 'validade' | 'jornal';
+export type OrigemOferta = 'manual' | 'giro' | 'estoque_alto' | 'validade' | 'jornal';
+export type StatusOferta = 'pendente' | 'aprovada' | 'reprovada';
+
+// Quem dispara as ofertas aprovadas no grupo (mesma lista do banco:
+// ofertas_disparadores()). Hoje: Marcela S.
+export const DISPARADORES_OFERTAS = ['9734844'];
+export const podeDisparar = (u: { matricula?: string | number | null; isAdmin?: boolean } | null) =>
+  !!u && (!!u.isAdmin || DISPARADORES_OFERTAS.includes(String(u.matricula ?? '')));
+
+// Setores das sugestões: o nome que aparece no app, os setores do cadastro
+// de produtos (giro) que entram nele e os setores do app (Validade).
+export interface SetorOferta {
+  chave: string;
+  nome: string;
+  giro: string[];
+  app: string[];
+}
+export const SETORES_OFERTA: SetorOferta[] = [
+  { chave: 'acougue', nome: 'Açougue', giro: ['ACOUGUE/SALGADOS/DEFUMADO'], app: ['acougue'] },
+  { chave: 'flv', nome: 'FLV', giro: ['HORTIFRUTIGRANJEIROS', 'MARGEM GARANTIDA'], app: ['flv'] },
+  { chave: 'frios', nome: 'Frios e Laticínios', giro: ['PERECIVEIS'], app: ['frios'] },
+  { chave: 'padaria', nome: 'Padaria', giro: ['PADARIA FORN/FAB PROPRIA'], app: ['padaria'] },
+  { chave: 'mercearia', nome: 'Mercearia', giro: ['MERCEARIA DOCE', 'MERCEARIA SALGADA', 'CEREAIS', 'BOMBONIERE/MATINAIS'], app: ['mercearia', 'deposito'] },
+  { chave: 'bebidas', nome: 'Bebidas', giro: ['MERCEARIA LIQUIDA'], app: [] },
+  { chave: 'limpeza', nome: 'Limpeza', giro: ['LIMPEZA'], app: [] },
+  { chave: 'higiene', nome: 'Higiene e Perfumaria', giro: ['PERFUMARIA/HIG PESSOAL'], app: [] },
+  { chave: 'bazar', nome: 'Bazar', giro: ['BAZAR', 'MARGEM GARANTIDA BAZAR'], app: [] },
+];
+export const nomeSetorOferta = (chave: string | null | undefined) => SETORES_OFERTA.find((s) => s.chave === chave)?.nome ?? null;
+// Setor do colaborador → setor das sugestões (null = loja toda)
+export function setorOfertaDoUsuario(setorApp: string | null | undefined): string | null {
+  return SETORES_OFERTA.find((s) => s.app.includes(setorApp ?? ''))?.chave ?? null;
+}
+function setorDoGiro(setorGiro: string): string | null {
+  return SETORES_OFERTA.find((s) => s.giro.includes(setorGiro))?.chave ?? null;
+}
 
 export interface Oferta {
   id: string;
@@ -25,11 +64,17 @@ export interface Oferta {
   inicio: string;
   fim: string | null;
   origem: OrigemOferta;
+  setor: string | null;
   observacao: string | null;
+  status: StatusOferta;
+  aprovadaPor: string | null;
+  aprovadaEm: string | null;
+  motivoReprovacao: string | null;
   agendadaPara: string | null;
   enviadaEm: string | null;
   enviadaPor: string | null;
   criadoPor: string | null;
+  matricula: string | null;
   criadoEm: string;
 }
 
@@ -43,7 +88,8 @@ export interface ProdutoBusca {
 }
 
 export interface Sugestao extends ProdutoBusca {
-  origem: 'giro' | 'validade';
+  origem: 'giro' | 'estoque_alto' | 'validade';
+  setor: string | null;
   motivo: string;
   precoSugerido: number | null;
   peso: number; // pra ordenar (R$ parado ou urgência)
@@ -63,11 +109,17 @@ function linhaParaOferta(l: any): Oferta {
     inicio: l.inicio,
     fim: l.fim ?? null,
     origem: l.origem,
+    setor: l.setor ?? null,
     observacao: l.observacao ?? null,
+    status: (l.status ?? 'pendente') as StatusOferta,
+    aprovadaPor: l.aprovada_por ?? null,
+    aprovadaEm: l.aprovada_em ?? null,
+    motivoReprovacao: l.motivo_reprovacao ?? null,
     agendadaPara: l.agendada_para ?? null,
     enviadaEm: l.enviada_em ?? null,
     enviadaPor: l.enviada_por ?? null,
     criadoPor: l.criado_por ?? null,
+    matricula: l.matricula ?? null,
     criadoEm: l.criado_em,
   };
 }
@@ -191,7 +243,10 @@ export async function listarOfertas(): Promise<Oferta[]> {
   return (data ?? []).map(linhaParaOferta);
 }
 
-export async function salvarOferta(d: Partial<Oferta> & { produto: string; precoPor: number }, por: { nome: string; matricula: string | null }): Promise<Oferta> {
+export async function salvarOferta(
+  d: Partial<Oferta> & { produto: string; precoPor: number },
+  por: { nome: string; matricula: string | null; gerente: boolean },
+): Promise<Oferta> {
   const linha: any = {
     codigo: d.codigo ?? null,
     codigo_barras: d.codigoBarras ?? null,
@@ -202,11 +257,23 @@ export async function salvarOferta(d: Partial<Oferta> & { produto: string; preco
     inicio: d.inicio ?? hojeIso(),
     fim: d.fim ?? null,
     origem: d.origem ?? 'manual',
+    setor: d.setor ?? null,
     observacao: d.observacao ?? null,
     agendada_para: d.agendadaPara ?? null,
+    avisado_em: null,
+    motivo_reprovacao: null,
   };
+  // Gerente: já entra aprovada (avisa quem dispara). Colaborador: vai pra validação.
+  if (por.gerente) {
+    linha.status = 'aprovada';
+    if (d.status !== 'aprovada') {
+      linha.aprovada_por = por.nome;
+      linha.aprovada_em = new Date().toISOString();
+    }
+  } else {
+    linha.status = 'pendente';
+  }
   if (d.id) {
-    linha.avisado_em = null; // reagendou: avisa de novo
     const { data, error } = await supabase.from('ofertas').update(linha).eq('id', d.id).select('*').single();
     if (error) throw error;
     return linhaParaOferta(data);
@@ -218,6 +285,23 @@ export async function salvarOferta(d: Partial<Oferta> & { produto: string; preco
     .single();
   if (error) throw error;
   return linhaParaOferta(data);
+}
+
+export async function aprovarOfertas(ids: string[], por: string): Promise<void> {
+  if (!ids.length) return;
+  const { error } = await supabase
+    .from('ofertas')
+    .update({ status: 'aprovada', aprovada_por: por, aprovada_em: new Date().toISOString(), motivo_reprovacao: null })
+    .in('id', ids);
+  if (error) throw error;
+}
+
+export async function reprovarOferta(id: string, motivo: string, por: string): Promise<void> {
+  const { error } = await supabase
+    .from('ofertas')
+    .update({ status: 'reprovada', aprovada_por: por, aprovada_em: new Date().toISOString(), motivo_reprovacao: motivo.trim() || null })
+    .eq('id', id);
+  if (error) throw error;
 }
 
 export async function excluirOferta(id: string): Promise<void> {
@@ -236,8 +320,13 @@ export async function marcarOfertasEnviadas(ids: string[], por: string): Promise
 }
 
 // --- Sugestões ---------------------------------------------------------------
+//
+// Três listas, sempre filtráveis por setor:
+//   * Parados ........ estoque e 14+ dias sem venda (giro), maior valor parado primeiro
+//   * Estoque alto ... vende, mas o estoque cobre mais de 45 dias de venda
+//   * Vencendo ....... cadastrados na Validade, vencem em até 10 dias
 
-// Preço sugerido: 15% abaixo do preço atual, sem passar de 5% acima do custo.
+// Preço sugerido: X% abaixo do preço atual, sem passar de 5% acima do custo.
 export function precoSugerido(preco: number | null, custo: number | null, desconto = 0.15): number | null {
   if (!preco) return null;
   let p = preco * (1 - desconto);
@@ -259,10 +348,15 @@ async function precosPorCodigo(codigos: string[]): Promise<Record<string, any>> 
   return m;
 }
 
-export async function sugestoesDoGiro(limite = 40): Promise<Sugestao[]> {
+const fmtQtd = (n: number) => n.toLocaleString('pt-BR', { maximumFractionDigits: 1 });
+
+export type TipoSugestao = 'giro' | 'estoque_alto' | 'validade';
+
+export async function sugestoesDoGiro(setor: string | null, limite = 40): Promise<Sugestao[]> {
   const base = await carregarBaseGiro(false);
   const parados = base.produtos
     .filter((p) => !p.ocultoPorSetor && p.estoque > 0 && (p.diasParado === null || p.diasParado >= 14))
+    .filter((p) => !setor || setorDoGiro(p.setor) === setor)
     .sort((a, b) => b.custoEstoque - a.custoEstoque)
     .slice(0, limite * 2);
   const precos = await precosPorCodigo(parados.map((p) => p.codigo));
@@ -274,6 +368,7 @@ export async function sugestoesDoGiro(limite = 40): Promise<Sugestao[]> {
     const custo = num(e?.preco_custo) ?? p.custoMedio ?? null;
     lista.push({
       origem: 'giro',
+      setor: setorDoGiro(p.setor),
       codigo: p.codigo,
       codigoBarras: e?.codigo_barras ?? null,
       produto: e?.produto ?? p.nome,
@@ -281,9 +376,7 @@ export async function sugestoesDoGiro(limite = 40): Promise<Sugestao[]> {
       custo,
       estoque: p.estoque,
       precoSugerido: precoSugerido(preco, custo),
-      motivo:
-        (p.diasParado === null ? 'Sem venda no período' : `${p.diasParado} dias sem venda`) +
-        ` · ${p.estoque.toLocaleString('pt-BR', { maximumFractionDigits: 1 })} em estoque · ${reais(p.custoEstoque)} parados`,
+      motivo: (p.diasParado === null ? 'Sem venda no período' : `${p.diasParado} dias sem venda`) + ` · ${fmtQtd(p.estoque)} em estoque · ${reais(p.custoEstoque)} parados`,
       peso: p.custoEstoque,
     });
     if (lista.length >= limite) break;
@@ -291,14 +384,62 @@ export async function sugestoesDoGiro(limite = 40): Promise<Sugestao[]> {
   return lista;
 }
 
-export async function sugestoesDaValidade(dias = 10): Promise<Sugestao[]> {
+export async function sugestoesEstoqueAlto(setor: string | null, limite = 40): Promise<Sugestao[]> {
+  const base = await carregarBaseGiro(false);
+  const dias =
+    base.periodoInicio && base.periodoFim
+      ? Math.max(1, Math.round((new Date(base.periodoFim + 'T12:00:00').getTime() - new Date(base.periodoInicio + 'T12:00:00').getTime()) / 86400000) + 1)
+      : 30;
+  const candidatos = base.produtos
+    .filter((p) => !p.ocultoPorSetor && p.estoque > 0 && p.vendaPeriodo > 0 && p.diasParado !== null && p.diasParado < 14)
+    .filter((p) => !setor || setorDoGiro(p.setor) === setor)
+    .map((p) => {
+      // venda em R$ → custo/dia aproximado (margem média de 25%) pra comparar com o estoque a custo
+      const custoDia = (p.vendaPeriodo * 0.75) / dias;
+      return { p, cobertura: custoDia > 0 ? p.custoEstoque / custoDia : 0 };
+    })
+    .filter((x) => x.cobertura > 45 && x.p.custoEstoque >= 100)
+    .sort((a, b) => b.p.custoEstoque - a.p.custoEstoque)
+    .slice(0, limite * 2);
+  const precos = await precosPorCodigo(candidatos.map((x) => x.p.codigo));
+  const lista: Sugestao[] = [];
+  for (const { p, cobertura } of candidatos) {
+    const e = precos[p.codigo];
+    const preco = num(e?.preco_venda);
+    if (!preco) continue;
+    const custo = num(e?.preco_custo) ?? p.custoMedio ?? null;
+    lista.push({
+      origem: 'estoque_alto',
+      setor: setorDoGiro(p.setor),
+      codigo: p.codigo,
+      codigoBarras: e?.codigo_barras ?? null,
+      produto: e?.produto ?? p.nome,
+      preco,
+      custo,
+      estoque: p.estoque,
+      precoSugerido: precoSugerido(preco, custo, 0.1),
+      motivo: `Estoque para ~${Math.round(cobertura)} dias de venda · ${fmtQtd(p.estoque)} em estoque · ${reais(p.custoEstoque)}`,
+      peso: p.custoEstoque,
+    });
+    if (lista.length >= limite) break;
+  }
+  return lista;
+}
+
+export async function sugestoesDaValidade(setor: string | null, dias = 10): Promise<Sugestao[]> {
   const hoje = hojeIso();
-  const { data, error } = await supabase
+  let q = supabase
     .from('validades')
-    .select('codigo_barras, produto, data_validade, quantidade')
+    .select('codigo_barras, produto, data_validade, quantidade, setor')
     .gte('data_validade', hoje)
     .lte('data_validade', somarDias(hoje, dias))
     .order('data_validade');
+  const s = SETORES_OFERTA.find((x) => x.chave === setor);
+  if (s) {
+    if (!s.app.length) return [];
+    q = q.in('setor', s.app);
+  }
+  const { data, error } = await q;
   if (error) throw error;
   const linhas = data ?? [];
   const eans = [...new Set(linhas.map((l: any) => l.codigo_barras).filter(Boolean))];
@@ -322,6 +463,7 @@ export async function sugestoesDaValidade(dias = 10): Promise<Sugestao[]> {
     const diasRest = Math.round((new Date(v.data_validade + 'T12:00:00').getTime() - new Date(hoje + 'T12:00:00').getTime()) / 86400000);
     lista.push({
       origem: 'validade',
+      setor: setorOfertaDoUsuario(v.setor),
       codigo: e?.codigo_interno ?? null,
       codigoBarras: v.codigo_barras ?? null,
       produto: e?.produto ?? v.produto,
@@ -330,12 +472,17 @@ export async function sugestoesDaValidade(dias = 10): Promise<Sugestao[]> {
       estoque: num(e?.quantidade),
       // Mais perto de vencer = desconto maior
       precoSugerido: precoSugerido(preco, custo, diasRest <= 3 ? 0.3 : 0.2),
-      motivo: `Vence ${diasRest === 0 ? 'hoje' : diasRest === 1 ? 'amanhã' : `em ${diasRest} dias`} (${dataBr(v.data_validade)})` +
+      motivo:
+        `Vence ${diasRest === 0 ? 'hoje' : diasRest === 1 ? 'amanhã' : `em ${diasRest} dias`} (${dataBr(v.data_validade)})` +
         (v.quantidade ? ` · ${Number(v.quantidade).toLocaleString('pt-BR')} un. na validade` : ''),
       peso: 100 - diasRest,
     });
   }
   return lista;
+}
+
+export function buscarSugestoes(tipo: TipoSugestao, setor: string | null): Promise<Sugestao[]> {
+  return tipo === 'giro' ? sugestoesDoGiro(setor) : tipo === 'estoque_alto' ? sugestoesEstoqueAlto(setor) : sugestoesDaValidade(setor);
 }
 
 // --- Resultado (venda antes × depois) -----------------------------------------
