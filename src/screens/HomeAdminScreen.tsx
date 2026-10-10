@@ -27,6 +27,7 @@ import GiroProdutosScreen from './GiroProdutosScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
+import UsoConsumoScreen from './UsoConsumoScreen';
 
 // Aba de chat com a IA visível só nesse login específico (Lucas), não pros
 // demais administradores. Identificado pela matrícula (e não pelo id),
@@ -60,7 +61,8 @@ export default function HomeAdminScreen() {
     | 'visitaTecnica'
     | 'colaboradores'
     | 'escalaFaltas'
-        | 'precificacao'
+    | 'precificacao'
+    | 'usoConsumo'
   >('home');
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
@@ -186,6 +188,9 @@ export default function HomeAdminScreen() {
     if (tela === 'precificacao') {
     return <PrecificacaoScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'usoConsumo') {
+    return <UsoConsumoScreen onVoltar={() => setTela('home')} />;
+  }
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -282,6 +287,7 @@ export default function HomeAdminScreen() {
             { label: 'Validade', icone: 'calendar' as const, onPress: () => setTela('validade') },
             { label: 'Inventário', icone: 'package' as const, onPress: () => setTela('inventario') },
             { label: 'Estoque Loja', icone: 'archive' as const, onPress: () => setTela('estoqueLoja') },
+            { label: 'Uso e Consumo', icone: 'box' as const, onPress: () => setTela('usoConsumo') },
             { label: 'Mural de Avisos', icone: 'bell' as const, onPress: () => setTela('avisos') },
             { label: 'Ocorrências', icone: 'alert-triangle' as const, onPress: () => setTela('ocorrencias') },
             { label: 'Conferência', icone: 'clipboard' as const, onPress: () => setTela('conferencias') },
