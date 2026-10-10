@@ -37,6 +37,7 @@ import ColaboradoresScreen from './ColaboradoresScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import UsoConsumoScreen from './UsoConsumoScreen';
+import OfertasScreen from './OfertasScreen';
 
 const FRASES_DO_DIA = [
   'Pequenas melhorias todos os dias constroem grandes resultados.',
@@ -70,6 +71,7 @@ export default function HomeColaboradorScreen() {
     | 'precificacao'
     | 'escalaFaltas'
     | 'usoConsumo'
+    | 'ofertas'
   >('home');
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
@@ -222,6 +224,9 @@ export default function HomeColaboradorScreen() {
   }
   if (tela === 'usoConsumo') {
     return <UsoConsumoScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'ofertas') {
+    return <OfertasScreen onVoltar={() => setTela('home')} />;
   }
 
   const nomeSetor = setores.find((s) => s.key === usuarioAtual.setor)?.nome ?? usuarioAtual.setor;
@@ -496,6 +501,7 @@ export default function HomeColaboradorScreen() {
                 { label: 'Precificação', icone: 'tag' as const, chave: 'precificacao', onPress: () => setTela('precificacao') },
                 { label: 'Perdas e Desperdício', icone: 'trending-down' as const, chave: 'perdas', onPress: () => setTela('perdas') },
                 { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
+                { label: 'Ofertas no WhatsApp', icone: 'send' as const, chave: 'ofertas', onPress: () => setTela('ofertas') },
                 { label: 'Uso e Consumo', icone: 'box' as const, chave: 'usoConsumo', onPress: () => setTela('usoConsumo') },
                 { label: 'Inventário', icone: 'package' as const, chave: null, onPress: undefined },
                 { label: 'Mural de Avisos', icone: 'bell' as const, chave: 'avisos', onPress: () => setTela('avisos') },

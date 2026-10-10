@@ -28,6 +28,7 @@ import ColaboradoresScreen from './ColaboradoresScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
 import UsoConsumoScreen from './UsoConsumoScreen';
+import OfertasScreen from './OfertasScreen';
 
 // Aba de chat com a IA visível só nesse login específico (Lucas), não pros
 // demais administradores. Identificado pela matrícula (e não pelo id),
@@ -63,6 +64,7 @@ export default function HomeAdminScreen() {
     | 'escalaFaltas'
     | 'precificacao'
     | 'usoConsumo'
+    | 'ofertas'
   >('home');
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
@@ -191,6 +193,9 @@ export default function HomeAdminScreen() {
   if (tela === 'usoConsumo') {
     return <UsoConsumoScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'ofertas') {
+    return <OfertasScreen onVoltar={() => setTela('home')} />;
+  }
 
   return (
     <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 40 }}>
@@ -272,6 +277,7 @@ export default function HomeAdminScreen() {
             // separadas (rotina do dia + avaliação de setor) — ver
             // ChecklistHubScreen.tsx.
             { label: 'Checklist', icone: 'check-square' as const, onPress: () => setTela('checklist') },
+            { label: 'Ofertas no WhatsApp', icone: 'send' as const, onPress: () => setTela('ofertas') },
             // Checklist do Técnico Veterinário (Boas Práticas) — o próprio
             // veterinário cai direto nessa tela ao logar; aqui é o acesso do
             // administrador pra acompanhar/testar.
