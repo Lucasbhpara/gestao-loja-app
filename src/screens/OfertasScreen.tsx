@@ -41,8 +41,14 @@ import {
   salvarOferta,
   excluirOferta,
   marcarOfertasEnviadas,
-  sugestoesDoGiro,
-  sugestoesDaValidade,
+  buscarSugestoes,
+  TipoSugestao,
+  SETORES_OFERTA,
+  nomeSetorOferta,
+  setorOfertaDoUsuario,
+  podeDisparar,
+  aprovarOfertas,
+  reprovarOferta,
   resultadoDaOferta,
   listarAgenda,
   salvarAgenda,
@@ -64,7 +70,7 @@ import {
 // Ver ofertasApi.ts e cardOfertaJs.ts.
 // =============================================================================
 
-type Aba = 'ofertas' | 'sugestoes' | 'agenda' | 'resultados';
+type Aba = 'validar' | 'disparar' | 'ofertas' | 'sugestoes' | 'agenda' | 'resultados';
 type Rascunho = Partial<Oferta> & { precoDeTexto?: string; precoPorTexto?: string };
 
 const UNIDADES = [
@@ -75,7 +81,13 @@ const UNIDADES = [
   { k: 'cx', r: 'Caixa' },
   { k: 'dz', r: 'Dúzia' },
 ];
-const ORIGEM_ROTULO: Record<string, string> = { manual: 'Manual', giro: 'Giro', validade: 'Validade', jornal: 'Jornal' };
+const ORIGEM_ROTULO: Record<string, string> = { manual: 'Manual', giro: 'Parado', estoque_alto: 'Estoque alto', validade: 'Validade', jornal: 'Jornal' };
+const MOTIVOS_REPROVACAO = ['Preço', 'Sem estoque suficiente', 'Já está no jornal', 'Margem baixa', 'Fora do momento'];
+const TIPOS_SUGESTAO: { k: TipoSugestao; r: string; dica: string }[] = [
+  { k: 'giro', r: '🐢 Parados', dica: 'Com estoque e 14+ dias sem venda, do maior valor parado pro menor. Preço sugerido 15% abaixo (sem passar do custo + 5%).' },
+  { k: 'estoque_alto', r: '📦 Estoque alto', dica: 'Vendem, mas o estoque dá pra mais de 45 dias de venda. Preço sugerido 10% abaixo.' },
+  { k: 'validade', r: '⏳ Vencendo', dica: 'Cadastrados na Validade que vencem em até 10 dias. Desconto sugerido de 20% (30% se vence em até 3 dias).' },
+];
 
 const numero = (t: string | undefined): number | null => {
   if (!t || !t.trim()) return null;
@@ -102,10 +114,12 @@ const dataHoraBr = (iso: string) => {
 
 export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
-  const quem = { nome: usuarioAtual?.nome ?? '', matricula: usuarioAtual?.matricula ? String(usuarioAtual.matricula) : null };
+  const gerente = !!usuarioAtual?.isAdmin;
+  const disparador = podeDisparar(usuarioAtual);
+  const quem = { nome: usuarioAtual?.nome ?? '', matricula: usuarioAtual?.matricula ? String(usuarioAtual.matricula) : null, gerente };
   const { width } = useWindowDimensions();
 
-  const [aba, setAba] = useState<Aba>('ofertas');
+  const [aba, setAba] = useState<Aba>(gerente ? 'validar' : disparador ? 'disparar' : 'sugestoes');
   const [ofertas, setOfertas] = useState<Oferta[]>([]);
   const [fotos, setFotos] = useState<Record<string, string>>({});
   const [carregando, setCarregando] = useState(true);
@@ -124,8 +138,13 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
   const [dataPersonalizada, setDataPersonalizada] = useState(false);
 
   // Sugestões
-  const [tipoSugestao, setTipoSugestao] = useState<'giro' | 'validade'>('giro');
-  const [sugestoes, setSugestoes] = useState<Record<string, Sugestao[] | null>>({ giro: null, validade: null });
+  const [tipoSugestao, setTipoSugestao] = useState<TipoSugestao>('giro');
+  const [setorSugestao, setSetorSugestao] = useState<string | null>(setorOfertaDoUsuario(usuarioAtual?.setor));
+  const [sugestoes, setSugestoes] = useState<Record<string, Sugestao[] | null>>({});
+
+  // Validação
+  const [reprovando, setReprovando] = useState<Oferta | null>(null);
+  const [motivo, setMotivo] = useState('');
   const [carregandoSugestoes, setCarregandoSugestoes] = useState(false);
 
   // Agenda
@@ -165,21 +184,23 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
   }, []);
 
   useEffect(() => {
-    if (aba === 'sugestoes' && sugestoes[tipoSugestao] === null && !carregandoSugestoes) carregarSugestoes(tipoSugestao);
+    if (aba === 'sugestoes' && sugestoes[chaveSug(tipoSugestao, setorSugestao)] === undefined && !carregandoSugestoes) carregarSugestoes(tipoSugestao, setorSugestao);
     if (aba === 'agenda' && agenda === null) listarAgenda().then(setAgenda).catch((e) => Alert.alert('Agenda', e?.message ?? ''));
     if (aba === 'resultados') carregarResultados();
-  }, [aba, tipoSugestao]);
+  }, [aba, tipoSugestao, setorSugestao]);
 
-  async function carregarSugestoes(tipo: 'giro' | 'validade') {
+  const chaveSug = (t: TipoSugestao, s: string | null) => `${t}:${s ?? 'todos'}`;
+  async function carregarSugestoes(tipo: TipoSugestao, setor: string | null) {
+    const k = chaveSug(tipo, setor);
     setCarregandoSugestoes(true);
     try {
-      const lista = tipo === 'giro' ? await sugestoesDoGiro() : await sugestoesDaValidade();
-      setSugestoes((s) => ({ ...s, [tipo]: lista }));
+      const lista = await buscarSugestoes(tipo, setor);
+      setSugestoes((s) => ({ ...s, [k]: lista }));
       const f = await buscarFotos(lista.map((x) => x.codigo ?? '')).catch(() => ({}));
       setFotos((ant) => ({ ...ant, ...f }));
     } catch (e: any) {
       Alert.alert('Sugestões', e?.message ?? 'Não consegui carregar.');
-      setSugestoes((s) => ({ ...s, [tipo]: [] }));
+      setSugestoes((s) => ({ ...s, [k]: [] }));
     } finally {
       setCarregandoSugestoes(false);
     }
@@ -197,13 +218,20 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
     }
   }
 
-  const ativas = useMemo(() => ofertas.filter(ofertaAtiva), [ofertas]);
-  const encerradas = useMemo(() => ofertas.filter((o) => !ofertaAtiva(o)), [ofertas]);
+  // Colaborador vê só as próprias sugestões; gerente e quem dispara veem todas.
+  const visiveis = useMemo(
+    () => (gerente || disparador ? ofertas : ofertas.filter((o) => o.matricula === quem.matricula)),
+    [ofertas, gerente, disparador, quem.matricula],
+  );
+  const ativas = useMemo(() => visiveis.filter(ofertaAtiva), [visiveis]);
+  const encerradas = useMemo(() => visiveis.filter((o) => !ofertaAtiva(o)), [visiveis]);
+  const pendentes = useMemo(() => ofertas.filter((o) => o.status === 'pendente' && ofertaAtiva(o)), [ofertas]);
+  const paraDisparar = useMemo(() => ofertas.filter((o) => o.status === 'aprovada' && !o.enviadaEm && ofertaAtiva(o)), [ofertas]);
   const ofertaPorCodigo = useMemo(() => {
     const m: Record<string, Oferta> = {};
-    ativas.forEach((o) => o.codigo && (m[o.codigo] = o));
+    ofertas.filter((o) => ofertaAtiva(o) && o.status !== 'reprovada').forEach((o) => o.codigo && (m[o.codigo] = o));
     return m;
-  }, [ativas]);
+  }, [ofertas]);
 
   // ---------------------------------------------------------------- editor
   function novaOferta(base?: Partial<Oferta>) {
@@ -211,6 +239,7 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
       unidadeVenda: /\bKG\b/i.test(base?.produto ?? '') ? 'kg' : 'un',
       fim: somarDias(hojeIso(), 3),
       origem: 'manual',
+      setor: setorSugestao ?? setorOfertaDoUsuario(usuarioAtual?.setor),
       ...base,
       precoDeTexto: precoTexto(base?.precoDe ?? null),
       precoPorTexto: precoTexto(base?.precoPor ?? null),
@@ -228,6 +257,7 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
       precoDe: s.preco,
       precoPor: s.precoSugerido ?? s.preco ?? undefined,
       origem: s.origem,
+      setor: s.setor,
       fim: s.origem === 'validade' ? somarDias(hojeIso(), 2) : somarDias(hojeIso(), 7),
       observacao: s.motivo,
     });
@@ -268,17 +298,44 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
     if (!precoPor || precoPor <= 0) return Alert.alert('Preço', 'Informe o preço da oferta ("por").');
     const precoDe = numero(rascunho.precoDeTexto);
     if (precoDe != null && precoDe <= precoPor) return Alert.alert('Preço', 'O preço "de" precisa ser maior que o preço da oferta — ou deixe em branco.');
+    if (!rascunho.fim) return Alert.alert('Validade da oferta', 'Escolha até quando a oferta vale.');
+    if (rascunho.fim < hojeIso()) return Alert.alert('Validade da oferta', 'A validade não pode ser antes de hoje.');
     setSalvando(true);
     try {
       const o = await salvarOferta({ ...rascunho, produto: rascunho.produto!, precoPor, precoDe }, quem);
       setRascunho(null);
       setOfertas((ant) => [o, ...ant.filter((x) => x.id !== o.id)]);
-      if (aba !== 'ofertas') setAba('ofertas');
+      if (!gerente) {
+        Alert.alert('Enviada para validação ✅', 'Os gerentes vão avaliar. Quando aprovarem, a Marcela dispara no grupo. Você acompanha em "Minhas".');
+      }
       depois?.(o);
     } catch (e: any) {
       Alert.alert('Não consegui salvar', e?.message ?? 'Tente novamente.');
     } finally {
       setSalvando(false);
+    }
+  }
+
+  async function aprovar(lista: Oferta[]) {
+    try {
+      await aprovarOfertas(lista.map((o) => o.id), quem.nome);
+      const agora = new Date().toISOString();
+      setOfertas((ant) => ant.map((o) => (lista.some((x) => x.id === o.id) ? { ...o, status: 'aprovada', aprovadaPor: quem.nome, aprovadaEm: agora } : o)));
+    } catch (e: any) {
+      Alert.alert('Não consegui aprovar', e?.message ?? '');
+    }
+  }
+
+  async function confirmarReprovacao() {
+    if (!reprovando) return;
+    if (!motivo.trim()) return Alert.alert('Motivo', 'Diga o motivo pra quem sugeriu entender.');
+    try {
+      await reprovarOferta(reprovando.id, motivo, quem.nome);
+      setOfertas((ant) => ant.map((o) => (o.id === reprovando.id ? { ...o, status: 'reprovada', motivoReprovacao: motivo.trim() } : o)));
+      setReprovando(null);
+      setMotivo('');
+    } catch (e: any) {
+      Alert.alert('Não consegui reprovar', e?.message ?? '');
     }
   }
 
@@ -437,22 +494,31 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
     );
   }
 
-  function CartaoOferta({ o }: { o: Oferta }) {
+  function alternarSelecao(id: string) {
+    setSelecionadas((s) => {
+      const n = new Set(s);
+      n.has(id) ? n.delete(id) : n.add(id);
+      return n;
+    });
+  }
+
+  function TagStatus({ o }: { o: Oferta }) {
+    if (o.enviadaEm) return <Text style={[styles.tag, styles.tagVerde]}>📣 enviada {dataBrCurta(o.enviadaEm)}</Text>;
+    if (o.status === 'aprovada') return <Text style={[styles.tag, styles.tagAzul]}>✅ aprovada · aguardando disparo</Text>;
+    if (o.status === 'reprovada') return <Text style={[styles.tag, styles.tagVermelha]}>❌ não aprovada</Text>;
+    return <Text style={[styles.tag, styles.tagAmarela]}>⏳ aguardando validação</Text>;
+  }
+
+  // modo: 'lista' (só ver/editar) | 'validar' (aprovar/reprovar) | 'disparar' (selecionar e enviar)
+  function CartaoOferta({ o, modo = 'lista' }: { o: Oferta; modo?: 'lista' | 'validar' | 'disparar' }) {
     const sel = selecionadas.has(o.id);
+    const souAutor = !!quem.matricula && o.matricula === quem.matricula;
+    const podeEditar = gerente || (souAutor && o.status !== 'aprovada' && !o.enviadaEm);
     return (
-      <View style={[styles.card, sel && styles.cardSel]}>
+      <View style={[styles.card, modo === 'disparar' && sel && styles.cardSel]}>
         <View style={{ flexDirection: 'row', gap: spacing.md }}>
           <Miniatura codigo={o.codigo} codigoBarras={o.codigoBarras} produto={o.produto} />
-          <TouchableOpacity
-            style={{ flex: 1 }}
-            onPress={() =>
-              setSelecionadas((s) => {
-                const n = new Set(s);
-                n.has(o.id) ? n.delete(o.id) : n.add(o.id);
-                return n;
-              })
-            }
-          >
+          <TouchableOpacity style={{ flex: 1 }} activeOpacity={modo === 'disparar' ? 0.6 : 1} onPress={() => modo === 'disparar' && alternarSelecao(o.id)}>
             <Text style={styles.cardNome} numberOfLines={2}>
               {o.produto}
             </Text>
@@ -463,62 +529,137 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
                 {o.unidadeVenda === 'kg' ? '/kg' : ''}
               </Text>
             </View>
+            <Text style={styles.cardMeta}>
+              Válida até {o.fim ? dataBr(o.fim) : '—'}
+              {o.setor ? ` · ${nomeSetorOferta(o.setor)}` : ''}
+              {o.criadoPor ? ` · por ${o.criadoPor}` : ''}
+            </Text>
             <View style={styles.tags}>
+              <TagStatus o={o} />
               <Text style={styles.tag}>{ORIGEM_ROTULO[o.origem] ?? o.origem}</Text>
-              {o.fim ? <Text style={styles.tag}>até {dataBrCurta(o.fim)}</Text> : null}
-              {o.enviadaEm ? (
-                <Text style={[styles.tag, styles.tagVerde]}>✓ enviada {dataBrCurta(o.enviadaEm)}</Text>
-              ) : o.agendadaPara ? (
-                <Text style={[styles.tag, styles.tagAmarela]}>⏰ {dataHoraBr(o.agendadaPara)}</Text>
-              ) : null}
+              {o.agendadaPara && !o.enviadaEm ? <Text style={styles.tag}>⏰ {dataHoraBr(o.agendadaPara)}</Text> : null}
             </View>
+            {o.status === 'reprovada' && o.motivoReprovacao ? <Text style={styles.motivo}>Motivo: {o.motivoReprovacao}</Text> : null}
+            {o.observacao && modo === 'validar' ? <Text style={styles.cardMeta}>💡 {o.observacao}</Text> : null}
           </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() =>
-              setSelecionadas((s) => {
-                const n = new Set(s);
-                n.has(o.id) ? n.delete(o.id) : n.add(o.id);
-                return n;
-              })
-            }
-            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-          >
-            <Feather name={sel ? 'check-square' : 'square'} size={22} color={sel ? colors.navy700 : colors.gray400} />
-          </TouchableOpacity>
+          {modo === 'disparar' ? (
+            <TouchableOpacity onPress={() => alternarSelecao(o.id)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+              <Feather name={sel ? 'check-square' : 'square'} size={22} color={sel ? colors.navy700 : colors.gray400} />
+            </TouchableOpacity>
+          ) : null}
         </View>
         <View style={styles.cardBotoes}>
-          <TouchableOpacity style={styles.btnPrimario} onPress={() => abrirPrevia([o])}>
-            <Feather name="send" size={13} color={colors.white} />
-            <Text style={styles.btnPrimarioTexto}>Enviar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.btnSecundario} onPress={() => novaOferta(o)}>
-            <Text style={styles.btnSecundarioTexto}>Editar</Text>
-          </TouchableOpacity>
-          <TouchableOpacity style={styles.btnSecundario} onPress={() => apagarOferta(o)}>
-            <Feather name="trash-2" size={14} color={colors.red500} />
-          </TouchableOpacity>
+          {modo === 'validar' ? (
+            <>
+              <TouchableOpacity style={[styles.btnPrimario, { backgroundColor: colors.green500 }]} onPress={() => aprovar([o])}>
+                <Feather name="check" size={14} color={colors.white} />
+                <Text style={styles.btnPrimarioTexto}>Aprovar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.btnSecundario} onPress={() => novaOferta(o)}>
+                <Text style={styles.btnSecundarioTexto}>Ajustar</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.btnSecundario}
+                onPress={() => {
+                  setMotivo('');
+                  setReprovando(o);
+                }}
+              >
+                <Text style={[styles.btnSecundarioTexto, { color: colors.red500 }]}>Reprovar</Text>
+              </TouchableOpacity>
+            </>
+          ) : (
+            <>
+              {disparador && o.status === 'aprovada' ? (
+                <TouchableOpacity style={[styles.btnPrimario, { backgroundColor: '#25D366' }]} onPress={() => abrirPrevia([o])}>
+                  <Feather name="send" size={13} color={colors.white} />
+                  <Text style={styles.btnPrimarioTexto}>{o.enviadaEm ? 'Enviar de novo' : 'Disparar'}</Text>
+                </TouchableOpacity>
+              ) : null}
+              {podeEditar ? (
+                <TouchableOpacity style={styles.btnSecundario} onPress={() => novaOferta(o)}>
+                  <Text style={styles.btnSecundarioTexto}>{o.status === 'reprovada' && !gerente ? 'Corrigir e reenviar' : 'Editar'}</Text>
+                </TouchableOpacity>
+              ) : null}
+              {gerente || (souAutor && o.status !== 'aprovada') ? (
+                <TouchableOpacity style={styles.btnSecundario} onPress={() => apagarOferta(o)}>
+                  <Feather name="trash-2" size={14} color={colors.red500} />
+                </TouchableOpacity>
+              ) : null}
+            </>
+          )}
         </View>
       </View>
     );
   }
 
-  // ---------------------------------------------------------------- render: abas
+  function abaValidar() {
+    return (
+      <>
+        <Text style={styles.dica}>Ofertas sugeridas pelos colaboradores. Ao aprovar, a Marcela recebe o aviso para disparar no grupo.</Text>
+        {pendentes.length === 0 ? (
+          <Text style={styles.vazio}>Nada para validar agora. 👍</Text>
+        ) : (
+          <>
+            {pendentes.length > 1 ? (
+              <TouchableOpacity
+                style={[styles.btnNova, { backgroundColor: colors.green500 }]}
+                onPress={() =>
+                  Alert.alert('Aprovar todas?', `${pendentes.length} ofertas vão para a Marcela disparar.`, [
+                    { text: 'Cancelar', style: 'cancel' },
+                    { text: 'Aprovar todas', onPress: () => aprovar(pendentes) },
+                  ])
+                }
+              >
+                <Feather name="check-circle" size={16} color={colors.white} />
+                <Text style={styles.btnNovaTexto}>Aprovar todas ({pendentes.length})</Text>
+              </TouchableOpacity>
+            ) : null}
+            {pendentes.map((o) => (
+              <CartaoOferta key={o.id} o={o} modo="validar" />
+            ))}
+          </>
+        )}
+      </>
+    );
+  }
+
+  function abaDisparar() {
+    return (
+      <>
+        <Text style={styles.dica}>Ofertas já aprovadas pelos gerentes. Marque várias para mandar numa lâmina (até 6 por imagem) ou dispare uma por uma.</Text>
+        {paraDisparar.length === 0 ? (
+          <Text style={styles.vazio}>Nenhuma oferta aprovada esperando disparo.</Text>
+        ) : (
+          <>
+            <TouchableOpacity
+              onPress={() => setSelecionadas(selecionadas.size === paraDisparar.length ? new Set() : new Set(paraDisparar.map((o) => o.id)))}
+              style={{ marginBottom: spacing.sm }}
+            >
+              <Text style={styles.link}>{selecionadas.size === paraDisparar.length ? 'Desmarcar todas' : 'Marcar todas'}</Text>
+            </TouchableOpacity>
+            {paraDisparar.map((o) => (
+              <CartaoOferta key={o.id} o={o} modo="disparar" />
+            ))}
+          </>
+        )}
+      </>
+    );
+  }
+
   function abaOfertas() {
     return (
       <>
         <TouchableOpacity style={styles.btnNova} onPress={() => novaOferta()}>
           <Feather name="plus" size={16} color={colors.white} />
-          <Text style={styles.btnNovaTexto}>Nova oferta</Text>
+          <Text style={styles.btnNovaTexto}>{gerente ? 'Nova oferta' : 'Sugerir oferta'}</Text>
         </TouchableOpacity>
         {ativas.length === 0 ? (
-          <Text style={styles.vazio}>Nenhuma oferta ativa. Crie uma ou veja as Sugestões (produtos parados e perto de vencer).</Text>
+          <Text style={styles.vazio}>
+            {gerente || disparador ? 'Nenhuma oferta ativa.' : 'Você ainda não sugeriu ofertas. Veja as Sugestões do seu setor.'}
+          </Text>
         ) : (
-          <>
-            <Text style={styles.dica}>Marque várias ofertas para montar uma lâmina (até 6 por imagem).</Text>
-            {ativas.map((o) => (
-              <CartaoOferta key={o.id} o={o} />
-            ))}
-          </>
+          ativas.map((o) => <CartaoOferta key={o.id} o={o} />)
         )}
         {encerradas.length > 0 && (
           <TouchableOpacity onPress={() => setVerEncerradas((v) => !v)} style={{ marginTop: spacing.lg }}>
@@ -533,51 +674,61 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
   }
 
   function abaSugestoes() {
-    const lista = sugestoes[tipoSugestao];
+    const lista = sugestoes[chaveSug(tipoSugestao, setorSugestao)];
+    const tipo = TIPOS_SUGESTAO.find((t) => t.k === tipoSugestao)!;
     return (
       <>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
+          {[null, ...SETORES_OFERTA.map((x) => x.chave)].map((k) => (
+            <TouchableOpacity key={k ?? 'todos'} style={[styles.opcao, setorSugestao === k && styles.opcaoAtiva, { marginRight: 6 }]} onPress={() => setSetorSugestao(k)}>
+              <Text style={[styles.opcaoTexto, setorSugestao === k && styles.opcaoTextoAtivo]}>{k ? nomeSetorOferta(k) : 'Loja toda'}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
         <View style={styles.segmento}>
-          {(['giro', 'validade'] as const).map((t) => (
-            <TouchableOpacity key={t} style={[styles.segItem, tipoSugestao === t && styles.segItemAtivo]} onPress={() => setTipoSugestao(t)}>
-              <Text style={[styles.segTexto, tipoSugestao === t && styles.segTextoAtivo]}>
-                {t === 'giro' ? '🐢 Parados (Giro)' : '⏳ Vencendo (Validade)'}
-              </Text>
+          {TIPOS_SUGESTAO.map((t) => (
+            <TouchableOpacity key={t.k} style={[styles.segItem, tipoSugestao === t.k && styles.segItemAtivo]} onPress={() => setTipoSugestao(t.k)}>
+              <Text style={[styles.segTexto, tipoSugestao === t.k && styles.segTextoAtivo]}>{t.r}</Text>
             </TouchableOpacity>
           ))}
         </View>
-        <Text style={styles.dica}>
-          {tipoSugestao === 'giro'
-            ? 'Produtos com estoque e 14+ dias sem venda, do maior valor parado pro menor. Preço sugerido: 15% abaixo, sem passar do custo + 5%.'
-            : 'Produtos cadastrados na Validade que vencem nos próximos 10 dias. Desconto sugerido de 20% (30% se vence em até 3 dias).'}
-        </Text>
-        {carregandoSugestoes || lista === null ? (
+        <Text style={styles.dica}>{tipo.dica}</Text>
+        {carregandoSugestoes || lista === undefined ? (
           <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.xxl }} />
-        ) : lista.length === 0 ? (
-          <Text style={styles.vazio}>Nenhuma sugestão agora.</Text>
+        ) : lista === null || lista.length === 0 ? (
+          <Text style={styles.vazio}>
+            {tipoSugestao === 'validade' && setorSugestao && !SETORES_OFERTA.find((x) => x.chave === setorSugestao)?.app.length
+              ? 'Esse setor não usa a Validade do app.'
+              : 'Nenhuma sugestão agora para esse setor.'}
+          </Text>
         ) : (
-          lista.map((s, i) => {
-            const jaTem = s.codigo ? ofertaPorCodigo[s.codigo] : undefined;
+          lista.map((sg, i) => {
+            const jaTem = sg.codigo ? ofertaPorCodigo[sg.codigo] : undefined;
             return (
-              <View key={(s.codigo ?? s.produto) + i} style={styles.card}>
+              <View key={(sg.codigo ?? sg.produto) + i} style={styles.card}>
                 <View style={{ flexDirection: 'row', gap: spacing.md }}>
-                  <Miniatura codigo={s.codigo} codigoBarras={s.codigoBarras} produto={s.produto} tamanho={56} />
+                  <Miniatura codigo={sg.codigo} codigoBarras={sg.codigoBarras} produto={sg.produto} tamanho={56} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.cardNome} numberOfLines={2}>
-                      {s.produto}
+                      {sg.produto}
                     </Text>
-                    <Text style={styles.cardMeta}>{s.motivo}</Text>
+                    <Text style={styles.cardMeta}>{sg.motivo}</Text>
                     <Text style={styles.cardMeta}>
-                      Preço {reais(s.preco)}
-                      {s.precoSugerido ? `  →  sugerido ${reais(s.precoSugerido)}` : ''}
+                      Preço {reais(sg.preco)}
+                      {sg.precoSugerido ? '  →  sugerido ' : ''}
+                      {sg.precoSugerido ? <Text style={{ color: colors.red500, fontWeight: '800' }}>{reais(sg.precoSugerido)}</Text> : null}
                     </Text>
                   </View>
                 </View>
                 {jaTem ? (
-                  <Text style={[styles.tag, styles.tagVerde, { alignSelf: 'flex-start', marginTop: spacing.sm }]}>Já em oferta por {reais(jaTem.precoPor)}</Text>
+                  <View style={[styles.tags, { marginTop: spacing.sm }]}>
+                    <Text style={styles.tag}>Já sugerida por {reais(jaTem.precoPor)}</Text>
+                    <TagStatus o={jaTem} />
+                  </View>
                 ) : (
-                  <TouchableOpacity style={[styles.btnPrimario, { alignSelf: 'flex-start', marginTop: spacing.md }]} onPress={() => ofertaDaSugestao(s)}>
+                  <TouchableOpacity style={[styles.btnPrimario, { alignSelf: 'flex-start', marginTop: spacing.md }]} onPress={() => ofertaDaSugestao(sg)}>
                     <Feather name="plus" size={13} color={colors.white} />
-                    <Text style={styles.btnPrimarioTexto}>Criar oferta</Text>
+                    <Text style={styles.btnPrimarioTexto}>{gerente ? 'Criar oferta' : 'Sugerir esta oferta'}</Text>
                   </TouchableOpacity>
                 )}
               </View>
@@ -585,7 +736,7 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
           })
         )}
         {lista && lista.length > 0 ? (
-          <TouchableOpacity onPress={() => carregarSugestoes(tipoSugestao)} style={{ marginTop: spacing.md }}>
+          <TouchableOpacity onPress={() => carregarSugestoes(tipoSugestao, setorSugestao)} style={{ marginTop: spacing.md }}>
             <Text style={styles.link}>↻ Atualizar sugestões</Text>
           </TouchableOpacity>
         ) : null}
@@ -695,24 +846,31 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
   }
 
   const abas: { k: Aba; r: string }[] = [
-    { k: 'ofertas', r: 'Ofertas' },
+    ...(gerente ? [{ k: 'validar' as Aba, r: `Validar${pendentes.length ? ` (${pendentes.length})` : ''}` }] : []),
+    ...(disparador ? [{ k: 'disparar' as Aba, r: `Disparar${paraDisparar.length ? ` (${paraDisparar.length})` : ''}` }] : []),
     { k: 'sugestoes', r: 'Sugestões' },
-    { k: 'agenda', r: 'Agenda' },
-    { k: 'resultados', r: 'Resultado' },
+    { k: 'ofertas', r: gerente || disparador ? 'Todas' : 'Minhas' },
+    ...(gerente ? [{ k: 'agenda' as Aba, r: 'Agenda' }] : []),
+    ...(gerente || disparador ? [{ k: 'resultados' as Aba, r: 'Resultado' }] : []),
   ];
-  const selecionadasLista = ofertas.filter((o) => selecionadas.has(o.id));
+  const selecionadasLista = paraDisparar.filter((o) => selecionadas.has(o.id));
   const larguraPrevia = Math.min(width - 40, 460);
 
   return (
     <View style={styles.flex}>
-      <CabecalhoTela titulo="Ofertas no WhatsApp" subtitulo="Monte a oferta e envie no grupo" icone="send" onVoltar={onVoltar}>
-        <View style={styles.abas}>
+      <CabecalhoTela
+        titulo="Ofertas no WhatsApp"
+        subtitulo={gerente ? 'Valide as ofertas sugeridas pela equipe' : disparador ? 'Dispare no grupo as ofertas aprovadas' : 'Sugira ofertas do seu setor'}
+        icone="send"
+        onVoltar={onVoltar}
+      >
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.abas}>
           {abas.map((a) => (
             <TouchableOpacity key={a.k} style={[styles.aba, aba === a.k && styles.abaAtiva]} onPress={() => setAba(a.k)}>
               <Text style={[styles.abaTexto, aba === a.k && styles.abaTextoAtiva]}>{a.r}</Text>
             </TouchableOpacity>
           ))}
-        </View>
+        </ScrollView>
       </CabecalhoTela>
 
       <ScrollView
@@ -724,7 +882,7 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
             onRefresh={() => {
               setAtualizando(true);
               carregar();
-              if (aba === 'sugestoes') carregarSugestoes(tipoSugestao);
+              if (aba === 'sugestoes') carregarSugestoes(tipoSugestao, setorSugestao);
             }}
           />
         }
@@ -736,6 +894,10 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
         ) : null}
         {carregando ? (
           <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.xxl }} />
+        ) : aba === 'validar' ? (
+          abaValidar()
+        ) : aba === 'disparar' ? (
+          abaDisparar()
         ) : aba === 'ofertas' ? (
           abaOfertas()
         ) : aba === 'sugestoes' ? (
@@ -747,7 +909,7 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
         )}
       </ScrollView>
 
-      {aba === 'ofertas' && selecionadasLista.length > 0 && (
+      {aba === 'disparar' && selecionadasLista.length > 0 && (
         <View style={styles.barraSel}>
           <TouchableOpacity onPress={() => setSelecionadas(new Set())}>
             <Text style={styles.barraLimpar}>Limpar</Text>
@@ -863,7 +1025,18 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
                   ))}
                 </View>
 
-                <Text style={styles.rotulo}>Válida até {rascunho.fim ? `· ${dataBr(rascunho.fim)}` : ''}</Text>
+                <Text style={styles.rotulo}>Setor</Text>
+                <View style={styles.opcoesWrap}>
+                  {SETORES_OFERTA.map((x) => (
+                    <TouchableOpacity key={x.chave} style={[styles.opcao, rascunho.setor === x.chave && styles.opcaoAtiva]} onPress={() => setRascunho({ ...rascunho, setor: x.chave })}>
+                      <Text style={[styles.opcaoTexto, rascunho.setor === x.chave && styles.opcaoTextoAtivo]}>{x.nome}</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+
+                <View style={styles.validadeCaixa}>
+                  <Text style={[styles.rotulo, { marginTop: 0 }]}>📅 Validade da oferta</Text>
+                  <Text style={styles.validadeData}>{rascunho.fim ? `Até ${dataBr(rascunho.fim)}` : 'Escolha até quando vale'}</Text>
                 <View style={styles.opcoesWrap}>
                   {[
                     { r: 'Hoje', v: hojeIso() },
@@ -892,11 +1065,12 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
                     <SeletorDataValidade valor={rascunho.fim ?? hojeIso()} onSelecionar={(iso) => setRascunho({ ...rascunho, fim: iso })} />
                   </View>
                 ) : null}
+                </View>
 
-                <Text style={styles.rotulo}>Lembrar de postar</Text>
+                <Text style={styles.rotulo}>Quando disparar no grupo (opcional)</Text>
                 <View style={styles.opcoesWrap}>
                   {[
-                    { r: 'Não', v: null as string | null },
+                    { r: 'Assim que aprovar', v: null as string | null },
                     { r: 'Hoje 17h', v: horarioIso(0, 17) },
                     { r: 'Amanhã 8h', v: horarioIso(1, 8) },
                     { r: 'Amanhã 12h', v: horarioIso(1, 12) },
@@ -913,16 +1087,60 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
                     })}
                 </View>
 
-                <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xl }}>
-                  <TouchableOpacity style={[styles.btnGrande, styles.btnGrandeSec, { flex: 1 }, salvando && { opacity: 0.6 }]} onPress={() => salvarRascunho()} disabled={salvando}>
-                    <Text style={[styles.btnGrandeTexto, { color: colors.navy700 }]}>Salvar</Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.btnGrande, { flex: 1.4 }, salvando && { opacity: 0.6 }]} onPress={() => salvarRascunho((o) => abrirPrevia([o]))} disabled={salvando}>
-                    <Text style={styles.btnGrandeTexto}>{salvando ? 'Salvando…' : 'Salvar e gerar card'}</Text>
-                  </TouchableOpacity>
-                </View>
+                {gerente ? (
+                  <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.xl }}>
+                    <TouchableOpacity style={[styles.btnGrande, { flex: 1, backgroundColor: colors.green500 }, salvando && { opacity: 0.6 }]} onPress={() => salvarRascunho()} disabled={salvando}>
+                      <Text style={styles.btnGrandeTexto}>{salvando ? 'Salvando…' : rascunho.status === 'aprovada' ? 'Salvar' : 'Salvar e aprovar'}</Text>
+                    </TouchableOpacity>
+                    {disparador ? (
+                      <TouchableOpacity style={[styles.btnGrande, styles.btnGrandeSec, { flex: 1 }, salvando && { opacity: 0.6 }]} onPress={() => salvarRascunho((o) => abrirPrevia([o]))} disabled={salvando}>
+                        <Text style={[styles.btnGrandeTexto, { color: colors.navy700 }]}>Aprovar e gerar card</Text>
+                      </TouchableOpacity>
+                    ) : null}
+                  </View>
+                ) : (
+                  <>
+                    <TouchableOpacity style={[styles.btnGrande, salvando && { opacity: 0.6 }]} onPress={() => salvarRascunho()} disabled={salvando}>
+                      <Text style={styles.btnGrandeTexto}>{salvando ? 'Enviando…' : 'Enviar para validação'}</Text>
+                    </TouchableOpacity>
+                    <Text style={[styles.dica, { textAlign: 'center' }]}>Os gerentes aprovam e a Marcela dispara no grupo.</Text>
+                  </>
+                )}
               </ScrollView>
             ) : null}
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* ----------------------------------------------------------- Reprovar */}
+      <Modal visible={!!reprovando} transparent animationType="slide" onRequestClose={() => setReprovando(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalFundo}>
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => setReprovando(null)} />
+          <View style={styles.folha}>
+            <View style={styles.folhaAlca} />
+            <Text style={styles.folhaTitulo}>Reprovar oferta</Text>
+            <Text style={[styles.cardMeta, { marginTop: 4 }]}>
+              {reprovando?.produto} · {reais(reprovando?.precoPor ?? null)}
+            </Text>
+            <Text style={styles.rotulo}>Motivo (vai para quem sugeriu)</Text>
+            <View style={styles.opcoesWrap}>
+              {MOTIVOS_REPROVACAO.map((m) => (
+                <TouchableOpacity key={m} style={[styles.opcao, motivo === m && styles.opcaoAtiva]} onPress={() => setMotivo(m)}>
+                  <Text style={[styles.opcaoTexto, motivo === m && styles.opcaoTextoAtivo]}>{m}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <TextInput
+              style={[styles.input, { marginTop: spacing.sm, minHeight: 60, textAlignVertical: 'top' }]}
+              placeholder="Ou escreva o motivo"
+              placeholderTextColor={colors.gray400}
+              value={motivo}
+              onChangeText={setMotivo}
+              multiline
+            />
+            <TouchableOpacity style={[styles.btnGrande, { backgroundColor: colors.red500 }]} onPress={confirmarReprovacao}>
+              <Text style={styles.btnGrandeTexto}>Reprovar</Text>
+            </TouchableOpacity>
           </View>
         </KeyboardAvoidingView>
       </Modal>
@@ -1090,8 +1308,8 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.gray50 },
-  abas: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: radius.full, padding: 3, marginTop: spacing.lg },
-  aba: { flex: 1, paddingVertical: 8, borderRadius: radius.full, alignItems: 'center' },
+  abas: { flexDirection: 'row', backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: radius.full, padding: 3, marginTop: spacing.lg, minWidth: '100%' },
+  aba: { flexGrow: 1, paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.full, alignItems: 'center' },
   abaAtiva: { backgroundColor: colors.white },
   abaTexto: { color: 'rgba(255,255,255,0.85)', fontWeight: '700', fontSize: 12 },
   abaTextoAtiva: { color: colors.navy700 },
@@ -1110,6 +1328,9 @@ const styles = StyleSheet.create({
   tag: { fontSize: 10.5, fontWeight: '700', color: colors.gray600, backgroundColor: colors.gray50, borderRadius: radius.full, paddingVertical: 2, paddingHorizontal: 8, overflow: 'hidden' },
   tagVerde: { color: colors.green500, backgroundColor: '#DFF3E9' },
   tagAmarela: { color: '#B4650E', backgroundColor: '#FBEBD4' },
+  tagAzul: { color: colors.navy700, backgroundColor: '#E3E9FB' },
+  tagVermelha: { color: colors.red500, backgroundColor: '#FBDEDC' },
+  motivo: { fontSize: 12, color: colors.red500, fontWeight: '700', marginTop: 6 },
   mini: { borderRadius: radius.md, backgroundColor: colors.gray50, borderWidth: 1, borderColor: colors.gray100, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   miniTexto: { fontSize: 9.5, color: colors.gray400, fontWeight: '700' },
   btnPrimario: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.navy700, borderRadius: radius.md, paddingVertical: 8, paddingHorizontal: 14 },
@@ -1149,6 +1370,8 @@ const styles = StyleSheet.create({
   opcaoTexto: { fontSize: 12, fontWeight: '600', color: colors.gray900 },
   opcaoTextoAtivo: { color: colors.white },
   btnGrande: { backgroundColor: colors.navy700, borderRadius: radius.md, paddingVertical: 14, alignItems: 'center', marginTop: spacing.xl },
+  validadeCaixa: { backgroundColor: '#FFF6E0', borderRadius: radius.md, padding: spacing.md, marginTop: spacing.lg, borderWidth: 1, borderColor: '#F5D48A' },
+  validadeData: { fontSize: 16, fontWeight: '800', color: colors.navy900, marginBottom: spacing.sm },
   btnGrandeSec: { backgroundColor: colors.white, borderWidth: 1.5, borderColor: colors.navy700 },
   btnGrandeTexto: { color: colors.white, fontWeight: '800', fontSize: 14.5 },
   previaTopo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 52, paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
