@@ -18,6 +18,7 @@ import {
   buscarColaboradoresLoja,
   atualizarColaboradorLoja,
 } from '../data/colaboradoresLojaApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 function formatarDataSimples(iso: string | null): string {
   if (!iso) return '';
@@ -116,13 +117,12 @@ export default function ColaboradoresScreen({ onVoltar }: { onVoltar: () => void
   if (editando) {
     return (
       <View style={styles.flex}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={cancelarEdicao} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.voltar}>‹ Cancelar</Text>
-          </TouchableOpacity>
-          <Text style={styles.titulo}>Editar colaborador</Text>
-          <View style={{ width: 70 }} />
-        </View>
+        <CabecalhoTela
+          titulo="Editar colaborador"
+          icone="users"
+          onVoltar={cancelarEdicao}
+          rotuloVoltar="Cancelar"
+        />
         <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}>
           <View style={styles.formCard}>
             <Text style={styles.formLabel}>Nome</Text>
@@ -163,13 +163,11 @@ export default function ColaboradoresScreen({ onVoltar }: { onVoltar: () => void
   // --- Lista principal -----------------------------------------------------
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Colaboradores</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Colaboradores"
+        icone="users"
+        onVoltar={onVoltar}
+      />
 
       <ScrollView
         style={styles.flex}

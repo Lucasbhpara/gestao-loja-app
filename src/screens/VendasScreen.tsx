@@ -20,6 +20,7 @@ import {
   ItemVendaABC,
   buscarVendasComABC,
 } from '../data/vendasApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 // Mesma paleta categórica usada nos gráficos do Portal Admin (--cat-1..6).
 const CORES_SETOR = ['#2C3F8C', '#6B4FA0', '#1D8A8A', '#4C6EF5', '#9C6ADE', '#3F6B52', '#B4650E', '#9AA1B8'];
@@ -66,13 +67,11 @@ export default function VendasScreen({ onVoltar }: { onVoltar: () => void }) {
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Vendas</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Vendas"
+        icone="trending-up"
+        onVoltar={onVoltar}
+      />
 
       <View style={styles.abasWrap}>
         <TouchableOpacity style={[styles.aba, aba === 'setor' && styles.abaAtiva]} onPress={() => setAba('setor')}>

@@ -27,6 +27,7 @@ import {
   marcarVisualizado,
   buscarVisualizacoes,
 } from '../data/avisosApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 function formatarDataHora(iso: string): string {
   const d = new Date(iso);
@@ -224,13 +225,12 @@ export default function AvisosScreen({ onVoltar }: { onVoltar: () => void }) {
   if (modo === 'novo') {
     return (
       <View style={styles.flex}>
-        <View style={styles.header}>
-          <TouchableOpacity onPress={() => setModo('lista')} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-            <Text style={styles.voltar}>‹ Cancelar</Text>
-          </TouchableOpacity>
-          <Text style={styles.titulo}>Novo aviso</Text>
-          <View style={{ width: 70 }} />
-        </View>
+        <CabecalhoTela
+          titulo="Novo aviso"
+          icone="bell"
+          onVoltar={() => setModo('lista')}
+          rotuloVoltar="Cancelar"
+        />
         <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }}>
           <View style={styles.formCard}>
             <Text style={styles.formLabel}>Título</Text>
@@ -302,13 +302,11 @@ export default function AvisosScreen({ onVoltar }: { onVoltar: () => void }) {
   // --- lista principal ---------------------------------------------------------
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Mural de Avisos</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Mural de Avisos"
+        icone="bell"
+        onVoltar={onVoltar}
+      />
 
       <ScrollView
         style={styles.flex}

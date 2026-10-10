@@ -13,6 +13,7 @@ import {
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { ProdutoPedido, buscarCatalogoPedidos, enviarPedido } from '../data/pedidosApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 export default function PedidosScreen({
   onVoltar,
@@ -99,13 +100,11 @@ export default function PedidosScreen({
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Pedidos</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Pedidos"
+        icone="shopping-cart"
+        onVoltar={onVoltar}
+      />
 
       <View style={styles.pesquisaBox}>
         <TextInput
@@ -187,8 +186,8 @@ const styles = StyleSheet.create({
   },
   voltar: { color: colors.navy700, fontSize: 15, fontWeight: '600' },
   titulo: { fontSize: 16, fontWeight: '700', color: colors.navy900 },
-  pesquisaBox: { backgroundColor: colors.white, paddingHorizontal: spacing.lg, paddingBottom: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.gray100 },
-  pesquisaInput: { backgroundColor: colors.gray50, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: 13, color: colors.gray900 },
+  pesquisaBox: { paddingTop: spacing.md, backgroundColor: 'transparent', paddingHorizontal: spacing.lg, paddingBottom: spacing.md },
+  pesquisaInput: { backgroundColor: colors.white, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10, fontSize: 13, color: colors.gray900, borderWidth: 1, borderColor: colors.gray100 },
   vazio: { paddingTop: spacing.xxl, alignItems: 'center' },
   vazioTexto: { color: colors.gray600, fontSize: 13, textAlign: 'center', paddingHorizontal: spacing.xl, lineHeight: 19 },
   card: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.md },

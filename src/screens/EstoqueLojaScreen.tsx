@@ -4,6 +4,7 @@ import { CameraView, useCameraPermissions, BarcodeScanningResult } from 'expo-ca
 import { colors, radius, spacing } from '../theme/colors';
 import { ItemEstoqueLoja, buscarEstoqueLoja, buscarDataEstoqueLoja } from '../data/estoqueLojaApi';
 import { camaraDisponivel } from '../lib/plataforma';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 function formatarQuantidade(q: number): string {
   if (Number.isInteger(q)) return String(q);
@@ -123,13 +124,11 @@ export default function EstoqueLojaScreen({ onVoltar }: { onVoltar: () => void }
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Estoque Loja</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Estoque Loja"
+        icone="archive"
+        onVoltar={onVoltar}
+      />
 
       {dataEstoque && (
         <View style={styles.avisoData}>
@@ -212,23 +211,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.lg,
   },
   avisoDataTexto: { fontSize: 10.5, color: colors.gray600, fontWeight: '600', textAlign: 'center' },
-  buscaContainer: {
+  buscaContainer: { paddingTop: spacing.md,
     flexDirection: 'row',
     gap: spacing.sm,
-    backgroundColor: colors.white,
-    padding: spacing.md,
-    borderBottomWidth: 1,
-    borderBottomColor: colors.gray100,
+    backgroundColor: 'transparent',
+    padding: spacing.md
   },
   buscaInput: {
     flex: 1,
-    backgroundColor: colors.gray50,
+    backgroundColor: colors.white,
     borderRadius: radius.md,
     paddingHorizontal: spacing.md,
     paddingVertical: 10,
     fontSize: 13,
-    color: colors.gray900,
-  },
+    color: colors.gray900, borderWidth: 1, borderColor: colors.gray100 },
   btnScan: { backgroundColor: colors.navy700, borderRadius: radius.md, paddingHorizontal: spacing.lg, justifyContent: 'center' },
   btnScanTexto: { color: colors.white, fontSize: 12, fontWeight: '700' },
   permissaoBox: { alignItems: 'center', justifyContent: 'center', paddingHorizontal: spacing.xxl },

@@ -20,6 +20,7 @@ import {
   buscarMinhasOcorrencias,
   enviarFotoOcorrencia,
 } from '../data/ocorrenciasApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 function formatarDataHora(iso: string): string {
   const d = new Date(iso);
@@ -118,13 +119,11 @@ export default function OcorrenciaScreen({ onVoltar }: { onVoltar: () => void })
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Abrir ocorrência</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Abrir ocorrência"
+        icone="alert-triangle"
+        onVoltar={onVoltar}
+      />
 
       <ScrollView
         style={styles.flex}

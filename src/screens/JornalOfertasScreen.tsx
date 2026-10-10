@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TouchableOpacity, ActivityIndicator } from 'rea
 import { WebView } from 'react-native-webview';
 import { colors, spacing } from '../theme/colors';
 import { JornalOferta, buscarJornalAtual } from '../data/jornalOfertasApi';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 // Tela própria do Jornal de Ofertas — acessada pelo tile "Jornal de Ofertas"
 // na Home, igual Mapa da Loja e Pontas e Pontos Extras. Antes isso era uma
@@ -30,13 +31,11 @@ export default function JornalOfertasScreen({ onVoltar }: { onVoltar: () => void
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Jornal de Ofertas</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Jornal de Ofertas"
+        icone="file-text"
+        onVoltar={onVoltar}
+      />
 
       {carregando ? (
         <View style={styles.centro}>

@@ -4,6 +4,7 @@ import { colors, radius, spacing } from '../theme/colors';
 import { Conferencia, ConferenciaItem, buscarTodasConferencias, buscarItensDaConferencia } from '../data/conferenciasApi';
 import { JornalOferta, buscarJornalAtual } from '../data/jornalOfertasApi';
 import VisualizadorJornalModal from '../components/VisualizadorJornalModal';
+import CabecalhoTela from '../components/CabecalhoTela';
 
 export default function ConferenciaAdminScreen({ onVoltar }: { onVoltar: () => void }) {
   const [conferencias, setConferencias] = useState<Conferencia[]>([]);
@@ -53,16 +54,11 @@ export default function ConferenciaAdminScreen({ onVoltar }: { onVoltar: () => v
     const faltaExplosivo = itens.filter((i) => i.status === 'falta_explosivo');
     return (
       <View style={styles.flex}>
-        <View style={styles.header}>
-          <TouchableOpacity
-            onPress={() => { setConferenciaAtual(null); setJornalAtual(null); setVerJornal(false); }}
-            hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
-          >
-            <Text style={styles.voltar}>‹ Voltar</Text>
-          </TouchableOpacity>
-          <Text style={styles.titulo} numberOfLines={1}>{conferenciaAtual.titulo}</Text>
-          <View style={{ width: 50 }} />
-        </View>
+        <CabecalhoTela
+          titulo={conferenciaAtual.titulo}
+          icone="clipboard"
+          onVoltar={() => { setConferenciaAtual(null); setJornalAtual(null); setVerJornal(false); }}
+        />
         <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}>
           <View style={styles.avisoBox}>
             <Text style={styles.avisoTexto}>
@@ -150,13 +146,11 @@ export default function ConferenciaAdminScreen({ onVoltar }: { onVoltar: () => v
 
   return (
     <View style={styles.flex}>
-      <View style={styles.header}>
-        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
-          <Text style={styles.voltar}>‹ Voltar</Text>
-        </TouchableOpacity>
-        <Text style={styles.titulo}>Conferências</Text>
-        <View style={{ width: 50 }} />
-      </View>
+      <CabecalhoTela
+        titulo="Conferências"
+        icone="clipboard"
+        onVoltar={onVoltar}
+      />
       <ScrollView
         style={styles.flex}
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}
