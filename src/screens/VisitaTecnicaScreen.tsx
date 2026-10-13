@@ -64,6 +64,7 @@ import { compartilharVisita } from '../lib/visitaTecnicaPdf';
 import CorrecaoScreen from './CorrecaoScreen';
 import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
 import { Tarefa } from '../data/tarefasApi';
+import { useTeclado } from '../lib/useTeclado';
 
 // =============================================================================
 // Visita Técnica — checklist do Técnico Veterinário (ver visitaTecnicaApi.ts
@@ -825,6 +826,7 @@ function PainelUnidade({
 // =============================================================================
 function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: () => void }) {
   useOffline();
+  const teclado = useTeclado();
   const visita = visitaLocal(visitaId);
   const setor = visita?.setor ?? 'geral';
   const perguntas = useMemo(() => perguntasDoSetor(setor), [setor]);
@@ -1070,7 +1072,12 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
         />
       </View>
 
-      <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 }} keyboardShouldPersistTaps="handled">
+      <ScrollView
+        ref={teclado.scrollRef}
+        style={styles.flex}
+        contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 + teclado.espacoExtra }}
+        keyboardShouldPersistTaps="handled"
+      >
         {setor === 'geral' && (
           <ValidadeDocumentosCard unidade={visita.unidade} usuarioNome={visita.veterinarioNome} modo="editar" />
         )}
@@ -1214,6 +1221,7 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
             placeholder="Observações gerais da visita, orientações passadas à equipe, prazos combinados…"
             value={consideracoes}
             onChangeText={setConsideracoes}
+            onFocus={teclado.focarNoFim}
             onBlur={() => {
               consideracoesLocal(visitaId, consideracoes.trim());
               sincronizarEmBreve();
@@ -1223,7 +1231,7 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
         </View>
       </ScrollView>
 
-      <View style={styles.rodape}>
+      <View style={[styles.rodape, teclado.aberto && { display: 'none' }]}>
         <TouchableOpacity
           style={[styles.btnFinalizar, (!podeFinalizar || finalizando) && styles.btnFinalizarDesabilitado]}
           onPress={finalizar}
