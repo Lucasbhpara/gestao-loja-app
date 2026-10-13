@@ -13,6 +13,7 @@ import VisitaTecnicaScreen from './src/screens/VisitaTecnicaScreen';
 import { ehTecnicoVeterinario } from './src/data/visitaTecnicaApi';
 import JornalOfertasFlutuante from './src/components/JornalOfertasFlutuante';
 import Rodape from './src/components/Rodape';
+import LimiteDeErro from './src/components/LimiteDeErro';
 import { colors } from './src/theme/colors';
 
 type TelaPublica = 'login' | 'recuperarSenha';
@@ -105,7 +106,9 @@ function AppInterno() {
   return (
     <>
       <StatusBar style={tocandoIntro ? 'light' : 'dark'} />
-      <View style={{ flex: 1 }}>{conteudo}</View>
+      <View style={{ flex: 1 }}>
+        <LimiteDeErro>{conteudo}</LimiteDeErro>
+      </View>
     </>
   );
 }

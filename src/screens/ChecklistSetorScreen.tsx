@@ -16,7 +16,6 @@ import {
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { Pedometer } from 'expo-sensors';
-import * as Location from 'expo-location';
 import { colors, radius, spacing } from '../theme/colors';
 import { setores, SetorKey } from '../data/employees';
 import {
@@ -43,6 +42,7 @@ import CorrecaoScreen from './CorrecaoScreen';
 import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
 import { Tarefa } from '../data/tarefasApi';
 import { useTeclado } from '../lib/useTeclado';
+import { pegarLocalizacaoSegura } from '../lib/localizacao';
 
 // =============================================================================
 // Checklist de Setor — avaliação de conformidade feita pela gerência, setor
@@ -448,17 +448,9 @@ function FormularioAvaliacao({
     if (avaliacao.localizacaoLat != null) return;
     (async () => {
       try {
-        const permissao = await Location.requestForegroundPermissionsAsync();
-        if (!permissao.granted) return;
-        const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-        let endereco: string | null = null;
-        try {
-          const [r] = await Location.reverseGeocodeAsync({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
-          if (r) endereco = [r.street, r.subregion || r.city, r.region].filter(Boolean).join(', ');
-        } catch {
-          // sem endereço legível
-        }
-        await salvarLocalizacaoAvaliacao(avaliacao.id, { lat: pos.coords.latitude, lng: pos.coords.longitude, endereco });
+        const loc = await pegarLocalizacaoSegura();
+        if (!loc) return;
+        await salvarLocalizacaoAvaliacao(avaliacao.id, loc);
       } catch {
         // sem GPS/permissão
       }
