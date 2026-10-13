@@ -521,8 +521,14 @@
   /* ---------- Menu lateral ---------- */
   .sidebar {
     background: var(--navy); border-right: none; width: 272px; padding: 22px 14px 18px;
-    overflow-y: auto; scrollbar-width: thin; scrollbar-color: rgba(174,184,198,.25) transparent;
+    overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable;
+    scrollbar-width: auto; scrollbar-color: #4A5C74 rgba(255,255,255,.05);
   }
+  .sidebar::-webkit-scrollbar { width: 10px; }
+  .sidebar::-webkit-scrollbar-track { background: rgba(255,255,255,.05); border-radius: 10px; }
+  .sidebar::-webkit-scrollbar-thumb { background: #4A5C74; border-radius: 10px; border: 2px solid var(--navy); }
+  .sidebar::-webkit-scrollbar-thumb:hover { background: var(--accent); }
+  .sidebar > * { flex-shrink: 0; }
   .sidebar-header { padding: 2px 8px 22px; gap: 12px; }
   .sidebar-header .avatar-box { width: 40px; height: 40px; }
   .sidebar-header .nome { font-family: 'Bricolage Grotesque', sans-serif; font-size: 20px; font-weight: 800; color: #F4F5F7; letter-spacing: -0.01em; }
