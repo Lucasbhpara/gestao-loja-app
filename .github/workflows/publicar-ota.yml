@@ -1,0 +1,50 @@
+name: Publicar atualização OTA (sem nova build)
+
+# Manda só o código JavaScript novo para os celulares que já têm o app
+# instalado. Serve para mudanças de tela e lógica (como a do teclado nas
+# Considerações finais). Mudanças em permissões, ícone, plugins nativos ou
+# na versão do app ("version" no app.json) ainda precisam de build nova.
+#
+# Os aparelhos baixam a atualização ao abrir o app e aplicam na próxima
+# vez que ele for aberto.
+
+on:
+  workflow_dispatch:
+    inputs:
+      canal:
+        description: 'Canal que vai receber (playstore e production usam "production")'
+        required: true
+        default: 'production'
+        type: choice
+        options:
+          - production
+          - preview
+      mensagem:
+        description: 'O que mudou (aparece no painel do Expo)'
+        required: true
+        default: 'Ajustes de tela'
+        type: string
+
+jobs:
+  ota:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Baixar o código do repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Instalar dependências do projeto
+        run: npm install
+
+      - name: Instalar EAS CLI
+        run: npm install -g eas-cli
+
+      - name: Publicar a atualização
+        run: eas update --channel "${{ inputs.canal }}" --platform android --message "${{ inputs.mensagem }}" --non-interactive
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
