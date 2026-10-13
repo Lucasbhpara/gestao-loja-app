@@ -640,6 +640,113 @@
     .stat-card .rotulo { font-size: 10.5px; }
   }
   @media (prefers-reduced-motion: reduce) { .sidebar, .nav-gaveta-itens { transition: none !important; } }
+
+  /* ---------- Vendas da Loja ---------- */
+  .vl-periodos { align-items: center; }
+  .vl-atualizar { margin-left: auto; }
+  .vl-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 18px 20px; margin-bottom: 18px; min-width: 0; }
+  .vl-card h3 { font-size: 16px; font-weight: 800; margin: 0 0 12px; }
+  .vl-card-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 16px; margin-bottom: 14px; }
+  .vl-card-topo h3 { margin: 0; }
+  .vl-legenda { display: flex; flex-wrap: wrap; gap: 14px; font-size: 12px; color: var(--text-secondary); font-weight: 600; }
+  .vl-legenda span { display: inline-flex; align-items: center; gap: 6px; }
+  .vl-q { width: 12px; height: 12px; border-radius: 3px; display: inline-block; }
+  .vl-q.atual { background: var(--accent); }
+  .vl-q.ant { background: #C9D2DE; }
+  .vl-grafico-wrap { overflow-x: auto; padding-bottom: 4px; }
+  .vl-grafico { display: flex; align-items: flex-end; gap: 4px; height: 210px; border-bottom: 1px solid var(--border); background: repeating-linear-gradient(to top, transparent 0, transparent 51.5px, var(--surface-2) 51.5px, var(--surface-2) 52.5px); }
+  .vl-col { flex: 1 1 0; min-width: 18px; height: 100%; display: flex; flex-direction: column; justify-content: flex-end; cursor: default; }
+  .vl-barras { position: relative; flex: 1; display: flex; align-items: flex-end; justify-content: center; }
+  .vl-b-ant { position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 82%; background: #DCE3EC; border-radius: 4px 4px 0 0; }
+  .vl-b { position: relative; width: 52%; background: var(--accent); border-radius: 4px 4px 0 0; min-height: 2px; }
+  .vl-col:hover .vl-b { background: var(--navy); }
+  .vl-col.dom .vl-b { background: #7FAEFF; }
+  .vl-rot { font-size: 10.5px; color: var(--text-muted); text-align: center; padding-top: 6px; font-variant-numeric: tabular-nums; font-weight: 700; }
+  .vl-grafico-eixo { display: flex; justify-content: space-between; gap: 10px; font-size: 11px; color: var(--text-muted); margin-top: 8px; }
+  .vl-migalhas { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; font-size: 13px; }
+  .vl-migalhas span { color: var(--text-muted); }
+  .vl-migalhas button { background: var(--card-bg-2); border: 1px solid var(--border); border-radius: 999px; padding: 6px 12px; font-weight: 700; color: var(--accent); cursor: pointer; font-size: 12.5px; min-height: 34px; }
+  .vl-migalhas button.atual { background: var(--navy); border-color: var(--navy); color: #fff; cursor: default; }
+  .vl-tabela { box-shadow: none; }
+  .vl-tabela table { min-width: 620px; }
+  .vl-num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .vl-tabela thead th:nth-child(2), .vl-tabela thead th:nth-child(5), .vl-tabela thead th:nth-child(6) { text-align: right; }
+  .vl-cod { font-size: 11px; color: var(--text-muted); font-weight: 600; margin-top: 2px; }
+  .vl-part { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; min-width: 80px; }
+  .vl-part span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+  .vl-part-n { font-size: 11.5px; color: var(--text-secondary); font-weight: 700; margin-top: 4px; font-variant-numeric: tabular-nums; }
+  .vl-var { display: inline-block; font-size: 12px; font-weight: 800; padding: 3px 8px; border-radius: 999px; white-space: nowrap; font-variant-numeric: tabular-nums; }
+  .vl-var.pos { background: var(--green-bg); color: var(--green); }
+  .vl-var.neg { background: var(--red-bg); color: var(--red); }
+  .vl-var.neutro { background: var(--surface-2); color: var(--text-secondary); }
+  .vl-seta { color: var(--text-muted); font-size: 18px; text-align: right; }
+  .vl-dica { font-size: 12px; color: var(--text-muted); margin-top: 10px; }
+  .vl-ranks { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+  .vl-ranks .vl-card { margin-bottom: 0; }
+  .vl-rank { list-style: none; margin: 0; padding: 0; counter-reset: vl; }
+  .vl-rank li { counter-increment: vl; display: grid; grid-template-columns: 22px minmax(0, 1fr); column-gap: 8px; padding: 9px 0; border-top: 1px solid var(--border); }
+  .vl-rank li:first-child { border-top: none; }
+  .vl-rank li::before { content: counter(vl); grid-row: span 2; font-weight: 800; color: var(--text-muted); font-size: 12px; padding-top: 1px; font-variant-numeric: tabular-nums; }
+  .vl-rank li.vazio::before { content: ''; }
+  .vl-rank-nome { font-size: 13px; font-weight: 700; overflow-wrap: anywhere; }
+  .vl-rank-val { font-size: 12.5px; font-weight: 800; margin-top: 3px; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-variant-numeric: tabular-nums; }
+  .vl-rank-sub { font-weight: 600; color: var(--text-muted); font-size: 11.5px; }
+  .vl-nota { font-size: 12px; color: var(--text-muted); margin-top: 18px; }
+  @media (max-width: 1100px) { .vl-ranks { grid-template-columns: 1fr; } }
+
+  /* ---------- Portal no celular (todas as telas) ---------- */
+  @media (max-width: 860px) {
+    .page-header { flex-direction: column; align-items: flex-start; gap: 10px; margin-bottom: 18px; }
+    .page-header .sub { font-size: 13px; }
+    .badge-conectado { font-size: 11px; padding: 4px 10px; }
+    /* Campos com 16px: o celular não dá zoom sozinho ao tocar */
+    input, select, textarea, .input-busca, .select-filtro, .campo-input { font-size: 16px !important; }
+    .toolbar { gap: 8px; }
+    .toolbar > * { flex: 1 1 100%; min-width: 0 !important; max-width: none !important; }
+    .toolbar .btn-acao, .toolbar .select-filtro { flex: 1 1 calc(50% - 4px); }
+    .btn-acao { min-height: 44px; }
+    /* Linhas de botões e filtros montadas dentro das telas */
+    .main [style*="display:flex"][style*="flex-wrap:wrap"] > .input-busca { max-width: none !important; flex: 1 1 100%; }
+    .main [style*="margin-left:auto"] { margin-left: 0 !important; }
+    /* Tabelas rolam de lado dentro do cartão, nunca a página */
+    .tabela-wrap { -webkit-overflow-scrolling: touch; border-radius: 14px; }
+    thead th { padding: 11px 12px; }
+    tbody td { padding: 11px 12px; font-size: 13px; }
+    .item-card, .ponta-card, .vc-grafico-card, .vl-card { padding: 14px 14px; }
+    .resumo-perdas { gap: 10px; }
+    .resumo-perdas .box { flex: 1 1 calc(50% - 5px); min-width: 0; padding: 12px 14px; }
+    .setores-grid, .gaveta-grid { grid-template-columns: 1fr; }
+    .chips-wrap { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; margin-bottom: 14px; }
+    .chip { flex-shrink: 0; }
+    .vl-atualizar { margin-left: 0; flex-shrink: 0; }
+    /* Janelas ocupam a tela inteira */
+    .overlay { padding: 0; align-items: stretch; }
+    .modal-card, .modal-card.largo { max-width: none; max-height: none; height: 100%; border-radius: 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px)); }
+    .form-botoes { position: sticky; bottom: -20px; background: var(--card-bg); padding: 12px 0; margin-top: 16px; }
+    .form-botoes .btn-acao { flex: 1; }
+    .toast { left: 16px; right: 16px; bottom: calc(16px + env(safe-area-inset-bottom, 0px)); max-width: none; }
+    .jornal-flutuante { top: auto; bottom: 0; right: 0; left: 0; width: 100%; max-height: 70vh; border-radius: 16px 16px 0 0; }
+    .gaveta-conteudo { padding: 12px; }
+    .mapa-dica { margin-left: 0; width: 100%; }
+    .vl-grafico { height: 170px; }
+    /* Tabela de vendas vira lista de cartões no celular */
+    .vl-tabela { overflow: visible; border: none; background: transparent; }
+    .vl-tabela table { min-width: 0; }
+    .vl-tabela thead { display: none; }
+    .vl-tabela tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-auto-flow: dense; gap: 6px 10px; padding: 12px 2px; border-bottom: 1px solid var(--border); }
+    .vl-tabela tbody td { padding: 0; border: none; font-size: 13.5px; }
+    .vl-tabela tbody td:nth-child(1) { grid-column: 1 / -1; }
+    .vl-tabela tbody td:nth-child(2) { text-align: left; font-weight: 800; font-size: 16px; }
+    .vl-tabela tbody td:nth-child(3) { grid-column: 1 / -1; }
+    .vl-tabela tbody td:nth-child(4) { text-align: right; }
+    .vl-tabela tbody td:nth-child(5) { text-align: left; color: var(--text-secondary); font-size: 12.5px; }
+    .vl-tabela tbody td:nth-child(5)::before { content: 'Margem '; }
+    .vl-tabela tbody td:nth-child(6) { color: var(--text-secondary); font-size: 12.5px; }
+    .vl-tabela tbody td:nth-child(6)::after { content: ' itens'; }
+    .vl-tabela tbody td.vl-seta { display: none; }
+    .vl-tabela tbody tr td.celula-vazio { grid-column: 1 / -1; }
+    .vl-part { min-width: 0; }
+  }
 </style>
 </head>
 <body>
@@ -715,6 +822,7 @@
       <div class="nav-gaveta-itens">
         <button class="nav-item" data-pagina="perdas" onclick="irPara('perdas')"><span class="dot"></span>Perdas e Desperdícios</button>
         <button class="nav-item" data-pagina="validade" onclick="irPara('validade')"><span class="dot"></span>Validade</button>
+        <button class="nav-item" id="nav-vendas-loja" style="display:none" data-pagina="vendas-loja" onclick="irPara('vendas-loja')"><span class="dot"></span>Vendas da Loja</button>
         <button class="nav-item" data-pagina="vendas" onclick="irPara('vendas')"><span class="dot"></span>Vendas</button>
         <button class="nav-item" data-pagina="vendas-comparativo" onclick="irPara('vendas-comparativo')"><span class="dot"></span>Comparativo de Vendas</button>
         <button class="nav-item" id="nav-giro-produtos" style="display:none" data-pagina="giro-produtos" onclick="irPara('giro-produtos')"><span class="dot"></span>Giro de Produtos</button>
@@ -960,6 +1068,7 @@ async function fazerLogin() {
     // Giro de Produtos: por enquanto só o Lucas (fase de teste).
     // Giro de Produtos e Importar vendas: Lucas, Rodrigo e Valmir.
     document.getElementById('nav-giro-produtos').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
+    document.getElementById('nav-vendas-loja').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-importar-vendas').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     irPara('equipe');
   } catch (e) {
@@ -990,7 +1099,7 @@ function iniciais(nome) {
 const GAVETA_POR_PAGINA = {
   equipe: 'colaboradores', escala: 'colaboradores',
   avisos: 'avisos', ocorrencias: 'avisos',
-  perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores',
+  perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
   pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pontas-extras': 'operacao',
 };
@@ -1043,6 +1152,7 @@ async function irPara(pagina) {
     else if (pagina === 'vendas') await paginaVendas();
     else if (pagina === 'vendas-comparativo') await paginaVendasComparativo();
     else if (pagina === 'giro-produtos') await paginaGiroProdutos();
+    else if (pagina === 'vendas-loja') await paginaVendasLoja();
     else if (pagina === 'importar-vendas') await paginaImportarVendas();
     else if (pagina === 'painel-resultados') await paginaPainelResultados();
     else if (pagina === 'acessos') await paginaAcessos();
@@ -5235,6 +5345,197 @@ function giroOpcoes(lista, nivel) {
   const mapa = new Map();
   lista.forEach((p) => { if (giroProblema(p, dias)) mapa.set(p[nivel], (mapa.get(p[nivel]) || 0) + 1); });
   return [...mapa.entries()].map(([valor, qtd]) => ({ valor, qtd })).sort((a, b) => b.qtd - a.qtd);
+}
+
+// =============================================================================
+// Vendas da Loja — venda por dia, por setor e pelo sortimento inteiro
+// (setor → grupo → categoria → subcategoria → produto), comparando com o
+// período anterior. Lê só o que já existe no banco, pelas funções
+// vendas_loja_dias e vendas_loja_grupos (supabase/vendas_loja.sql).
+// =============================================================================
+const VL_NIVEIS = ['Setor', 'Grupo', 'Categoria', 'Subcategoria', 'Produto'];
+const VL_PERIODOS = [['mes', 'Mês atual'], ['7d', 'Últimos 7 dias'], ['30d', 'Últimos 30 dias'], ['mes_ant', 'Mês anterior']];
+
+function vlEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
+function vlBRL(n) { return 'R$ ' + Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 0, maximumFractionDigits: 0 }); }
+function vlBRL2(n) { return 'R$ ' + Number(n || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function vlCurto(n) {
+  n = Number(n || 0);
+  if (Math.abs(n) >= 1e6) return 'R$ ' + (n / 1e6).toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' mi';
+  if (Math.abs(n) >= 1e3) return 'R$ ' + (n / 1e3).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + ' mil';
+  return vlBRL(n);
+}
+function vlPct(a, b) { return b > 0 ? ((a - b) / b) * 100 : null; }
+function vlVar(p) {
+  if (p == null || !isFinite(p)) return '<span class="vl-var neutro">novo</span>';
+  const s = (p > 0 ? '+' : '') + p.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%';
+  return '<span class="vl-var ' + (p >= 0.05 ? 'pos' : p <= -0.05 ? 'neg' : 'neutro') + '">' + (p >= 0.05 ? '▲ ' : p <= -0.05 ? '▼ ' : '') + s + '</span>';
+}
+function vlData(d) { return d.toISOString().slice(0, 10); }
+function vlDia(s) { const [y, m, d] = s.split('-').map(Number); return new Date(Date.UTC(y, m - 1, d)); }
+function vlSomaDias(d, n) { const x = new Date(d); x.setUTCDate(x.getUTCDate() + n); return x; }
+function vlFmtDia(s) { const d = vlDia(s); return String(d.getUTCDate()).padStart(2, '0') + '/' + String(d.getUTCMonth() + 1).padStart(2, '0'); }
+const VL_SEMANA = ['dom', 'seg', 'ter', 'qua', 'qui', 'sex', 'sáb'];
+
+// Calcula o período e o período de comparação a partir do último dia com venda
+function vlPeriodo(tipo, ultimo) {
+  const u = vlDia(ultimo);
+  let ini, fim, iniA, fimA, rotulo, rotuloA;
+  if (tipo === 'mes') {
+    ini = new Date(Date.UTC(u.getUTCFullYear(), u.getUTCMonth(), 1)); fim = u;
+    iniA = new Date(Date.UTC(u.getUTCFullYear(), u.getUTCMonth() - 1, 1));
+    const ultDiaAnt = new Date(Date.UTC(u.getUTCFullYear(), u.getUTCMonth(), 0)).getUTCDate();
+    fimA = new Date(Date.UTC(u.getUTCFullYear(), u.getUTCMonth() - 1, Math.min(u.getUTCDate(), ultDiaAnt)));
+    rotuloA = 'mesmos dias do mês anterior';
+  } else if (tipo === 'mes_ant') {
+    ini = new Date(Date.UTC(u.getUTCFullYear(), u.getUTCMonth() - 1, 1)); fim = new Date(Date.UTC(u.getUTCFullYear(), u.getUTCMonth(), 0));
+    iniA = new Date(Date.UTC(u.getUTCFullYear(), u.getUTCMonth() - 2, 1)); fimA = new Date(Date.UTC(u.getUTCFullYear(), u.getUTCMonth() - 1, 0));
+    rotuloA = 'mês retrasado';
+  } else {
+    const n = tipo === '7d' ? 7 : 30;
+    fim = u; ini = vlSomaDias(u, -(n - 1)); fimA = vlSomaDias(ini, -1); iniA = vlSomaDias(ini, -n);
+    rotuloA = n + ' dias anteriores';
+  }
+  rotulo = vlFmtDia(vlData(ini)) + ' a ' + vlFmtDia(vlData(fim));
+  return { ini: vlData(ini), fim: vlData(fim), iniA: vlData(iniA), fimA: vlData(fimA), rotulo, rotuloA };
+}
+
+async function vlRpc(nome, args) {
+  const { data, error } = await sb.rpc(nome, args);
+  if (error) throw error;
+  return data || [];
+}
+
+async function paginaVendasLoja() {
+  const el = document.getElementById('conteudo-principal');
+  if (!estado.usuario || !MATRICULAS_GIRO.includes(String(estado.usuario.matricula))) {
+    el.innerHTML = cabecalho('Vendas da Loja', '') + '<div class="celula-vazio">Página ainda não liberada para o seu acesso.</div>';
+    return;
+  }
+  estado.vl = estado.vl || { tipo: 'mes', caminho: [], ordem: 'venda' };
+  el.innerHTML = cabecalho('Vendas da Loja', 'Venda por dia, setor e sortimento') + '<div class="carregando">Carregando as vendas…</div>';
+  try {
+    if (!estado.vlUltimo) {
+      const { data, error } = await sb.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: false }).limit(1);
+      if (error) throw error;
+      if (!data || !data.length) { el.innerHTML = cabecalho('Vendas da Loja', '') + '<div class="celula-vazio">Ainda não há vendas no banco. Suba as vendas pelo “Importar vendas (Falcon)”.</div>'; return; }
+      estado.vlUltimo = data[0].data_venda;
+    }
+    await vlCarregar();
+  } catch (e) {
+    const falta = /vendas_loja_(dias|grupos)/.test(e.message || '') || e.code === 'PGRST202';
+    el.innerHTML = cabecalho('Vendas da Loja', '') + '<div class="celula-vazio">' +
+      (falta ? 'Falta criar as consultas de vendas no banco. Rode o arquivo <b>supabase/vendas_loja.sql</b> no SQL Editor do Supabase e recarregue.' : 'Não consegui carregar as vendas: ' + vlEsc(e.message || 'tente de novo.')) + '</div>';
+  }
+}
+
+async function vlCarregar() {
+  const f = estado.vl;
+  const p = vlPeriodo(f.tipo, estado.vlUltimo);
+  const nivel = Math.min(f.caminho.length + 2, 6);
+  const filtros = { p_c2: f.caminho[0] || null, p_c3: f.caminho[1] || null, p_c4: f.caminho[2] || null, p_c5: f.caminho[3] || null };
+  const base = { p_ini: p.ini, p_fim: p.fim, p_ini_ant: p.iniA, p_fim_ant: p.fimA };
+  const pedidos = [
+    vlRpc('vendas_loja_dias', { p_ini: p.ini, p_fim: p.fim }),
+    vlRpc('vendas_loja_dias', { p_ini: p.iniA, p_fim: p.fimA }),
+    vlRpc('vendas_loja_grupos', Object.assign({ p_nivel: nivel }, base, filtros)),
+  ];
+  if (nivel < 6) pedidos.push(vlRpc('vendas_loja_grupos', Object.assign({ p_nivel: 6 }, base, filtros)));
+  const r = await Promise.all(pedidos);
+  estado.vlDados = { p, dias: r[0], diasA: r[1], grupos: r[2], produtos: nivel < 6 ? r[3] : r[2], nivel };
+  renderizarVendasLoja();
+}
+
+function vlMudarPeriodo(t) { estado.vl.tipo = t; vlRecarregar(); }
+function vlAbrir(i) { const g = estado.vlDados.grupos[i]; if (!g || estado.vlDados.nivel >= 6) return; estado.vl.caminho.push(g.chave); vlRecarregar(); }
+function vlVoltarPara(n) { estado.vl.caminho = estado.vl.caminho.slice(0, n); vlRecarregar(); }
+function vlOrdenar(o) { estado.vl.ordem = o; renderizarVendasLoja(); }
+async function vlRecarregar() {
+  const corpo = document.getElementById('vl-corpo');
+  if (corpo) corpo.style.opacity = '.45';
+  try { await vlCarregar(); } catch (e) { mostrarToast('Não consegui carregar: ' + (e.message || ''), 'erro'); if (corpo) corpo.style.opacity = '1'; }
+}
+async function vlAtualizar() { estado.vlUltimo = null; await paginaVendasLoja(); }
+
+function renderizarVendasLoja() {
+  const d = estado.vlDados, f = estado.vl, p = d.p;
+  const total = d.dias.reduce((a, x) => a + Number(x.venda), 0);
+  const totalA = d.diasA.reduce((a, x) => a + Number(x.venda), 0);
+  const nDias = d.dias.length || 1;
+  const melhor = d.dias.reduce((m, x) => (!m || Number(x.venda) > Number(m.venda) ? x : m), null);
+  const somaCaminho = d.grupos.reduce((a, g) => a + Number(g.venda), 0);
+  const somaCaminhoA = d.grupos.reduce((a, g) => a + Number(g.venda_ant), 0);
+  const comMargem = d.grupos.filter((g) => g.margem != null && Number(g.venda) > 0);
+  const vendaComMargem = comMargem.reduce((a, g) => a + Number(g.venda), 0);
+  const margem = vendaComMargem ? comMargem.reduce((a, g) => a + Number(g.venda) * Number(g.margem), 0) / vendaComMargem : null;
+  const noCaminho = f.caminho.length > 0;
+
+  const periodos = '<div class="chips-wrap vl-periodos">' + VL_PERIODOS.map(([k, t]) =>
+    '<button class="chip' + (f.tipo === k ? ' ativo' : '') + '" onclick="vlMudarPeriodo(\'' + k + '\')">' + t + '</button>').join('') +
+    '<button class="btn-acao secundario vl-atualizar" onclick="vlAtualizar()">↻ Atualizar</button></div>';
+
+  const cards = '<div class="stats-grid">' +
+    '<div class="stat-card"><div class="rotulo">' + (noCaminho ? 'Venda de ' + vlEsc(f.caminho[f.caminho.length - 1]) : 'Venda da loja') + '</div><div class="valor">' + vlCurto(noCaminho ? somaCaminho : total) + '</div><div class="legenda">' + p.rotulo + ' · ' + vlVar(vlPct(noCaminho ? somaCaminho : total, noCaminho ? somaCaminhoA : totalA)) + ' vs ' + p.rotuloA + '</div></div>' +
+    '<div class="stat-card"><div class="rotulo">Média por dia</div><div class="valor">' + vlCurto(total / nDias) + '</div><div class="legenda">' + nDias + ' dias com venda (loja inteira)</div></div>' +
+    '<div class="stat-card"><div class="rotulo">Margem estimada</div><div class="valor ' + (margem == null ? '' : margem >= 20 ? 'verde' : margem < 10 ? 'vermelho' : '') + '">' + (margem == null ? '—' : margem.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%') + '</div><div class="legenda">preço e custo médio atuais do estoque</div></div>' +
+    '<div class="stat-card"><div class="rotulo">Melhor dia</div><div class="valor">' + (melhor ? vlCurto(melhor.venda) : '—') + '</div><div class="legenda">' + (melhor ? VL_SEMANA[vlDia(melhor.dia).getUTCDay()] + ', ' + vlFmtDia(melhor.dia) : '') + '</div></div>' +
+    '</div>';
+
+  // Gráfico dia a dia (período atual x anterior, alinhados pela posição do dia)
+  const max = Math.max(1, ...d.dias.map((x) => Number(x.venda)), ...d.diasA.map((x) => Number(x.venda)));
+  const barras = d.dias.map((x, i) => {
+    const a = d.diasA[i];
+    const h = (Number(x.venda) / max) * 100, ha = a ? (Number(a.venda) / max) * 100 : 0;
+    const dow = vlDia(x.dia).getUTCDay();
+    return '<div class="vl-col' + (dow === 0 ? ' dom' : '') + '" title="' + VL_SEMANA[dow] + ' ' + vlFmtDia(x.dia) + ': ' + vlBRL2(x.venda) + (a ? '\n' + vlFmtDia(a.dia) + ' (anterior): ' + vlBRL2(a.venda) : '') + '">' +
+      '<div class="vl-barras"><span class="vl-b-ant" style="height:' + ha.toFixed(1) + '%"></span><span class="vl-b" style="height:' + h.toFixed(1) + '%"></span></div>' +
+      '<div class="vl-rot">' + vlDia(x.dia).getUTCDate() + '</div></div>';
+  }).join('');
+  const grafico = '<div class="vl-card"><div class="vl-card-topo"><h3>Venda por dia</h3><div class="vl-legenda"><span><i class="vl-q atual"></i>' + p.rotulo + '</span><span><i class="vl-q ant"></i>' + p.rotuloA + '</span></div></div>' +
+    '<div class="vl-grafico-wrap"><div class="vl-grafico" style="min-width:' + (d.dias.length * 22) + 'px">' + barras + '</div></div>' +
+    '<div class="vl-grafico-eixo"><span>' + vlCurto(max) + '</span><span>Toque ou passe o mouse numa barra para ver o valor do dia</span></div></div>';
+
+  // Caminho do sortimento
+  const migalhas = '<div class="vl-migalhas"><button onclick="vlVoltarPara(0)" class="' + (noCaminho ? '' : 'atual') + '">Loja inteira</button>' +
+    f.caminho.map((c, i) => '<span>›</span><button onclick="vlVoltarPara(' + (i + 1) + ')" class="' + (i === f.caminho.length - 1 ? 'atual' : '') + '">' + vlEsc(c) + '</button>').join('') + '</div>';
+
+  const nivelNome = VL_NIVEIS[d.nivel - 2];
+  const linhas = d.grupos.map((g, i) => {
+    const part = somaCaminho > 0 ? (Number(g.venda) / somaCaminho) * 100 : 0;
+    const clicavel = d.nivel < 6;
+    return '<tr class="' + (clicavel ? 'linha-clicavel' : '') + '"' + (clicavel ? ' onclick="vlAbrir(' + i + ')"' : '') + '>' +
+      '<td class="nome-forte">' + vlEsc(g.nome) + (d.nivel >= 6 ? '<div class="vl-cod">cód. ' + vlEsc(g.chave) + '</div>' : '') + '</td>' +
+      '<td class="vl-num">' + vlBRL(g.venda) + '</td>' +
+      '<td><div class="vl-part"><span style="width:' + Math.min(100, part).toFixed(1) + '%"></span></div><div class="vl-part-n">' + part.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%</div></td>' +
+      '<td>' + vlVar(vlPct(Number(g.venda), Number(g.venda_ant))) + '</td>' +
+      '<td class="vl-num">' + (g.margem == null ? '—' : Number(g.margem).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%') + '</td>' +
+      (d.nivel < 6 ? '<td class="vl-num">' + Number(g.itens).toLocaleString('pt-BR') + '</td><td class="vl-seta">›</td>' : '') +
+      '</tr>';
+  }).join('');
+  const tabela = '<div class="vl-card"><div class="vl-card-topo"><h3>Venda por ' + nivelNome.toLowerCase() + '</h3>' + migalhas + '</div>' +
+    '<div class="tabela-wrap vl-tabela"><table><thead><tr><th>' + nivelNome + '</th><th>Venda</th><th>Participação</th><th>Vs. anterior</th><th>Margem</th>' + (d.nivel < 6 ? '<th>Itens</th><th></th>' : '') + '</tr></thead><tbody>' +
+    (linhas || '<tr><td colspan="7" class="celula-vazio">Sem vendas neste período.</td></tr>') + '</tbody></table></div>' +
+    (d.nivel < 6 ? '<div class="vl-dica">Toque numa linha para abrir os ' + VL_NIVEIS[d.nivel - 1].toLowerCase() + 's dentro dela.</div>' : '') + '</div>';
+
+  // Rankings de produtos dentro do caminho escolhido
+  const prods = d.produtos.map((x) => ({ nome: x.nome, cod: x.chave, v: Number(x.venda), a: Number(x.venda_ant), m: x.margem }));
+  const top = prods.slice().sort((x, y) => y.v - x.v).slice(0, 10);
+  const comDif = prods.filter((x) => x.a > 0).map((x) => Object.assign({}, x, { dif: x.v - x.a }));
+  const altas = comDif.filter((x) => x.dif > 0).sort((x, y) => y.dif - x.dif).slice(0, 10);
+  const quedas = comDif.filter((x) => x.dif < 0).sort((x, y) => x.dif - y.dif).slice(0, 10);
+  const lista = (arr, modo) => '<ol class="vl-rank">' + (arr.length ? arr.map((x) =>
+    '<li><div class="vl-rank-nome">' + vlEsc(x.nome) + '</div><div class="vl-rank-val">' +
+    (modo === 'top' ? vlBRL(x.v) + ' ' + vlVar(vlPct(x.v, x.a)) : (x.dif >= 0 ? '+' : '−') + vlBRL(Math.abs(x.dif)) + ' <span class="vl-rank-sub">' + vlBRL(x.a) + ' → ' + vlBRL(x.v) + '</span>') +
+    '</div></li>').join('') : '<li class="vazio">Sem dados para comparar.</li>') + '</ol>';
+  const rankings = '<div class="vl-ranks">' +
+    '<div class="vl-card"><h3>Mais vendidos</h3>' + lista(top, 'top') + '</div>' +
+    '<div class="vl-card"><h3>Maiores altas</h3>' + lista(altas, 'dif') + '</div>' +
+    '<div class="vl-card"><h3>Maiores quedas</h3>' + lista(quedas, 'dif') + '</div></div>';
+
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Vendas da Loja', 'Vendas até ' + vlFmtDia(estado.vlUltimo) + ' · atualiza a cada importação do Falcon') +
+    '<div id="vl-corpo">' + periodos + cards + grafico + tabela + rankings +
+    '<p class="vl-nota">Margem estimada com o preço de venda e o custo médio atuais do estoque. Vendas sem cadastro de setor aparecem como “SEM CLASSIFICACAO”.</p></div>';
 }
 
 async function paginaGiroProdutos() {

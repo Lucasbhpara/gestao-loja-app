@@ -24,6 +24,7 @@ import JornalOfertasScreen from './JornalOfertasScreen';
 import ChecklistHubScreen from './ChecklistHubScreen';
 import VisitaTecnicaScreen from './VisitaTecnicaScreen';
 import GiroProdutosScreen from './GiroProdutosScreen';
+import VendasLojaScreen from './VendasLojaScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
@@ -55,6 +56,7 @@ export default function HomeAdminScreen() {
     | 'painelResultados'
     | 'vendas'
     | 'giro'
+    | 'vendasLoja'
     | 'mapaLoja'
     | 'pontasExtras'
     | 'jornalOfertas'
@@ -156,6 +158,9 @@ export default function HomeAdminScreen() {
   }
   if (tela === 'vendas') {
     return <VendasScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'vendasLoja') {
+    return <VendasLojaScreen onVoltar={() => setTela('home')} />;
   }
   if (tela === 'giro') {
     return <GiroProdutosScreen onVoltar={() => setTela('home')} />;
@@ -299,6 +304,7 @@ export default function HomeAdminScreen() {
             { label: 'Conferência', icone: 'clipboard' as const, onPress: () => setTela('conferencias') },
             { label: 'Pedidos', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') },
             { label: 'Painel Resultados', icone: 'bar-chart-2' as const, onPress: () => setTela('painelResultados') },
+            { label: 'Vendas da Loja', icone: 'pie-chart' as const, onPress: () => setTela('vendasLoja'), somenteDono: true },
             { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },
             // Produtos sem venda / parados, por setor → subcategoria.
             // Por enquanto só Lucas e Rodrigo (MATRICULAS_GIRO) — pra liberar
