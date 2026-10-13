@@ -75,3 +75,47 @@ export async function buscarPerdasDoSetor(setor: SetorKey): Promise<Perda[]> {
   if (error) throw error;
   return filtrarUltimaImportacaoPorProduto((data ?? []).map(linhaParaPerda));
 }
+
+// Setor das perdas → setores do cadastro de vendas (classe 2), pra achar a
+// venda do setor e calcular a quebra geral (perda ÷ venda).
+export const VENDA_SETOR_PERDAS: Partial<Record<SetorKey, string[]>> = {
+  flv: ['HORTIFRUTIGRANJEIROS'],
+  padaria: ['PADARIA FORN/FAB PROPRIA'],
+  acougue: ['ACOUGUE/SALGADOS/DEFUMADO'],
+  frios: ['PERECIVEIS'],
+  mercearia: ['MERCEARIA LIQUIDA', 'MERCEARIA SALGADA', 'MERCEARIA DOCE', 'CEREAIS', 'BOMBONIERE/MATINAIS', 'LIMPEZA', 'PERFUMARIA/HIG PESSOAL', 'BAZAR'],
+};
+
+export interface VendaSetores {
+  porSetor: Record<string, number>;
+  ate: string | null; // último dia de venda carregado
+}
+
+// Venda acumulada do mês do relatório, por setor (vendas_setor_loja é
+// recalculada sozinha a cada upload de vendas). Null se não houver.
+export async function buscarVendaSetores(periodoInicio: string, periodoFim: string): Promise<VendaSetores | null> {
+  const mesIni = periodoInicio.slice(0, 8) + '01';
+  const { data, error } = await supabase.from('vendas_setor_loja').select('setor_norm, venda').eq('periodo_inicio', mesIni);
+  if (error || !data || data.length === 0) return null;
+  const porSetor: Record<string, number> = {};
+  (data as { setor_norm: string; venda: number }[]).forEach((l) => {
+    porSetor[l.setor_norm] = (porSetor[l.setor_norm] || 0) + Number(l.venda || 0);
+  });
+  let ate: string | null = null;
+  const u = await supabase
+    .from('vendas_diarias')
+    .select('data_venda')
+    .gte('data_venda', mesIni)
+    .lte('data_venda', periodoFim)
+    .order('data_venda', { ascending: false })
+    .limit(1);
+  if (!u.error && u.data && u.data.length) ate = (u.data[0] as { data_venda: string }).data_venda;
+  return { porSetor, ate };
+}
+
+export function vendaDoSetor(setor: SetorKey, vendas: VendaSetores | null): number | null {
+  const chaves = VENDA_SETOR_PERDAS[setor];
+  if (!vendas || !chaves) return null;
+  const v = chaves.reduce((s, k) => s + (vendas.porSetor[k] || 0), 0);
+  return v > 0 ? v : null;
+}

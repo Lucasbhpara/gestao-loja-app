@@ -641,6 +641,37 @@
   }
   @media (prefers-reduced-motion: reduce) { .sidebar, .nav-gaveta-itens { transition: none !important; } }
 
+  /* ---------- Perdas: quebra geral por setor ---------- */
+  .pq-card { background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius-lg); box-shadow: var(--shadow); padding: 18px 20px; margin-bottom: 18px; }
+  .pq-topo { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 14px; }
+  .pq-topo h3 { margin: 0; font-size: 16px; font-weight: 800; }
+  .pq-nota { font-size: 12px; color: var(--text-muted); }
+  .pq-setores { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+  .pq-setor { text-align: left; background: var(--card-bg-2, var(--card-bg)); border: 1px solid var(--border); border-radius: 14px; padding: 14px; cursor: pointer; font: inherit; color: inherit; }
+  .pq-setor:hover { border-color: var(--accent); }
+  .pq-setor-nome { font-size: 12.5px; font-weight: 700; color: var(--text-secondary); }
+  .pq-setor-valor { font-size: 20px; font-weight: 800; margin: 4px 0 10px; font-variant-numeric: tabular-nums; }
+  .pq-setor-rodape { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 6px; font-size: 11.5px; color: var(--text-muted); font-weight: 600; margin-top: 8px; }
+  .pq-barra { height: 8px; background: var(--surface-2, #EEF2F7); border-radius: 999px; overflow: hidden; }
+  .pq-barra span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
+  .pq-sub { font-size: 12px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px; color: var(--text-muted); margin-bottom: 8px; }
+  .pq-sorts { display: flex; flex-direction: column; }
+  .pq-sort { display: grid; grid-template-columns: minmax(0, 1.4fr) minmax(80px, 1fr) auto; gap: 14px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+  .pq-sort:first-child { border-top: none; }
+  .pq-sort-nome { font-size: 13px; font-weight: 700; }
+  .pq-sort-nome span, .pq-sort-val span { display: block; font-size: 11.5px; color: var(--text-muted); font-weight: 600; margin-top: 2px; }
+  .pq-sort-val { text-align: right; font-weight: 800; font-size: 13.5px; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  @media (max-width: 860px) {
+    .pq-card { padding: 14px; }
+    .pq-card .resumo-perdas { gap: 10px; }
+    .pq-card .resumo-perdas .box { flex: 1 1 calc(50% - 5px); min-width: 0; padding: 12px 14px; }
+    .pq-card .resumo-perdas .box .valor { font-size: 16px; }
+    .pq-setores { grid-template-columns: 1fr 1fr; gap: 10px; }
+    .pq-setor-valor { font-size: 16px; }
+    .pq-sort { grid-template-columns: minmax(0, 1fr) auto; gap: 6px 12px; }
+    .pq-sort .pq-barra { grid-column: 1 / -1; grid-row: 2; }
+  }
+
   /* ---------- Vendas da Loja ---------- */
   .vl-periodos { align-items: center; }
   .vl-atualizar { margin-left: auto; }
@@ -2254,23 +2285,125 @@ function filtrarUltimaImportacaoPorProduto(linhas) {
   const vencedoras = new Set(Object.values(maisRecentePorChave));
   return linhas.filter((l) => vencedoras.has(l));
 }
+// Setor das perdas → setores do cadastro de vendas (classe 2). Serve pra
+// achar a VENDA do setor no mesmo período e calcular a quebra geral
+// (perda ÷ venda), igual ao relatório. Fonte: vendas_setor_loja, que já é
+// recalculada sozinha a cada upload de vendas.
+const VENDA_SETOR_PERDAS = {
+  flv: ['HORTIFRUTIGRANJEIROS'],
+  padaria: ['PADARIA FORN/FAB PROPRIA'],
+  acougue: ['ACOUGUE/SALGADOS/DEFUMADO'],
+  frios: ['PERECIVEIS'],
+  mercearia: ['MERCEARIA LIQUIDA', 'MERCEARIA SALGADA', 'MERCEARIA DOCE', 'CEREAIS', 'BOMBONIERE/MATINAIS', 'LIMPEZA', 'PERFUMARIA/HIG PESSOAL', 'BAZAR'],
+};
+function reaisPerdas(v) { return 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function pctPerdasTxt(v) { return v == null ? '—' : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + '%'; }
+// Cor da quebra geral do setor (bem menor que a % de um produto sozinho).
+function corQuebraSetor(pct) {
+  if (pct == null) return '';
+  if (pct >= 3) return 'vermelho';
+  if (pct >= 1) return 'laranja';
+  return 'verde';
+}
 async function paginaPerdas() {
   const { data, error } = await sb.from('perdas').select('*').order('valor_perdido', { ascending: false });
   if (error) throw error;
   estado.perdas = filtrarUltimaImportacaoPorProduto(data || []);
   estado.filtroSetorPerdas = '';
+  estado.vendaSetorPerdas = null;
+  const p = estado.perdas[0];
+  if (p) {
+    try {
+      // Venda acumulada do mês do relatório, por setor
+      const mesIni = p.periodo_inicio.slice(0, 8) + '01';
+      const r = await sb.from('vendas_setor_loja').select('setor_norm, venda, periodo_inicio, periodo_fim').eq('periodo_inicio', mesIni);
+      if (!r.error && r.data && r.data.length) {
+        const porSetor = {};
+        r.data.forEach((l) => { porSetor[l.setor_norm] = (porSetor[l.setor_norm] || 0) + Number(l.venda || 0); });
+        let ultimo = null;
+        try {
+          const u = await sb.from('vendas_diarias').select('data_venda').gte('data_venda', mesIni).lte('data_venda', p.periodo_fim).order('data_venda', { ascending: false }).limit(1);
+          if (!u.error && u.data && u.data.length) ultimo = u.data[0].data_venda;
+        } catch (e) { /* só o rótulo */ }
+        estado.vendaSetorPerdas = { porSetor, ate: ultimo };
+      }
+    } catch (e) { /* sem venda: mostra só o valor perdido */ }
+  }
   renderizarPerdas();
+}
+function resumoSetorPerdas(setor, linhas) {
+  const perdido = linhas.reduce((s, p) => s + Number(p.valor_perdido || 0), 0);
+  const vendidoItens = linhas.reduce((s, p) => s + Number(p.valor_vendido || 0), 0);
+  let venda = null;
+  const vs = estado.vendaSetorPerdas;
+  if (vs && VENDA_SETOR_PERDAS[setor]) {
+    venda = VENDA_SETOR_PERDAS[setor].reduce((s, k) => s + (vs.porSetor[k] || 0), 0) || null;
+  }
+  return { setor, perdido, vendidoItens, venda, pct: venda ? (perdido / venda) * 100 : null, itens: linhas.length };
 }
 function renderizarPerdas() {
   const todos = estado.perdas;
   const setoresComDado = Array.from(new Set(todos.map((p) => p.setor)));
-  const lista = estado.filtroSetorPerdas ? todos.filter((p) => p.setor === estado.filtroSetorPerdas) : todos;
+  const filtro = estado.filtroSetorPerdas;
+  const lista = filtro ? todos.filter((p) => p.setor === filtro) : todos;
 
   const totalPerdido = lista.reduce((s, p) => s + Number(p.valor_perdido || 0), 0);
-  const periodo = lista.length ? (lista[0].periodo_inicio + ' a ' + lista[0].periodo_fim) : '—';
+  const fmtD = (d) => d ? d.split('-').reverse().join('/') : '—';
+  const periodo = lista.length ? (fmtD(lista[0].periodo_inicio) + ' a ' + fmtD(lista[0].periodo_fim)) : '—';
 
-  const chips = '<button class="chip' + (!estado.filtroSetorPerdas ? ' ativo' : '') + '" onclick="estado.filtroSetorPerdas=\'\'; renderizarPerdas();">Todos</button>' +
-    setoresComDado.map((s) => '<button class="chip' + (estado.filtroSetorPerdas === s ? ' ativo' : '') + '" onclick="estado.filtroSetorPerdas=\'' + s + '\'; renderizarPerdas();">' + nomeSetor(s) + '</button>').join('');
+  const resumos = setoresComDado.map((s) => resumoSetorPerdas(s, todos.filter((p) => p.setor === s)))
+    .sort((a, b) => b.perdido - a.perdido);
+  const totalGeral = resumos.reduce((s, r) => s + r.perdido, 0);
+  const vendaGeral = resumos.every((r) => r.venda) ? resumos.reduce((s, r) => s + r.venda, 0) : null;
+
+  const chips = '<button class="chip' + (!filtro ? ' ativo' : '') + '" onclick="estado.filtroSetorPerdas=\'\'; renderizarPerdas();">Todos</button>' +
+    setoresComDado.map((s) => '<button class="chip' + (filtro === s ? ' ativo' : '') + '" onclick="estado.filtroSetorPerdas=\'' + s + '\'; renderizarPerdas();">' + nomeSetor(s) + '</button>').join('');
+
+  const vs = estado.vendaSetorPerdas;
+  const notaVenda = vs ? ('Venda do setor de ' + fmtD(todos[0] && todos[0].periodo_inicio) + ' até ' + fmtD(vs.ate) + ' (última venda carregada).') : 'Venda do setor indisponível — a quebra aparece só em valor.';
+
+  let blocoSetor = '';
+  if (!filtro && resumos.length) {
+    // Visão geral: quebra de cada setor, clicável
+    blocoSetor =
+      '<div class="pq-card"><div class="pq-topo"><h3>Quebra geral por setor</h3><span class="pq-nota">Toque num setor pra ver o detalhe</span></div>' +
+      '<div class="pq-setores">' + resumos.map((r) =>
+        '<button class="pq-setor" onclick="estado.filtroSetorPerdas=\'' + r.setor + '\'; renderizarPerdas();">' +
+          '<div class="pq-setor-nome">' + nomeSetor(r.setor) + '</div>' +
+          '<div class="pq-setor-valor">' + reaisPerdas(r.perdido) + '</div>' +
+          '<div class="pq-barra"><span style="width:' + (totalGeral ? Math.max(2, r.perdido / totalGeral * 100) : 0).toFixed(1) + '%"></span></div>' +
+          '<div class="pq-setor-rodape"><span>' + (totalGeral ? (r.perdido / totalGeral * 100).toFixed(1).replace('.', ',') : '0') + '% das perdas</span>' +
+            (r.pct != null ? '<span class="pill ' + corQuebraSetor(r.pct) + '">' + pctPerdasTxt(r.pct) + ' da venda</span>' : '') + '</div>' +
+        '</button>').join('') + '</div>' +
+      '<div class="pq-nota" style="margin-top:12px;">' + notaVenda + '</div></div>';
+  } else if (filtro) {
+    const r = resumoSetorPerdas(filtro, lista);
+    const porSort = {};
+    lista.forEach((p) => {
+      const k = p.sortimento || '(sem sortimento)';
+      porSort[k] = porSort[k] || { perdido: 0, vendido: 0, itens: 0 };
+      porSort[k].perdido += Number(p.valor_perdido || 0);
+      porSort[k].vendido += Number(p.valor_vendido || 0);
+      porSort[k].itens += 1;
+    });
+    const sorts = Object.entries(porSort).sort((a, b) => b[1].perdido - a[1].perdido);
+    blocoSetor =
+      '<div class="pq-card"><div class="pq-topo"><h3>Quebra geral · ' + nomeSetor(filtro) + '</h3>' +
+        '<button class="btn-acao secundario" onclick="estado.filtroSetorPerdas=\'\'; renderizarPerdas();">← Todos os setores</button></div>' +
+      '<div class="resumo-perdas" style="margin-bottom:16px;">' +
+        '<div class="box"><div class="rotulo">Quebra total do setor</div><div class="valor">' + reaisPerdas(r.perdido) + '</div></div>' +
+        '<div class="box"><div class="rotulo">Venda do setor</div><div class="valor">' + (r.venda ? reaisPerdas(r.venda) : '—') + '</div></div>' +
+        '<div class="box"><div class="rotulo">Quebra sobre a venda</div><div class="valor">' + (r.pct != null ? '<span class="pill ' + corQuebraSetor(r.pct) + '" style="font-size:18px;">' + pctPerdasTxt(r.pct) + '</span>' : '—') + '</div></div>' +
+        '<div class="box"><div class="rotulo">Participação nas perdas da loja</div><div class="valor">' + (totalGeral ? (r.perdido / totalGeral * 100).toFixed(1).replace('.', ',') + '%' : '—') + '</div></div>' +
+      '</div>' +
+      '<div class="pq-sub">Por sortimento</div>' +
+      '<div class="pq-sorts">' + sorts.map(([nome, s]) =>
+        '<div class="pq-sort"><div class="pq-sort-nome">' + nome + '<span>' + s.itens + ' ' + (s.itens === 1 ? 'produto' : 'produtos') + '</span></div>' +
+          '<div class="pq-barra"><span style="width:' + (r.perdido ? Math.max(2, s.perdido / r.perdido * 100) : 0).toFixed(1) + '%"></span></div>' +
+          '<div class="pq-sort-val">' + reaisPerdas(s.perdido) + '<span>' + (r.perdido ? (s.perdido / r.perdido * 100).toFixed(1).replace('.', ',') : '0') + '% do setor</span></div></div>'
+      ).join('') + '</div>' +
+      '<div class="pq-nota" style="margin-top:12px;">' + notaVenda + '</div></div>';
+  }
 
   const linhas = lista.length === 0
     ? '<tr><td colspan="5"><div class="celula-vazio">Nenhuma perda importada ainda.</div></td></tr>'
@@ -2280,7 +2413,7 @@ function renderizarPerdas() {
           '<td class="nome-forte">' + p.produto + '</td>' +
           '<td><span class="pill">' + nomeSetor(p.setor) + '</span></td>' +
           '<td>' + Number(p.quantidade).toLocaleString('pt-BR') + ' ' + p.unidade + '</td>' +
-          '<td>R$ ' + Number(p.valor_perdido).toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + '</td>' +
+          '<td>' + reaisPerdas(p.valor_perdido) + '</td>' +
           '<td><span class="pill ' + cor.classe + '">' + Number(p.pct_perda).toFixed(1) + '%</span></td>' +
         '</tr>';
       }).join('');
@@ -2289,11 +2422,13 @@ function renderizarPerdas() {
     cabecalho('Perdas e Desperdícios', 'Relatórios importados a partir dos PDFs') +
     '<div class="toolbar" style="justify-content:flex-end;"><button class="btn-acao" onclick="abrirImportarPerdas()">+ Importar PDF</button></div>' +
     '<div class="resumo-perdas">' +
-      '<div class="box"><div class="rotulo">Total perdido</div><div class="valor">R$ ' + totalPerdido.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + '</div></div>' +
+      '<div class="box"><div class="rotulo">Total perdido' + (filtro ? ' · ' + nomeSetor(filtro) : '') + '</div><div class="valor">' + reaisPerdas(totalPerdido) + '</div></div>' +
+      (!filtro && vendaGeral ? '<div class="box"><div class="rotulo">Quebra sobre a venda</div><div class="valor">' + pctPerdasTxt(totalGeral / vendaGeral * 100) + '</div></div>' : '') +
       '<div class="box"><div class="rotulo">Período</div><div class="valor" style="font-size:14px;">' + periodo + '</div></div>' +
       '<div class="box"><div class="rotulo">Itens no relatório</div><div class="valor">' + lista.length + '</div></div>' +
     '</div>' +
     '<div class="chips-wrap">' + chips + '</div>' +
+    blocoSetor +
     '<div class="tabela-wrap"><table><thead><tr><th>Produto</th><th>Setor</th><th>Quantidade</th><th>Valor perdido</th><th>% perda</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
 }
 
