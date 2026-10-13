@@ -42,6 +42,7 @@ import { compartilharAvaliacao } from '../lib/checklistPdf';
 import CorrecaoScreen from './CorrecaoScreen';
 import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
 import { Tarefa } from '../data/tarefasApi';
+import { useTeclado } from '../lib/useTeclado';
 
 // =============================================================================
 // Checklist de Setor — avaliação de conformidade feita pela gerência, setor
@@ -410,6 +411,7 @@ function FormularioAvaliacao({
   usuarioNome: string;
   onVoltar: () => void;
 }) {
+  const teclado = useTeclado();
   const [perguntas, setPerguntas] = useState<AvaliacaoPergunta[]>([]);
   const [respostas, setRespostas] = useState<Map<string, AvaliacaoResposta>>(new Map());
   const [justificativas, setJustificativas] = useState<Record<string, string>>({});
@@ -683,7 +685,12 @@ function FormularioAvaliacao({
         <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.xxl }} />
       ) : (
         <>
-          <ScrollView style={styles.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 }} keyboardShouldPersistTaps="handled">
+          <ScrollView
+            ref={teclado.scrollRef}
+            style={styles.flex}
+            contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 + teclado.espacoExtra }}
+            keyboardShouldPersistTaps="handled"
+          >
             {erro && (
               <View style={styles.erroBox}>
                 <Text style={styles.erroTexto}>{erro}</Text>
@@ -795,12 +802,13 @@ function FormularioAvaliacao({
                 placeholder="Observações gerais, orientações passadas à equipe, prazos combinados…"
                 value={consideracoes}
                 onChangeText={setConsideracoes}
+                onFocus={teclado.focarNoFim}
                 multiline
               />
             </View>
           </ScrollView>
 
-          <View style={styles.rodape}>
+          <View style={[styles.rodape, teclado.aberto && { display: 'none' }]}>
             <TouchableOpacity
               style={[styles.btnFinalizar, (!podeFinalizar || finalizando) && styles.btnFinalizarDesab]}
               onPress={finalizar}
