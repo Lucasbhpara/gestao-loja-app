@@ -20,7 +20,6 @@ import ValidadeDocumentosCard from '../components/ValidadeDocumentosCard';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { Pedometer } from 'expo-sensors';
-import * as Location from 'expo-location';
 import { colors, radius, spacing } from '../theme/colors';
 import {
   RespostaVisita,
@@ -65,6 +64,7 @@ import CorrecaoScreen from './CorrecaoScreen';
 import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
 import { Tarefa } from '../data/tarefasApi';
 import { useTeclado } from '../lib/useTeclado';
+import { pegarLocalizacaoSegura } from '../lib/localizacao';
 
 // =============================================================================
 // Visita Técnica — checklist do Técnico Veterinário (ver visitaTecnicaApi.ts
@@ -134,32 +134,9 @@ function useOffline() {
   useEffect(() => assinar(tick), []);
 }
 
-// GPS com limite de tempo (dentro de câmara/depósito o fix pode demorar).
+// GPS: ver src/lib/localizacao.ts (nunca trava nem derruba a tela).
 async function pegarLocalizacao(): Promise<Localizacao | null> {
-  try {
-    const permissao = await Location.requestForegroundPermissionsAsync();
-    if (!permissao.granted) return null;
-    const pos = await Promise.race([
-      Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced }),
-      new Promise<null>((resolve) => setTimeout(() => resolve(null), 15000)),
-    ]);
-    if (!pos) {
-      const ultima = await Location.getLastKnownPositionAsync().catch(() => null);
-      if (!ultima) return null;
-      return { lat: ultima.coords.latitude, lng: ultima.coords.longitude, endereco: null };
-    }
-    let endereco: string | null = null;
-    try {
-      // Endereço legível depende de internet — sem sinal, fica só lat/lng.
-      const [r] = await Location.reverseGeocodeAsync({ latitude: pos.coords.latitude, longitude: pos.coords.longitude });
-      if (r) endereco = [r.street, r.subregion || r.city, r.region].filter(Boolean).join(', ');
-    } catch {
-      // segue sem endereço
-    }
-    return { lat: pos.coords.latitude, lng: pos.coords.longitude, endereco };
-  } catch {
-    return null;
-  }
+  return pegarLocalizacaoSegura();
 }
 
 export default function VisitaTecnicaScreen({
@@ -207,9 +184,16 @@ export default function VisitaTecnicaScreen({
         usuarioNome={usuarioNome}
         onVoltar={onVoltar}
         onSair={onSair ? confirmarSair : undefined}
-        onConfirmar={(u, loc) => {
+        onConfirmar={(u) => {
           setUnidade(u);
-          setLocalizacao(loc);
+          setLocalizacao(null);
+          // A localização vem em segundo plano: a loja abre na hora, mesmo
+          // se o GPS demorar ou o celular negar a permissão.
+          pegarLocalizacao()
+            .then((loc) => {
+              if (loc) setLocalizacao(loc);
+            })
+            .catch(() => {});
         }}
       />
     );
@@ -246,7 +230,7 @@ function EscolherUnidade({
   onConfirmar: (unidade: string, localizacao: Localizacao | null) => void;
 }) {
   const [numero, setNumero] = useState('');
-  const [buscandoLocal, setBuscandoLocal] = useState(false);
+  const buscandoLocal = false;
 
   useEffect(() => {
     AsyncStorage.getItem(CHAVE_ULTIMA_UNIDADE)
@@ -262,10 +246,7 @@ function EscolherUnidade({
     if (!valido) return;
     const u = String(Number(numero.trim()));
     AsyncStorage.setItem(CHAVE_ULTIMA_UNIDADE, u).catch(() => {});
-    setBuscandoLocal(true);
-    const loc = await pegarLocalizacao();
-    setBuscandoLocal(false);
-    onConfirmar(u, loc);
+    onConfirmar(u, null);
   }
 
   return (
