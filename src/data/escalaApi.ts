@@ -124,22 +124,24 @@ export async function registrarFaltaOuAtestado(dados: {
   fotoUrl: string | null;
   registradoPorNome: string;
 }): Promise<RegistroEscala> {
-  const { data: linha, error } = await supabase
-    .from('escala_folgas')
-    .upsert(
-      {
-        colaborador_loja_id: dados.colaboradorLojaId,
-        data: dados.data,
-        tipo: dados.tipo,
-        observacao: dados.observacao,
-        foto_url: dados.fotoUrl,
-        registrado_por_nome: dados.registradoPorNome,
-        registrado_em: new Date().toISOString(),
-      },
-      { onConflict: 'colaborador_loja_id,data' }
-    )
-    .select()
-    .single();
+  const linhaNova: Record<string, unknown> = {
+    colaborador_loja_id: dados.colaboradorLojaId,
+    data: dados.data,
+    tipo: dados.tipo,
+    observacao: dados.observacao,
+    foto_url: dados.fotoUrl,
+    registrado_por_nome: dados.registradoPorNome,
+    registrado_em: new Date().toISOString(),
+  };
+  const gravar = () =>
+    supabase.from('escala_folgas').upsert(linhaNova, { onConflict: 'colaborador_loja_id,data' }).select().single();
+  let { data: linha, error } = await gravar();
+  // Banco ainda sem a coluna registrado_em (supabase/escala_feriado.sql não
+  // rodado): grava sem ela em vez de falhar.
+  if (error && /registrado_em/.test(error.message ?? '')) {
+    delete linhaNova.registrado_em;
+    ({ data: linha, error } = await gravar());
+  }
   if (error) throw error;
   return linhaParaRegistro(linha);
 }

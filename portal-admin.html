@@ -8900,18 +8900,20 @@ async function salvarFaltaAtestadoPortal(colaboradorId) {
       if (erroUpload) throw erroUpload;
       fotoUrl = sb.storage.from('atestado-fotos').getPublicUrl(nomeArquivo).data.publicUrl;
     }
-    const { error } = await sb.from('escala_folgas').upsert(
-      {
-        colaborador_loja_id: colaboradorId,
-        data,
-        tipo,
-        observacao,
-        foto_url: fotoUrl,
-        registrado_por_nome: estado.usuario.nome,
-        registrado_em: new Date().toISOString(),
-      },
-      { onConflict: 'colaborador_loja_id,data' }
-    );
+    const linhaNova = {
+      colaborador_loja_id: colaboradorId,
+      data,
+      tipo,
+      observacao,
+      foto_url: fotoUrl,
+      registrado_por_nome: estado.usuario.nome,
+      registrado_em: new Date().toISOString(),
+    };
+    let { error } = await sb.from('escala_folgas').upsert(linhaNova, { onConflict: 'colaborador_loja_id,data' });
+    if (error && /registrado_em/.test(error.message || '')) {
+      delete linhaNova.registrado_em; // banco ainda sem a coluna (escala_feriado.sql não rodado)
+      ({ error } = await sb.from('escala_folgas').upsert(linhaNova, { onConflict: 'colaborador_loja_id,data' }));
+    }
     if (error) throw error;
     fecharModal();
     mostrarToast('Registrado.', 'sucesso');
