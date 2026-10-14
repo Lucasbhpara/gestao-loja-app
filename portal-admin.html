@@ -905,7 +905,7 @@
 
     <div class="nav-gaveta" data-gaveta="ofertas">
       <button class="nav-gaveta-cabecalho" onclick="alternarGaveta('ofertas')">
-        <span><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg></span><span><span class="nav-gaveta-nome">Ofertas</span><div class="nav-gaveta-desc">Jornal, ofertas no WhatsApp e pesquisa de preço</div></span></span>
+        <span><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg></span><span><span class="nav-gaveta-nome">Ofertas</span><div class="nav-gaveta-desc">Jornal, ofertas no WhatsApp, pesquisa de preço e mercadoria que chegou</div></span></span>
         <span class="nav-gaveta-seta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span>
       </button>
       <div class="nav-gaveta-itens">
@@ -913,6 +913,7 @@
         <button class="nav-item" data-pagina="estoque-jornal" onclick="irPara('estoque-jornal')"><span class="dot"></span>Estoque do Jornal</button>
         <button class="nav-item" data-pagina="ofertas-whats" onclick="irPara('ofertas-whats')"><span class="dot"></span>Ofertas no WhatsApp</button>
         <button class="nav-item" data-pagina="pesquisa-preco" onclick="irPara('pesquisa-preco')"><span class="dot"></span>Pesquisa de preço</button>
+        <button class="nav-item" data-pagina="chegadas" onclick="irPara('chegadas')"><span class="dot"></span>Mercadoria que chegou</button>
       </div>
     </div>
 
@@ -994,6 +995,7 @@ const FERRAMENTAS_APP = [
   { chave: 'jornalOfertas', nome: 'Jornal de Ofertas' },
   { chave: 'usoConsumo', nome: 'Uso e Consumo' },
   { chave: 'ofertas', nome: 'Ofertas (WhatsApp e Estoque do Jornal)' },
+  { chave: 'chegadas', nome: 'Chegou hoje (mercadoria do CD)' },
 ];
 
 // Os setores atendidos pelo Checklist de Setor (avaliação diária de
@@ -1155,7 +1157,7 @@ const GAVETA_POR_PAGINA = {
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'visitas-site': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
-  pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', 'pontas-extras': 'operacao',
+  pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', chegadas: 'ofertas', 'pontas-extras': 'operacao',
 };
 function alternarMenu(abrir) {
   const shell = document.getElementById('app-shell');
@@ -1217,6 +1219,7 @@ async function irPara(pagina) {
     else if (pagina === 'ofertas-whats') await paginaOfertasWhats();
     else if (pagina === 'estoque-jornal') await paginaEstoqueJornal();
     else if (pagina === 'pesquisa-preco') await paginaPesquisaPreco();
+    else if (pagina === 'chegadas') await paginaChegadas();
     else if (pagina === 'visitas-site') await paginaVisitasSite();
   } catch (e) {
     el.innerHTML = '<div class="celula-vazio">Não consegui carregar essa página: ' + (e.message || '') + '</div>';
@@ -1752,6 +1755,276 @@ function renderizarVisitasSite(dias, desde) {
         '<button class="btn-acao secundario" onclick="navigator.clipboard.writeText(\'' + link(s) + '\');mostrarToast(\'Link copiado\')">Copiar</button></div>').join('') +
       '<div style="font-size:12.5px;color:var(--text-muted);margin-top:10px;">Para não contar as suas próprias visitas, abra uma vez <b>ulva.com.br/?nao_contar=1</b> em cada celular e computador seu.</div>' +
     '</div>';
+}
+
+// =====================================================================
+// Mercadoria que chegou — sobe o PDF da nota (DANFE), cruza com o Estoque
+// Loja e grava em chegadas_nf / chegadas_itens. O app mostra para a equipe
+// (tela "Chegou hoje") o que estava em falta, o que é novo e o que estava baixo.
+// =====================================================================
+const CH_GRUPOS = {
+  falta: { nome: 'Estava em falta', curto: 'Em falta', cor: '#C0392B', fundo: '#FBDEDC', desc: 'Saldo zerado na loja' },
+  novo: { nome: 'Produto novo', curto: 'Novo', cor: '#5B3FC4', fundo: '#ECE7FB', desc: 'Não existe no estoque da loja' },
+  baixo: { nome: 'Estoque baixo', curto: 'Baixo', cor: '#B5750E', fundo: '#FFF1DB', desc: 'Tinha menos de 5 unidades' },
+  negativo: { nome: 'Saldo negativo', curto: 'Negativo', cor: '#A35F00', fundo: '#FFF6D6', desc: 'Estoque do sistema provavelmente errado' },
+  normal: { nome: 'Estoque normal', curto: 'Normal', cor: '#1E8E5A', fundo: '#DFF3E8', desc: '5 ou mais unidades' },
+};
+const CH_ORDEM = ['falta', 'novo', 'baixo', 'negativo', 'normal'];
+
+function chPill(g) { const c = CH_GRUPOS[g]; return '<span class="pill" style="background:' + c.fundo + ';color:' + c.cor + ';border-color:transparent;">' + c.curto + '</span>'; }
+function chBRL(v) { return v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function chNum(v) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 3 }); }
+function chDataHora(iso) { const d = new Date(iso); return d.toLocaleDateString('pt-BR') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); }
+
+async function paginaChegadas() {
+  estado.chImport = null;
+  const { data: notas, error } = await sb.from('chegadas_nf').select('*').order('enviado_em', { ascending: false }).limit(40);
+  if (error) {
+    if (/chegadas_nf|relation|schema cache/i.test(error.message || '')) {
+      document.getElementById('conteudo-principal').innerHTML = cabecalho('Mercadoria que chegou', 'Notas do CD cruzadas com o estoque da loja') +
+        '<div class="celula-vazio" style="text-align:left;">Falta criar as tabelas no banco: rode o arquivo <b>supabase/chegadas.sql</b> no SQL Editor do Supabase.</div>';
+      return;
+    }
+    throw error;
+  }
+  estado.chNotas = notas || [];
+  const ids = estado.chNotas.map((n) => n.id);
+  estado.chResumo = {};
+  for (let i = 0; i < ids.length; i += 40) {
+    const { data } = await sb.from('chegadas_itens').select('chegada_id,grupo,abastecido_em').in('chegada_id', ids.slice(i, i + 40)).limit(10000);
+    (data || []).forEach((it) => {
+      const r = estado.chResumo[it.chegada_id] = estado.chResumo[it.chegada_id] || { falta: 0, novo: 0, baixo: 0, negativo: 0, normal: 0, atencao: 0, feitos: 0 };
+      r[it.grupo] = (r[it.grupo] || 0) + 1;
+      if (it.grupo !== 'normal') { r.atencao++; if (it.abastecido_em) r.feitos++; }
+    });
+  }
+  renderizarChegadas();
+}
+
+function renderizarChegadas() {
+  const linhas = estado.chNotas.length === 0
+    ? '<tr><td colspan="8"><div class="celula-vazio">Nenhuma nota enviada ainda. Suba o PDF da nota aqui em cima.</div></td></tr>'
+    : estado.chNotas.map((n) => {
+        const r = estado.chResumo[n.id] || {};
+        return '<tr style="cursor:pointer;" onclick="abrirChegada(\'' + n.id + '\')">' +
+          '<td class="nome-forte">NF ' + giroEsc(n.numero) + '</td>' +
+          '<td style="white-space:nowrap;">' + chDataHora(n.enviado_em) + '</td>' +
+          '<td class="vl-num">' + n.total_itens + '</td>' +
+          ['falta', 'novo', 'baixo', 'negativo'].map((g) => '<td class="vl-num">' + (r[g] ? '<span style="color:' + CH_GRUPOS[g].cor + ';font-weight:800;">' + r[g] + '</span>' : '0') + '</td>').join('') +
+          '<td class="vl-num">' + (r.atencao ? r.feitos + ' de ' + r.atencao : '—') + '</td>' +
+        '</tr>';
+      }).join('');
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Mercadoria que chegou', 'Suba o PDF da nota — o ULVA cruza com o estoque e a equipe vê no app o que estava em falta, o que é novo e o que estava baixo') +
+    '<div class="pq-card"><div class="pq-topo"><h3>Subir notas</h3></div>' +
+      '<div class="zona-arrastar" id="zona-ch-arquivo" onclick="document.getElementById(\'ch-arquivo\').click()">' +
+        '<div class="icone">📄</div><div class="principal">PDF da nota fiscal (DANFE)</div>' +
+        '<div class="secundario" id="zona-ch-arquivo-nome">Clique aqui ou arraste — pode escolher várias notas de uma vez</div></div>' +
+      '<input type="file" id="ch-arquivo" accept="application/pdf" multiple style="display:none" />' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:10px;">Suba o estoque do dia <b>antes</b> das notas: o cruzamento usa o saldo da loja antes da mercadoria entrar.</div>' +
+      '<div id="ch-revisao"></div></div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Notas enviadas</h3></div>' +
+      '<div class="tabela-wrap"><table><thead><tr><th>Nota</th><th>Enviada em</th><th style="text-align:right;">Itens</th>' +
+      '<th style="text-align:right;">Em falta</th><th style="text-align:right;">Novos</th><th style="text-align:right;">Baixo</th><th style="text-align:right;">Negativo</th><th style="text-align:right;">Na área de vendas</th></tr></thead><tbody>' + linhas + '</tbody></table></div></div>';
+  const input = document.getElementById('ch-arquivo'), zona = document.getElementById('zona-ch-arquivo');
+  input.addEventListener('change', (ev) => lerNotasChegada([...ev.target.files]));
+  zona.addEventListener('dragover', (ev) => { ev.preventDefault(); zona.classList.add('sobre'); });
+  zona.addEventListener('dragleave', () => zona.classList.remove('sobre'));
+  zona.addEventListener('drop', (ev) => { ev.preventDefault(); zona.classList.remove('sobre'); lerNotasChegada([...ev.dataTransfer.files]); });
+}
+
+// ---------- leitura do DANFE ----------
+function chLerDanfe(paginas) {
+  const todas = paginas.flat();
+  let numero = null, emitente = null, data = null;
+  for (const l of paginas[0] || []) {
+    const m = l.match(/N[ºo°]\s*(\d{3}\.\d{3}\.\d{3})/); if (m && !numero) numero = m[1].replace(/\./g, '').replace(/^0+(?=\d)/, '');
+    const e = l.match(/RECEBEMOS DE (.+?) OS PRODUTOS/i); if (e && !emitente) emitente = e[1].trim();
+    const d = l.match(/^(\d{2})\/(\d{2})\/(\d{4})\b/); if (d && !data) data = d[3] + '-' + d[2] + '-' + d[1];
+  }
+  const itens = [];
+  const re = /^(\d{8,14})\s+(.+?)\s+(\d{8})\s+(\d{3})\s+(\d{4})\s+([A-Z]{1,4})\s+([\d.]+,\d+)\s+([\d.]+,\d+)\s+([\d.]+,\d+)\s+([\d.]+,\d+)/;
+  for (const l of todas) {
+    const m = l.match(re);
+    if (!m) continue;
+    itens.push({ codigo_barras: m[1], produto: m[2].trim(), embalagem: m[6], quantidade: numeroBR(m[7]), valor_unitario: numeroBR(m[8]), valor_total: numeroBR(m[10]) });
+  }
+  return { numero, emitente, data, valorTotal: acharValorTotalProdutos(paginas), itens };
+}
+
+async function chCarregarEstoque() {
+  if (estado.chEstoque && Date.now() - estado.chEstoque.em < 5 * 60 * 1000) return estado.chEstoque;
+  const linhas = [];
+  for (let de = 0; ; de += 1000) {
+    const { data, error } = await sb.from('estoque_loja_itens').select('codigo_interno,codigo_barras,produto,quantidade,preco_venda,preco_custo,data_planilha').range(de, de + 999);
+    if (error) throw error;
+    linhas.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  const porEan = new Map(), porCaixa = new Map();
+  let dataMax = '';
+  linhas.forEach((r) => {
+    const cb = String(r.codigo_barras || '').replace(/\D/g, '');
+    if (r.data_planilha && r.data_planilha > dataMax) dataMax = r.data_planilha;
+    if (!cb) return;
+    const k = cb.replace(/^0+/, '');
+    if (!porEan.has(k)) porEan.set(k, r);
+    if (cb.length === 14) { const kc = cb.slice(1, 13).replace(/^0+/, ''); if (!porCaixa.has(kc)) porCaixa.set(kc, r); }
+  });
+  estado.chEstoque = { em: Date.now(), porEan, porCaixa, dataMax };
+  return estado.chEstoque;
+}
+
+async function lerNotasChegada(arquivos) {
+  arquivos = arquivos.filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+  if (!arquivos.length) { mostrarToast('Escolha o PDF da nota.', 'erro'); return; }
+  const box = document.getElementById('ch-revisao');
+  document.getElementById('zona-ch-arquivo-nome').textContent = arquivos.map((f) => f.name).join(', ');
+  box.innerHTML = '<div class="celula-vazio">Lendo ' + arquivos.length + ' nota(s) e cruzando com o estoque…</div>';
+  try {
+    const est = await chCarregarEstoque();
+    const notas = [];
+    for (const f of arquivos) {
+      const nf = chLerDanfe(await extrairLinhasPDF(f));
+      nf.arquivo = f.name;
+      if (!nf.numero || nf.itens.length === 0) { notas.push({ ...nf, erro: 'Não consegui ler os itens dessa nota.' }); continue; }
+      nf.itens.forEach((it, k) => {
+        it.ordem = k;
+        const ean = it.codigo_barras.replace(/^0+/, '');
+        let r = est.porEan.get(ean), outroCodigo = false;
+        if (!r && ean.length >= 12) { r = est.porCaixa.get(ean.slice(0, 12).replace(/^0+/, '')); outroCodigo = !!r; }
+        const obs = [];
+        if (!r) { it.grupo = 'novo'; obs.push('A loja ainda não vendia esse produto'); }
+        else {
+          it.codigo_interno = r.codigo_interno; it.produto_loja = r.produto;
+          it.saldo_loja = r.quantidade == null ? null : Number(r.quantidade);
+          it.preco_venda = r.preco_venda == null ? null : Number(r.preco_venda);
+          it.preco_custo = r.preco_custo == null ? null : Number(r.preco_custo);
+          const q = it.saldo_loja ?? 0;
+          it.grupo = q === 0 ? 'falta' : q < 0 ? 'negativo' : q < 5 ? 'baixo' : 'normal';
+          if (outroCodigo) obs.push('Cadastrado na loja com o código da caixa (' + r.codigo_barras + ')');
+          if (!it.preco_venda) obs.push('Sem preço de venda no sistema');
+          if (it.preco_venda && it.preco_custo && it.preco_custo > it.preco_venda) obs.push('Custo maior que o preço de venda');
+        }
+        it.observacao = obs.join('; ') || null;
+      });
+      notas.push(nf);
+    }
+    // setor (classe do produto)
+    const cods = Array.from(new Set(notas.flatMap((n) => (n.itens || []).map((i) => i.codigo_interno)).filter(Boolean)));
+    const classe = {};
+    for (let i = 0; i < cods.length; i += 200) {
+      const r = await sb.from('produtos_classes').select('codigo_produto, classe_2_nome').in('codigo_produto', cods.slice(i, i + 200));
+      (r.data || []).forEach((x) => { classe[x.codigo_produto] = x.classe_2_nome; });
+    }
+    notas.forEach((n) => (n.itens || []).forEach((it) => { it.setor = it.codigo_interno ? ofSetorDoGiro(classe[it.codigo_interno]) : null; }));
+    // já enviadas?
+    const nums = notas.filter((n) => n.numero).map((n) => n.numero);
+    const { data: jaTem } = await sb.from('chegadas_nf').select('numero').in('numero', nums);
+    const repetidas = new Set((jaTem || []).map((x) => x.numero));
+    notas.forEach((n) => { if (repetidas.has(n.numero)) n.repetida = true; });
+    estado.chImport = notas;
+    renderizarRevisaoChegada();
+  } catch (e) {
+    box.innerHTML = '<div class="celula-vazio">Não consegui ler: ' + giroEsc(e.message || '') + '</div>';
+  }
+}
+
+function renderizarRevisaoChegada() {
+  const notas = estado.chImport || [];
+  const validas = notas.filter((n) => !n.erro && !n.repetida);
+  const todos = validas.flatMap((n) => n.itens);
+  const cont = {}; CH_ORDEM.forEach((g) => { cont[g] = todos.filter((i) => i.grupo === g).length; });
+  const cabNotas = notas.map((n) => '<div style="font-size:13px;margin:4px 0;">' +
+    (n.erro ? '❌ <b>' + giroEsc(n.arquivo) + '</b> — ' + n.erro
+      : (n.repetida ? '⚠️ ' : '✅ ') + '<b>NF ' + n.numero + '</b> · ' + n.itens.length + ' itens · ' + chBRL(n.valorTotal) +
+        (n.valorTotal != null && Math.abs(n.itens.reduce((s, i) => s + (i.valor_total || 0), 0) - n.valorTotal) > 0.05 ? ' <span style="color:var(--red);">(a soma dos itens não bateu com o total — confira)</span>' : '') +
+        (n.repetida ? ' <span style="color:var(--orange);font-weight:700;">— essa nota já foi enviada, vai ser ignorada</span>' : '')) + '</div>').join('');
+  const caixas = CH_ORDEM.map((g) => '<div class="box"><div class="rotulo" style="color:' + CH_GRUPOS[g].cor + ';">' + CH_GRUPOS[g].nome + '</div><div class="valor">' + cont[g] + '</div></div>').join('');
+  const ordenados = [...todos].sort((a, b) => CH_ORDEM.indexOf(a.grupo) - CH_ORDEM.indexOf(b.grupo) || a.produto.localeCompare(b.produto));
+  const tabela = ordenados.filter((i) => i.grupo !== 'normal').map((i) => '<tr><td>' + chPill(i.grupo) + '</td><td class="nome-forte">' + giroEsc(i.produto) + '</td><td>' + (i.setor ? ofNomeSetor(i.setor) : '—') + '</td>' +
+    '<td class="vl-num">' + chNum(i.quantidade) + ' ' + giroEsc(i.embalagem || '') + '</td><td class="vl-num">' + chNum(i.saldo_loja) + '</td><td class="vl-num">' + chBRL(i.preco_venda) + '</td>' +
+    '<td style="font-size:12px;color:var(--text-muted);">' + giroEsc(i.observacao || '') + '</td></tr>').join('');
+  document.getElementById('ch-revisao').innerHTML =
+    '<div style="margin-top:16px;">' + cabNotas + '</div>' +
+    (validas.length === 0 ? '' :
+      '<div class="resumo-perdas" style="margin-top:14px;">' + caixas + '</div>' +
+      '<div class="tabela-wrap" style="margin-top:14px;max-height:420px;overflow:auto;"><table><thead><tr><th></th><th>Produto (como veio na nota)</th><th>Setor</th><th style="text-align:right;">Chegou</th><th style="text-align:right;">Saldo na loja</th><th style="text-align:right;">Preço</th><th>Observação</th></tr></thead><tbody>' +
+        (tabela || '<tr><td colspan="7"><div class="celula-vazio">Nada fora do normal nessas notas.</div></td></tr>') + '</tbody></table></div>' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Os ' + cont.normal + ' itens com estoque normal também são salvos, só não aparecem nesta lista.</div>' +
+      '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap;">' +
+        '<button class="btn-acao secundario" onclick="irPara(\'chegadas\')">Cancelar</button>' +
+        '<button class="btn-acao" id="ch-salvar" onclick="salvarChegadas()">Salvar e mandar para o app (' + validas.length + ' nota' + (validas.length > 1 ? 's' : '') + ')</button></div>');
+}
+
+async function salvarChegadas() {
+  const validas = (estado.chImport || []).filter((n) => !n.erro && !n.repetida);
+  if (!validas.length) return;
+  const btn = document.getElementById('ch-salvar');
+  btn.disabled = true; btn.textContent = 'Salvando…';
+  try {
+    for (const n of validas) {
+      const { data: cab, error } = await sb.from('chegadas_nf').insert({
+        numero: n.numero, emitente: n.emitente, data_emissao: n.data, valor_total: n.valorTotal, total_itens: n.itens.length,
+        enviado_por: estado.usuario ? estado.usuario.nome : null,
+      }).select('id').single();
+      if (error) throw error;
+      const linhas = n.itens.map((i) => ({
+        chegada_id: cab.id, ordem: i.ordem, codigo_barras: i.codigo_barras, produto: i.produto, embalagem: i.embalagem,
+        quantidade: i.quantidade, valor_unitario: i.valor_unitario, codigo_interno: i.codigo_interno || null, produto_loja: i.produto_loja || null,
+        saldo_loja: i.saldo_loja ?? null, preco_venda: i.preco_venda ?? null, preco_custo: i.preco_custo ?? null,
+        grupo: i.grupo, setor: i.setor || null, observacao: i.observacao,
+      }));
+      for (let k = 0; k < linhas.length; k += 200) {
+        const { error: e2 } = await sb.from('chegadas_itens').insert(linhas.slice(k, k + 200));
+        if (e2) { await sb.from('chegadas_nf').delete().eq('id', cab.id); throw e2; }
+      }
+    }
+    mostrarToast(validas.length + ' nota(s) enviadas — já aparecem no app em "Chegou hoje".');
+    await irPara('chegadas');
+  } catch (e) {
+    mostrarToast('Não consegui salvar: ' + (e.message || ''), 'erro');
+    btn.disabled = false; btn.textContent = 'Tentar de novo';
+  }
+}
+
+async function abrirChegada(id) {
+  try {
+    const n = estado.chNotas.find((x) => x.id === id);
+    const { data: itens, error } = await sb.from('chegadas_itens').select('*').eq('chegada_id', id).order('ordem');
+    if (error) throw error;
+    estado.chAberta = { n, itens: itens || [] };
+    estado.chFiltro = estado.chFiltro || 'atencao';
+    renderizarChegadaAberta();
+  } catch (e) { mostrarToast('Não consegui abrir: ' + e.message, 'erro'); }
+}
+
+function renderizarChegadaAberta() {
+  const { n, itens } = estado.chAberta;
+  const f = estado.chFiltro;
+  const lista = itens.filter((i) => f === 'todos' ? true : f === 'atencao' ? i.grupo !== 'normal' : i.grupo === f)
+    .sort((a, b) => CH_ORDEM.indexOf(a.grupo) - CH_ORDEM.indexOf(b.grupo) || a.produto.localeCompare(b.produto));
+  const cont = (g) => itens.filter((i) => g === 'atencao' ? i.grupo !== 'normal' : i.grupo === g).length;
+  const chip = (k, rot) => '<button class="chip' + (f === k ? ' ativo' : '') + '" onclick="estado.chFiltro=\'' + k + '\';renderizarChegadaAberta()">' + rot + '</button>';
+  const linhas = lista.map((i) => '<tr><td>' + chPill(i.grupo) + '</td><td class="nome-forte">' + giroEsc(i.produto) + (i.codigo_interno ? '<div style="font-size:11px;color:var(--text-muted);font-weight:500;">cód. ' + giroEsc(i.codigo_interno) + ' · ' + giroEsc(i.codigo_barras || '') + '</div>' : '<div style="font-size:11px;color:var(--text-muted);font-weight:500;">' + giroEsc(i.codigo_barras || '') + '</div>') + '</td>' +
+    '<td>' + (i.setor ? ofNomeSetor(i.setor) : '—') + '</td><td class="vl-num">' + chNum(i.quantidade) + ' ' + giroEsc(i.embalagem || '') + '</td><td class="vl-num">' + chNum(i.saldo_loja) + '</td><td class="vl-num">' + chBRL(i.preco_venda) + '</td>' +
+    '<td style="font-size:12px;">' + (i.abastecido_em ? '<span style="color:var(--green);font-weight:700;">✓ ' + giroEsc(i.abastecido_por || '') + '</span><div style="color:var(--text-muted);">' + chDataHora(i.abastecido_em) + '</div>' : '<span style="color:var(--text-muted);">Pendente</span>') +
+    '</td>' +
+    '<td style="font-size:12px;color:var(--text-muted);">' + giroEsc(i.observacao || '') + '</td></tr>').join('') || '<tr><td colspan="8"><div class="celula-vazio">Nenhum item nesse filtro.</div></td></tr>';
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('NF ' + giroEsc(n.numero), (n.emitente ? giroEsc(n.emitente) + ' · ' : '') + 'enviada em ' + chDataHora(n.enviado_em) + (n.enviado_por ? ' por ' + giroEsc(n.enviado_por) : '') + ' · ' + chBRL(n.valor_total)) +
+    '<div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:8px;"><button class="btn-acao secundario" onclick="irPara(\'chegadas\')">← Todas as notas</button>' +
+      '<button class="btn-acao secundario" style="color:var(--red);" onclick="excluirChegada(\'' + n.id + '\')">Excluir nota</button></div>' +
+    '<div class="chips-wrap">' + chip('atencao', 'Precisa de atenção ' + cont('atencao')) + CH_ORDEM.map((g) => chip(g, CH_GRUPOS[g].nome + ' ' + cont(g))).join('') + chip('todos', 'Todos ' + itens.length) + '</div>' +
+    '<div class="tabela-wrap"><table><thead><tr><th></th><th>Produto</th><th>Setor</th><th style="text-align:right;">Chegou</th><th style="text-align:right;">Saldo antes</th><th style="text-align:right;">Preço</th><th>Na área de vendas</th><th>Observação</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+}
+
+async function excluirChegada(id) {
+  if (!confirm('Excluir essa nota? Ela some do app também.')) return;
+  const { error } = await sb.from('chegadas_nf').delete().eq('id', id);
+  if (error) { mostrarToast('Não consegui excluir: ' + error.message, 'erro'); return; }
+  mostrarToast('Nota excluída.');
+  irPara('chegadas');
 }
 
 async function paginaPesquisaPreco() {

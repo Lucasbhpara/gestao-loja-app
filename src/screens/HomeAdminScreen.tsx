@@ -31,6 +31,7 @@ import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
 import UsoConsumoScreen from './UsoConsumoScreen';
 import OfertasHubScreen from './OfertasHubScreen';
+import ChegadasScreen from './ChegadasScreen';
 import InicioUlva2, { GrupoId } from './InicioUlva2';
 import {
   podeTestarUlva2,
@@ -78,6 +79,7 @@ export default function HomeAdminScreen() {
     | 'precificacao'
     | 'usoConsumo'
     | 'ofertas'
+    | 'chegadas'
   >('home');
 
   // ULVA 2.0: ferramentas agrupadas. Até ser liberado (system_config
@@ -263,6 +265,9 @@ export default function HomeAdminScreen() {
   if (tela === 'ofertas') {
     return <OfertasHubScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'chegadas') {
+    return <ChegadasScreen onVoltar={() => setTela('home')} />;
+  }
 
   if (mostrarUlva2) {
     return (
@@ -371,6 +376,7 @@ export default function HomeAdminScreen() {
             // ChecklistHubScreen.tsx.
             { label: 'Checklist', icone: 'check-square' as const, onPress: () => setTela('checklist') },
             { label: 'Ofertas', icone: 'tag' as const, onPress: () => setTela('ofertas') },
+            { label: 'Chegou hoje', icone: 'truck' as const, onPress: () => setTela('chegadas') },
             // Checklist do Técnico Veterinário (Boas Práticas) — o próprio
             // veterinário cai direto nessa tela ao logar; aqui é o acesso do
             // administrador pra acompanhar/testar.
