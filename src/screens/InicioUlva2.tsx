@@ -15,7 +15,7 @@ export type TelaFerramenta =
   | 'ofertas' | 'precificacao' | 'pesquisaPreco' | 'mapaLoja' | 'pontasExtras'
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
-  | 'escalaFaltas' | 'chatIA' | 'sobre';
+  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas';
 
 type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
 export type GrupoId = 'rotina' | 'comercial' | 'resultados' | 'estoque';
@@ -38,6 +38,7 @@ export const GRUPOS_ULVA2: Grupo[] = [
     icone: 'shopping-bag', cor: '#6A4BD6', fundo: '#ECE7FB',
     ferramentas: [
       { nome: 'Ofertas', desc: 'Criar, aprovar e mandar no WhatsApp', icone: 'tag', tela: 'ofertas' },
+      { nome: 'Chegou hoje', desc: 'O que veio do CD e estava em falta', icone: 'truck', tela: 'chegadas' },
       { nome: 'Precificação', desc: 'Bipar produto e imprimir etiqueta', icone: 'dollar-sign', tela: 'precificacao' },
       { nome: 'Pesquisa de Preço', desc: 'Preços dos concorrentes', icone: 'search', tela: 'pesquisaPreco' },
       { nome: 'Mapa da Loja', desc: 'Planta da loja com fotos de cada trecho', icone: 'map', tela: 'mapaLoja' },
