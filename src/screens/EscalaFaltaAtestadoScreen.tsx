@@ -26,6 +26,7 @@ import {
   enviarFotoAtestado,
 } from '../data/escalaApi';
 import SeletorDataValidade from '../components/SeletorDataValidade';
+import HistoricoFaltasScreen from './HistoricoFaltasScreen';
 import CabecalhoTela from '../components/CabecalhoTela';
 
 // Tela "Colaboradores" (antiga "Faltas e Atestados") — Escala de Folgas +
@@ -50,6 +51,7 @@ import CabecalhoTela from '../components/CabecalhoTela';
 
 const LABEL_TIPO: Record<TipoEscala, { texto: string; cor: string; fundo: string }> = {
   folga: { texto: 'Folga', cor: colors.gray600, fundo: colors.gray100 },
+  folga_feriado: { texto: 'Folga de feriado', cor: '#5B3FC4', fundo: '#ECE7FB' },
   ferias_licenca_inss: { texto: 'Férias/Licença/INSS', cor: colors.navy700, fundo: '#DCE2F5' },
   falta: { texto: 'Falta', cor: colors.red500, fundo: '#FBDEDC' },
   atestado: { texto: 'Atestado', cor: '#B5750E', fundo: '#FBEBD4' },
@@ -115,6 +117,7 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
   const [observacaoForm, setObservacaoForm] = useState('');
   const [fotoUri, setFotoUri] = useState<string | null>(null);
   const [salvando, setSalvando] = useState(false);
+  const [verHistorico, setVerHistorico] = useState(false);
 
   function carregarColaboradores() {
     setCarregandoColaboradores(true);
@@ -292,6 +295,8 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
 
   const registroAtivo = colaboradorAtivo ? registrosDoDia.get(colaboradorAtivo.id) ?? null : null;
 
+  if (verHistorico) return <HistoricoFaltasScreen onVoltar={() => setVerHistorico(false)} />;
+
   return (
     <View style={styles.flex}>
       <CabecalhoTela
@@ -332,6 +337,16 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
           <View style={styles.erroBox}>
             <Text style={styles.erroTexto}>{erro}</Text>
           </View>
+        )}
+
+        {souGerencia && (
+          <TouchableOpacity style={styles.historicoBtn} onPress={() => setVerHistorico(true)} activeOpacity={0.8}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.historicoBtnTitulo}>Histórico de faltas</Text>
+              <Text style={styles.historicoBtnSub}>Faltas e atestados que cada encarregado lançou</Text>
+            </View>
+            <Text style={styles.historicoBtnSeta}>›</Text>
+          </TouchableOpacity>
         )}
 
         {souGerencia && setoresComGente.length > 0 && (
@@ -582,4 +597,8 @@ const styles = StyleSheet.create({
   modalFechar: { fontSize: 16, color: colors.gray400, padding: 4 },
   modalStatusAtual: { backgroundColor: colors.gray50, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.lg },
   modalStatusTopo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  historicoBtn: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.lg, borderWidth: 1, borderColor: colors.gray100 },
+  historicoBtnTitulo: { fontSize: 14, fontWeight: '700', color: colors.navy900 },
+  historicoBtnSub: { fontSize: 11.5, color: colors.gray600, marginTop: 2 },
+  historicoBtnSeta: { fontSize: 22, color: colors.gray400, marginLeft: spacing.sm },
 });

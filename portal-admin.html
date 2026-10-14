@@ -778,6 +778,24 @@
     .vl-tabela tbody tr td.celula-vazio { grid-column: 1 / -1; }
     .vl-part { min-width: 0; }
   }
+
+  /* ---------- Escala: folga de feriado / histórico de faltas ---------- */
+  .pill.feriado { background: #ECE7FB; color: #5B3FC4; border-color: transparent; }
+  @media (max-width: 860px) {
+    .hf-tabela table { min-width: 0; }
+    .hf-tabela thead { display: none; }
+    .hf-tabela tbody tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "colab tipo" "dia dia" "por por"; gap: 4px 10px; padding: 12px 14px; border-bottom: 1px solid var(--border); }
+    .hf-tabela tbody td { padding: 0; border: none; font-size: 12.5px; }
+    .hf-tabela tbody td:nth-child(1) { grid-area: dia; color: var(--text-secondary); font-weight: 600; }
+    .hf-tabela tbody td:nth-child(1)::before { content: 'Dia '; }
+    .hf-tabela tbody td:nth-child(2) { grid-area: colab; font-size: 13.5px; }
+    .hf-tabela tbody td:nth-child(3) { grid-area: tipo; }
+    .hf-tabela tbody td:nth-child(4) { grid-area: por; color: var(--text-secondary); }
+    .hf-tabela tbody td:nth-child(4)::before { content: 'Lançado por '; }
+    .hf-tabela tbody td:nth-child(5) { display: none; }
+    .hf-tabela tbody td[colspan] { grid-column: 1 / -1; }
+  }
+  .pq-setor.hf-ativo { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent) inset; }
 </style>
 </head>
 <body>
@@ -831,6 +849,7 @@
       <div class="nav-gaveta-itens">
         <button class="nav-item" data-pagina="equipe" onclick="irPara('equipe')"><span class="dot"></span>Equipe</button>
         <button class="nav-item" data-pagina="escala" onclick="irPara('escala')"><span class="dot"></span>Faltas e Atestados</button>
+        <button class="nav-item" data-pagina="historico-faltas" onclick="irPara('historico-faltas')"><span class="dot"></span>Histórico de faltas</button>
       </div>
     </div>
 
@@ -1128,7 +1147,7 @@ function iniciais(nome) {
 // independente (não fecha as outras) e abre sozinha quando a página ativa
 // está dentro dela, pra sempre mostrar onde o admin está.
 const GAVETA_POR_PAGINA = {
-  equipe: 'colaboradores', escala: 'colaboradores',
+  equipe: 'colaboradores', escala: 'colaboradores', 'historico-faltas': 'colaboradores',
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
@@ -1173,6 +1192,7 @@ async function irPara(pagina) {
     else if (pagina === 'checklist-setor') await paginaChecklistSetor();
     else if (pagina === 'visita-tecnica') await paginaVisitaTecnica();
     else if (pagina === 'escala') await paginaEscala();
+    else if (pagina === 'historico-faltas') await paginaHistoricoFaltas();
     else if (pagina === 'historico-exclusoes') await paginaHistoricoExclusoes();
     else if (pagina === 'inventario') await paginaInventario();
     else if (pagina === 'ocorrencias') await paginaOcorrencias();
@@ -1325,25 +1345,6 @@ async function carregarUltimaPlanilhaFolga() {
     estado.ultimaPlanilhaFolga = null;
   }
 }
-async function enviarPlanilhaFolgas(input) {
-  const arquivo = input.files[0];
-  if (!arquivo) return;
-  const nomeOk = /\.(xlsx|xls|csv)$/i.test(arquivo.name);
-  if (!nomeOk) { mostrarToast('Só aceita arquivo .xlsx, .xls ou .csv.', 'erro'); input.value = ''; return; }
-  try {
-    const nomeArquivo = Date.now() + '_' + Math.round(Math.random() * 1e6) + '_' + arquivo.name.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const { error: erroUpload } = await sb.storage.from('planilhas-folga').upload(nomeArquivo, arquivo, { upsert: true });
-    if (erroUpload) throw erroUpload;
-    const url = sb.storage.from('planilhas-folga').getPublicUrl(nomeArquivo).data.publicUrl;
-    const { error: erroInsert } = await sb.from('planilhas_folga').insert({
-      nome_arquivo: arquivo.name, url, enviado_por_nome: estado.usuario ? estado.usuario.nome : null,
-    });
-    if (erroInsert) throw erroInsert;
-    input.value = '';
-    mostrarToast('Planilha enviada — quando o processamento estiver pronto, ela já vai estar aqui.', 'sucesso');
-    await paginaEquipe();
-  } catch (e) { mostrarToast('Não consegui enviar: ' + e.message, 'erro'); }
-}
 // Colaboradores de chão de loja do mesmo setor de um líder — é o conteúdo
 // da gaveta que abre ao clicar nele na tabela da Equipe. Claudiane (A.P.P)
 // não tem equipe própria, então a gaveta dela fica sempre vazia.
@@ -1420,12 +1421,12 @@ function renderizarEquipe() {
     '<div class="toolbar">' +
       '<input class="input-busca" placeholder="Buscar por nome ou matrícula…" value="' + estado.buscaEquipe.replace(/"/g, '&quot;') + '" oninput="estado.buscaEquipe=this.value; renderizarEquipe();" />' +
       '<select class="select-filtro" onchange="estado.filtroSetorEquipe=this.value; renderizarEquipe();">' + opcoesSetor + '</select>' +
-      '<button class="btn-acao secundario" onclick="document.getElementById(\'planilha-folgas-arquivo\').click()">📤 Enviar planilha de folgas</button>' +
-      '<input type="file" id="planilha-folgas-arquivo" accept=".xlsx,.xls,.csv" style="display:none" onchange="enviarPlanilhaFolgas(this)" />' +
+      '<button class="btn-acao secundario" onclick="document.getElementById(\'planilha-folgas-arquivo\').click()">>📤 Importar escala (X e F)</button>' +
+      '<input type="file" id="planilha-folgas-arquivo" accept=".xlsx,.xls" style="display:none" onchange="enviarPlanilhaFolgas(this)" />' +
       '<button class="btn-acao" onclick="abrirModalNovoColaborador()">+ Adicionar colaborador</button>' +
     '</div>' +
     (estado.ultimaPlanilhaFolga
-      ? '<div class="celula-vazio" style="text-align:left; padding:0 0 16px;">Última planilha de folgas enviada: <b>' + estado.ultimaPlanilhaFolga.nome_arquivo + '</b>' + (estado.ultimaPlanilhaFolga.enviado_por_nome ? ' · por ' + estado.ultimaPlanilhaFolga.enviado_por_nome : '') + ' · ' + formatarDataHora(estado.ultimaPlanilhaFolga.enviado_em) + ' — o arquivo só fica guardado aqui; pra importar os dias de folga pro sistema, é preciso pedir pra alguém rodar a importação (ainda não é automático). Quem está de folga, faltou ou trouxe atestado fica em <b onclick="irPara(\'escala\')" style="cursor:pointer;text-decoration:underline;">Faltas e Atestados</b>.</div>'
+      ? '<div class="celula-vazio" style="text-align:left; padding:0 0 16px;">Última planilha de folgas enviada: <b>' + estado.ultimaPlanilhaFolga.nome_arquivo + '</b>' + (estado.ultimaPlanilhaFolga.enviado_por_nome ? ' · por ' + estado.ultimaPlanilhaFolga.enviado_por_nome : '') + ' · ' + formatarDataHora(estado.ultimaPlanilhaFolga.enviado_em) + ' — as folgas (X) e folgas de feriado (F) já entram na escala ao enviar. Quem está de folga, faltou ou trouxe atestado fica em <b onclick="irPara(\'escala\')" style="cursor:pointer;text-decoration:underline;">Faltas e Atestados</b>.</div>'
       : '') +
     '<div class="tabela-wrap"><table><thead><tr><th>Nome</th><th>Matrícula</th><th>Função</th><th>Setor</th><th>Status</th><th>Acessos (7 dias)</th><th>Último acesso</th><th></th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
 }
@@ -8332,10 +8333,354 @@ function htmlChecklistDashboard() {
 const MESES_ESCALA = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
 const LABEL_TIPO_ESCALA = {
   folga: { texto: 'Folga', classe: '' },
+  folga_feriado: { texto: 'Folga de feriado', classe: 'feriado' },
   ferias_licenca_inss: { texto: 'Férias/Licença/INSS', classe: '' },
   falta: { texto: 'Falta', classe: 'vermelho' },
   atestado: { texto: 'Atestado', classe: 'laranja' },
 };
+// ---------- Leitura da escala (planilha de folgas) ----------
+// Cada aba da planilha é um setor: uma linha com os dias 1..31, abaixo os
+// nomes (coluna B) e, em cada dia, "X" = folga normal e "F" = folga de
+// feriado. Linhas de título ("OP DE CAIXA", "NOMES"...) são ignoradas.
+function escalaNormalizar(t) {
+  return String(t || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/[^A-Z ]/g, ' ').replace(/\s+/g, ' ').trim();
+}
+const ESCALA_PALAVRAS_IGNORAR = new Set(['DA', 'DE', 'DO', 'DAS', 'DOS', 'E']);
+function escalaTokens(t) { return escalaNormalizar(t).split(' ').filter((p) => p && !ESCALA_PALAVRAS_IGNORAR.has(p)); }
+// Setores do ULVA que cada aba provavelmente cobre (só desempata nomes iguais).
+function escalaSetoresDaAba(nomeAba) {
+  const a = escalaNormalizar(nomeAba);
+  if (a.includes('CAIXA')) return ['frente-caixa'];
+  if (a.includes('REPOSITOR') || a.includes('MERCEARIA')) return ['mercearia'];
+  if (a.includes('FRIOS')) return ['frios'];
+  if (a.includes('ACOUGUE')) return ['acougue'];
+  if (a.includes('PADARIA')) return ['padaria'];
+  if (a.includes('HORT') || a.includes('DEPOSITO') || a.includes('FLV')) return ['flv', 'deposito'];
+  return ['gerencia'];
+}
+// Acha o colaborador do cadastro. Aceita erro de digitação de uma letra
+// (GOLÇALVES = GONCALVES), abreviação ("C" = COSTA) e nome do cadastro mais
+// curto que o da planilha ("Alisson" = ALISSON FELIPE).
+function escalaDistancia(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return 2;
+  const d = Array.from({ length: a.length + 1 }, (_, i) => [i]);
+  for (let j = 1; j <= b.length; j++) d[0][j] = j;
+  for (let i = 1; i <= a.length; i++) for (let j = 1; j <= b.length; j++) {
+    d[i][j] = Math.min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1));
+  }
+  return d[a.length][b.length];
+}
+function escalaPalavraBate(a, b) {
+  if (a === b) return true;
+  if ((a.length === 1 && b.startsWith(a)) || (b.length === 1 && a.startsWith(b))) return true;
+  return a.length >= 4 && b.length >= 4 && escalaDistancia(a, b) <= 1;
+}
+function escalaAcharColaborador(nomePlanilha, nomeAba, colaboradores) {
+  const tk = escalaTokens(nomePlanilha);
+  if (!tk.length) return { status: 'vazio', candidatos: [] };
+  const setores = escalaSetoresDaAba(nomeAba);
+  const pontuados = [];
+  for (const c of colaboradores) {
+    const ct = escalaTokens(c.nome);
+    if (!ct.length || !escalaPalavraBate(ct[0], tk[0]) || (ct[0].length === 1) !== (tk[0].length === 1)) continue;
+    const planilhaToda = tk.every((p) => ct.some((q) => escalaPalavraBate(p, q)));
+    const cadastroTodo = ct.every((q) => tk.some((p) => escalaPalavraBate(p, q)));
+    if (!planilhaToda && !cadastroTodo) continue;
+    pontuados.push({ c, nota: planilhaToda ? 2 : 1, exata: ct[0] === tk[0], noSetor: setores.includes(c.setor) });
+  }
+  // Ordem de preferência: mesmo primeiro nome no setor da aba; primeiro nome
+  // com uma letra diferente no setor da aba (YASMIN = YASMIM); mesmo primeiro
+  // nome em outro setor.
+  const faixas = [(x) => x.exata && x.noSetor, (x) => !x.exata && x.noSetor, (x) => x.exata];
+  let grupo = [];
+  for (const f of faixas) { grupo = pontuados.filter(f); if (grupo.length) break; }
+  const melhor = Math.max(0, ...grupo.map((x) => x.nota));
+  let cands = grupo.filter((x) => x.nota === melhor).map((x) => x.c);
+  const aproximado = grupo.length > 0 && !grupo[0].exata;
+  if (cands.length > 1) {
+    const exato = cands.filter((c) => escalaTokens(c.nome).join(' ') === tk.join(' '));
+    if (exato.length === 1) cands = exato;
+  }
+  if (cands.length > 1) {
+    const menor = Math.min(...cands.map((c) => escalaTokens(c.nome).length));
+    const curtos = cands.filter((c) => escalaTokens(c.nome).length === menor);
+    if (curtos.length === 1) cands = curtos;
+  }
+  if (cands.length === 1) return { status: 'ok', colaborador: cands[0], candidatos: cands, aproximado };
+  return { status: cands.length ? 'ambiguo' : 'nao_achado', candidatos: cands };
+}
+// Depois de achar todo mundo: se um nome "aproximado" (uma letra diferente
+// no primeiro nome) caiu numa pessoa que outra linha achou certinho, o
+// aproximado é descartado (LUZIANA não vira LUCIANA, que já está na lista).
+function escalaResolverRepetidos(resultados) {
+  const exatos = new Set(resultados.filter((r) => r.status === 'ok' && !r.aproximado).map((r) => r.colaborador.id));
+  return resultados.map((r) => (r.status === 'ok' && r.aproximado && exatos.has(r.colaborador.id)) ? { status: 'nao_achado', candidatos: [] } : r);
+}
+// Lê o workbook (SheetJS) e devolve { ano, mes, linhas:[{aba, nome, marcas:{dia: 'folga'|'folga_feriado'}}] }
+function escalaLerWorkbook(wb) {
+  let ano = null, mes = null;
+  const linhas = [];
+  for (const nomeAba of wb.SheetNames) {
+    const rows = XLSX.utils.sheet_to_json(wb.Sheets[nomeAba], { header: 1, defval: null, raw: true });
+    // Período "01/10/2026 a 31/10/2026"
+    for (const r of rows.slice(0, 8)) {
+      for (const v of r || []) {
+        const m = typeof v === 'string' && v.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+        if (m && !ano) { mes = Number(m[2]); ano = Number(m[3]); }
+      }
+    }
+    // Linha dos dias: a que tem 1, 2, 3… em sequência
+    let linhaDias = -1, colDia = {};
+    for (let i = 0; i < Math.min(rows.length, 15); i++) {
+      const r = rows[i] || [];
+      const mapa = {};
+      r.forEach((v, j) => { const n = Number(v); if (Number.isInteger(n) && n >= 1 && n <= 31 && String(v).trim() !== '') mapa[n] = j; });
+      if (mapa[1] != null && mapa[2] != null && mapa[28] != null && mapa[2] === mapa[1] + 1) { linhaDias = i; colDia = mapa; break; }
+    }
+    if (linhaDias < 0) continue;
+    const colNome = colDia[1] - 1;
+    for (let i = linhaDias + 1; i < rows.length; i++) {
+      const r = rows[i] || [];
+      const nome = typeof r[colNome] === 'string' ? r[colNome].trim() : '';
+      if (!nome) continue;
+      const marcas = {};
+      for (const [dia, j] of Object.entries(colDia)) {
+        const v = String(r[j] == null ? '' : r[j]).trim().toUpperCase();
+        if (v === 'X') marcas[dia] = 'folga';
+        else if (v === 'F') marcas[dia] = 'folga_feriado';
+      }
+      const temDiaDaSemana = Object.values(colDia).some((j) => /^[DSTQ]$/.test(String(r[j] || '').trim()));
+      if (!Object.keys(marcas).length || temDiaDaSemana) continue; // título, cabeçalho ou linha sem nada
+      linhas.push({ aba: nomeAba, nome, marcas });
+    }
+  }
+  return { ano, mes, linhas };
+}
+
+// ---------- Importar a planilha de escala (X = folga, F = folga de feriado) ----------
+let importEscala = null;
+
+async function enviarPlanilhaFolgas(input) {
+  const arquivo = input.files[0];
+  input.value = '';
+  if (!arquivo) return;
+  if (!/\.(xlsx|xls)$/i.test(arquivo.name)) { mostrarToast('Envie a planilha da escala em Excel (.xlsx ou .xls).', 'erro'); return; }
+  try {
+    await carregarColaboradoresLoja();
+    const wb = XLSX.read(await arquivo.arrayBuffer(), { type: 'array' });
+    const lida = escalaLerWorkbook(wb);
+    if (!lida.linhas.length) throw new Error('não achei nenhum nome com "X" ou "F" nos dias. É mesmo a planilha da escala?');
+    const hoje = new Date();
+    importEscala = {
+      arquivo,
+      ano: lida.ano || hoje.getFullYear(),
+      mes: lida.mes || hoje.getMonth() + 1,
+      linhas: (() => {
+        const ativos = estado.colaboradoresLoja.filter((c) => c.ativo !== false);
+        const achados = escalaResolverRepetidos(lida.linhas.map((l) => escalaAcharColaborador(l.nome, l.aba, ativos)));
+        return lida.linhas.map((l, k) => ({ ...l, colaboradorId: achados[k].status === 'ok' ? achados[k].colaborador.id : '', status: achados[k].status }));
+      })(),
+    };
+    renderRevisaoEscala();
+  } catch (e) { mostrarToast('Não consegui ler a planilha: ' + e.message, 'erro'); }
+}
+
+function resumoImportEscala() {
+  const usadas = importEscala.linhas.filter((l) => l.colaboradorId);
+  const porColab = {};
+  usadas.forEach((l) => { porColab[l.colaboradorId] = (porColab[l.colaboradorId] || 0) + 1; });
+  let folgas = 0, feriados = 0;
+  usadas.forEach((l) => Object.values(l.marcas).forEach((t) => { if (t === 'folga') folgas++; else feriados++; }));
+  return { usadas, repetidos: Object.keys(porColab).filter((id) => porColab[id] > 1), folgas, feriados };
+}
+
+function renderRevisaoEscala() {
+  const imp = importEscala;
+  const r = resumoImportEscala();
+  const nomeColab = (id) => (estado.colaboradoresLoja.find((c) => c.id === id) || {}).nome || '';
+  const opcoesColab = (sel) => '<option value="">— não importar —</option>' + [...estado.colaboradoresLoja]
+    .filter((c) => c.ativo !== false)
+    .sort((a, b) => a.nome.localeCompare(b.nome))
+    .map((c) => '<option value="' + c.id + '"' + (c.id === sel ? ' selected' : '') + '>' + c.nome + ' — ' + nomeSetor(c.setor) + '</option>').join('');
+  const pendentes = imp.linhas.map((l, i) => ({ l, i })).filter(({ l }) => l.status !== 'ok');
+  const conta = (l) => {
+    const v = Object.values(l.marcas);
+    return v.filter((t) => t === 'folga').length + ' X · ' + v.filter((t) => t === 'folga_feriado').length + ' F';
+  };
+  const linhaRev = ({ l, i }) => '<tr' + (r.repetidos.includes(l.colaboradorId) ? ' class="linha-revisar"' : '') + '>' +
+    '<td><b>' + l.nome + '</b><div class="vl-cod">' + l.aba + ' · ' + conta(l) + '</div></td>' +
+    '<td><select class="campo-tabela' + (l.colaboradorId ? '' : ' vazio') + '" onchange="importEscala.linhas[' + i + '].colaboradorId=this.value; renderRevisaoEscala();">' + opcoesColab(l.colaboradorId) + '</select></td></tr>';
+  const opcoesMes = MESES_ESCALA.map((n, k) => '<option value="' + (k + 1) + '"' + (k + 1 === imp.mes ? ' selected' : '') + '>' + n + '</option>').join('');
+
+  const corpo =
+    '<div class="resumo-perdas" style="margin-bottom:14px;">' +
+      '<div class="box"><div class="rotulo">Pessoas reconhecidas</div><div class="valor">' + r.usadas.length + ' de ' + imp.linhas.length + '</div></div>' +
+      '<div class="box"><div class="rotulo">Folgas (X)</div><div class="valor">' + r.folgas + '</div></div>' +
+      '<div class="box"><div class="rotulo">Folgas de feriado (F)</div><div class="valor">' + r.feriados + '</div></div>' +
+    '</div>' +
+    '<div class="form-linha" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;"><label class="campo-label" style="margin:0;">Mês da escala</label>' +
+      '<select class="campo-input" style="width:auto;margin:0;" onchange="importEscala.mes=Number(this.value)">' + opcoesMes + '</select>' +
+      '<input class="campo-input" style="width:100px;margin:0;" type="number" value="' + imp.ano + '" onchange="importEscala.ano=Number(this.value)" /></div>' +
+    (r.repetidos.length ? '<div class="contagem-revisar">Em vermelho: duas linhas da planilha apontam para a mesma pessoa (' + r.repetidos.map(nomeColab).join(', ') + '). Escolha a pessoa certa em uma delas ou marque "não importar".</div>' : '') +
+    (pendentes.length
+      ? '<div class="pq-sub" style="margin-top:12px;">Não achei no cadastro (' + pendentes.length + ')</div>' +
+        '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Escolha quem é, ou deixe "não importar" — quem não está cadastrado no ULVA fica de fora.</div>' +
+        '<div class="tabela-revisao"><table><tbody>' + pendentes.map(linhaRev).join('') + '</tbody></table></div>'
+      : '<div class="faixa-checagem ok"><span>✓ Todos os nomes da planilha foram achados no cadastro</span></div>') +
+    '<details style="margin-top:14px;"><summary style="cursor:pointer;font-weight:700;font-size:13px;">Ver como cada nome foi reconhecido (' + r.usadas.length + ')</summary>' +
+      '<div class="tabela-revisao" style="margin-top:8px;"><table><tbody>' +
+        imp.linhas.map((l, i) => ({ l, i })).filter(({ l }) => l.status === 'ok').map(linhaRev).join('') +
+      '</tbody></table></div></details>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-top:14px;">Ao confirmar, as folgas desse mês dessas pessoas são trocadas pelas da planilha. Faltas, atestados e férias já lançados não são mexidos.</div>';
+
+  abrirModal('Importar escala — ' + imp.arquivo.name, corpo, 'Confirmar e importar', confirmarImportacaoEscala);
+  document.getElementById('overlay-modal').querySelector('.modal-card').classList.add('largo');
+}
+
+async function confirmarImportacaoEscala() {
+  const imp = importEscala;
+  const r = resumoImportEscala();
+  if (r.repetidos.length) { mostrarToast('Tem duas linhas apontando para a mesma pessoa — confira as linhas em vermelho.', 'erro'); return; }
+  if (!r.usadas.length) { mostrarToast('Nenhuma pessoa para importar.', 'erro'); return; }
+  if (!(imp.mes >= 1 && imp.mes <= 12) || !(imp.ano > 2000)) { mostrarToast('Confira o mês e o ano da escala.', 'erro'); return; }
+  const btn = document.getElementById('modal-btn-salvar');
+  if (btn) { btn.disabled = true; btn.textContent = 'Importando…'; }
+  try {
+    const mm = String(imp.mes).padStart(2, '0');
+    const ultimo = new Date(imp.ano, imp.mes, 0).getDate();
+    const inicio = imp.ano + '-' + mm + '-01', fim = imp.ano + '-' + mm + '-' + String(ultimo).padStart(2, '0');
+
+    // 1) guarda o arquivo (como antes)
+    let planilhaId = null;
+    try {
+      const nomeArquivo = Date.now() + '_' + Math.round(Math.random() * 1e6) + '_' + imp.arquivo.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+      const up = await sb.storage.from('planilhas-folga').upload(nomeArquivo, imp.arquivo, { upsert: true });
+      if (!up.error) {
+        const url = sb.storage.from('planilhas-folga').getPublicUrl(nomeArquivo).data.publicUrl;
+        const ins = await sb.from('planilhas_folga').insert({ nome_arquivo: imp.arquivo.name, url, enviado_por_nome: estado.usuario ? estado.usuario.nome : null }).select('id').single();
+        if (!ins.error && ins.data) planilhaId = ins.data.id;
+      }
+    } catch (e) { /* o arquivo é só cópia; a importação segue */ }
+
+    // 2) o que já existe no mês dessas pessoas
+    const ids = r.usadas.map((l) => l.colaboradorId);
+    const existentes = [];
+    for (let k = 0; k < ids.length; k += 80) {
+      const q = await sb.from('escala_folgas').select('id, colaborador_loja_id, data, tipo').in('colaborador_loja_id', ids.slice(k, k + 80)).gte('data', inicio).lte('data', fim);
+      if (q.error) throw q.error;
+      existentes.push(...(q.data || []));
+    }
+    const ocupado = new Set(existentes.filter((e) => e.tipo !== 'folga' && e.tipo !== 'folga_feriado').map((e) => e.colaborador_loja_id + '|' + e.data));
+    const apagar = existentes.filter((e) => e.tipo === 'folga' || e.tipo === 'folga_feriado').map((e) => e.id);
+
+    // 3) linhas novas (pula dia com falta/atestado/férias)
+    const novas = [];
+    let pulados = 0;
+    r.usadas.forEach((l) => Object.entries(l.marcas).forEach(([dia, tipo]) => {
+      if (Number(dia) > ultimo) return;
+      const data = imp.ano + '-' + mm + '-' + String(dia).padStart(2, '0');
+      if (ocupado.has(l.colaboradorId + '|' + data)) { pulados++; return; }
+      novas.push({ colaborador_loja_id: l.colaboradorId, data, tipo, planilha_id: planilhaId });
+    }));
+
+    for (let k = 0; k < apagar.length; k += 200) {
+      const d = await sb.from('escala_folgas').delete().in('id', apagar.slice(k, k + 200));
+      if (d.error) throw d.error;
+    }
+    for (let k = 0; k < novas.length; k += 300) {
+      const i = await sb.from('escala_folgas').upsert(novas.slice(k, k + 300), { onConflict: 'colaborador_loja_id,data' });
+      if (i.error) throw i.error;
+    }
+    fecharModal();
+    importEscala = null;
+    mostrarToast('Escala de ' + MESES_ESCALA[imp.mes - 1] + ' importada: ' + novas.filter((n) => n.tipo === 'folga').length + ' folgas e ' + novas.filter((n) => n.tipo === 'folga_feriado').length + ' folgas de feriado' + (pulados ? ' (' + pulados + (pulados === 1 ? ' dia mantido' : ' dias mantidos') + ' como falta/atestado/férias)' : '') + '.', 'sucesso');
+    estado.escalaMes = imp.mes; estado.escalaAno = imp.ano;
+    await irPara('escala');
+  } catch (e) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Confirmar e importar'; }
+    const msg = String(e.message || e);
+    mostrarToast(/check|tipo/i.test(msg) ? 'O banco ainda não conhece a folga de feriado — rode o arquivo supabase/escala_feriado.sql no Supabase.' : 'Não consegui importar: ' + msg, 'erro');
+  }
+}
+
+// =============================================================================
+// Histórico de faltas — quem lançou cada falta/atestado e quando
+// =============================================================================
+async function paginaHistoricoFaltas() {
+  await carregarColaboradoresLoja();
+  if (!estado.hfMes) { const h = new Date(); estado.hfMes = h.getMonth() + 1; estado.hfAno = h.getFullYear(); }
+  estado.hfPor = estado.hfPor || ''; estado.hfSetor = estado.hfSetor || ''; estado.hfTipo = estado.hfTipo || '';
+  await carregarHistoricoFaltas();
+  renderizarHistoricoFaltas();
+}
+async function carregarHistoricoFaltas() {
+  const mm = String(estado.hfMes).padStart(2, '0');
+  const ultimo = new Date(estado.hfAno, estado.hfMes, 0).getDate();
+  const { data, error } = await sb.from('escala_folgas').select('*').in('tipo', ['falta', 'atestado'])
+    .gte('data', estado.hfAno + '-' + mm + '-01').lte('data', estado.hfAno + '-' + mm + '-' + String(ultimo).padStart(2, '0'))
+    .order('data', { ascending: false });
+  if (error) throw error;
+  estado.hfRegistros = data || [];
+}
+function trocarMesHistoricoFaltas(delta) {
+  let m = estado.hfMes + delta, a = estado.hfAno;
+  if (m > 12) { m = 1; a++; } if (m < 1) { m = 12; a--; }
+  estado.hfMes = m; estado.hfAno = a;
+  carregarHistoricoFaltas().then(renderizarHistoricoFaltas).catch((e) => mostrarToast('Não consegui carregar: ' + e.message, 'erro'));
+}
+function renderizarHistoricoFaltas() {
+  const colab = {}; estado.colaboradoresLoja.forEach((c) => { colab[c.id] = c; });
+  const todos = estado.hfRegistros.map((r) => ({ ...r, c: colab[r.colaborador_loja_id] || { nome: '(colaborador removido)', setor: '' }, por: r.registrado_por_nome || '(sem nome)' }));
+  const lista = todos.filter((r) => (!estado.hfPor || r.por === estado.hfPor) && (!estado.hfSetor || r.c.setor === estado.hfSetor) && (!estado.hfTipo || r.tipo === estado.hfTipo));
+  const esc = (t) => String(t).replace(/'/g, "\\'");
+
+  const porQuem = {};
+  todos.forEach((r) => { porQuem[r.por] = porQuem[r.por] || { falta: 0, atestado: 0, pessoas: new Set() }; porQuem[r.por][r.tipo]++; porQuem[r.por].pessoas.add(r.colaborador_loja_id); });
+  const cards = Object.entries(porQuem).sort((a, b) => (b[1].falta + b[1].atestado) - (a[1].falta + a[1].atestado)).map(([nome, q]) =>
+    '<button class="pq-setor' + (estado.hfPor === nome ? ' hf-ativo' : '') + '" onclick="estado.hfPor=(estado.hfPor===\'' + esc(nome) + '\'?\'\':\'' + esc(nome) + '\'); renderizarHistoricoFaltas();">' +
+      '<div class="pq-setor-nome">Lançado por</div><div class="pq-setor-valor" style="font-size:17px;">' + nome + '</div>' +
+      '<div class="pq-setor-rodape"><span>' + q.falta + ' falta' + (q.falta === 1 ? '' : 's') + ' · ' + q.atestado + ' atestado' + (q.atestado === 1 ? '' : 's') + '</span><span>' + q.pessoas.size + ' pessoa' + (q.pessoas.size === 1 ? '' : 's') + '</span></div>' +
+    '</button>').join('');
+
+  const setores = Array.from(new Set(todos.map((r) => r.c.setor).filter(Boolean)));
+  const pessoas = Array.from(new Set(todos.map((r) => r.por))).sort((a, b) => a.localeCompare(b));
+  const fmtD = (iso) => iso ? iso.split('-').reverse().join('/') : '—';
+  const quando = (r) => { const t = r.registrado_em || r.criado_em; return t ? formatarDataHora(t) : '—'; };
+
+  const linhas = lista.length === 0
+    ? '<tr><td colspan="5"><div class="celula-vazio">Nenhuma falta ou atestado lançado ' + (todos.length ? 'com esses filtros.' : 'nesse mês.') + '</div></td></tr>'
+    : lista.map((r) => '<tr>' +
+        '<td class="nome-forte">' + fmtD(r.data) + '</td>' +
+        '<td><b>' + r.c.nome + '</b><div class="vl-cod">' + (r.c.setor ? nomeSetor(r.c.setor) : '') + '</div>' +
+          (r.observacao ? '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">' + r.observacao + '</div>' : '') +
+          (r.foto_url ? '<a href="' + r.foto_url + '" target="_blank" class="link-foto">Ver foto</a>' : '') + '</td>' +
+        '<td><span class="pill ' + LABEL_TIPO_ESCALA[r.tipo].classe + '">' + LABEL_TIPO_ESCALA[r.tipo].texto + '</span></td>' +
+        '<td>' + r.por + '</td>' +
+        '<td style="white-space:nowrap;">' + quando(r) + '</td>' +
+      '</tr>').join('');
+
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Histórico de faltas', 'Faltas e atestados lançados pelos encarregados — quem marcou e quando') +
+    '<div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px;">' +
+      '<button class="chip" onclick="trocarMesHistoricoFaltas(-1)" aria-label="Mês anterior">‹</button>' +
+      '<div style="font-weight:700;font-size:14px;min-width:170px;text-align:center;">' + MESES_ESCALA[estado.hfMes - 1] + ' de ' + estado.hfAno + '</div>' +
+      '<button class="chip" onclick="trocarMesHistoricoFaltas(1)" aria-label="Próximo mês">›</button>' +
+    '</div>' +
+    '<div class="resumo-perdas">' +
+      '<div class="box"><div class="rotulo">Faltas no mês</div><div class="valor">' + todos.filter((r) => r.tipo === 'falta').length + '</div></div>' +
+      '<div class="box"><div class="rotulo">Atestados no mês</div><div class="valor">' + todos.filter((r) => r.tipo === 'atestado').length + '</div></div>' +
+      '<div class="box"><div class="rotulo">Pessoas com falta/atestado</div><div class="valor">' + new Set(todos.map((r) => r.colaborador_loja_id)).size + '</div></div>' +
+    '</div>' +
+    (cards ? '<div class="pq-card"><div class="pq-topo"><h3>Por encarregado</h3><span class="pq-nota">Toque para filtrar</span></div><div class="pq-setores">' + cards + '</div></div>' : '') +
+    '<div class="toolbar">' +
+      '<select class="select-filtro" onchange="estado.hfPor=this.value; renderizarHistoricoFaltas();"><option value="">Todos os encarregados</option>' + pessoas.map((p) => '<option' + (p === estado.hfPor ? ' selected' : '') + '>' + p + '</option>').join('') + '</select>' +
+      '<select class="select-filtro" onchange="estado.hfSetor=this.value; renderizarHistoricoFaltas();"><option value="">Todos os setores</option>' + setores.map((s) => '<option value="' + s + '"' + (s === estado.hfSetor ? ' selected' : '') + '>' + nomeSetor(s) + '</option>').join('') + '</select>' +
+      '<select class="select-filtro" onchange="estado.hfTipo=this.value; renderizarHistoricoFaltas();"><option value="">Faltas e atestados</option><option value="falta"' + (estado.hfTipo === 'falta' ? ' selected' : '') + '>Só faltas</option><option value="atestado"' + (estado.hfTipo === 'atestado' ? ' selected' : '') + '>Só atestados</option></select>' +
+    '</div>' +
+    '<div class="tabela-wrap hf-tabela"><table><thead><tr><th>Dia</th><th>Colaborador</th><th>Tipo</th><th>Lançado por</th><th>Lançado em</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+}
+
+const PLURAL_TIPO_ESCALA = { folga: 'folgas', folga_feriado: 'folgas de feriado', ferias_licenca_inss: 'dias de férias/licença/INSS', falta: 'faltas', atestado: 'atestados' };
 
 async function paginaEscala() {
   await carregarColaboradoresLoja();
@@ -8389,7 +8734,7 @@ function resumoRegistrosColaborador(colaboradorId) {
   const porTipo = {};
   registros.forEach((r) => { porTipo[r.tipo] = (porTipo[r.tipo] || 0) + 1; });
   return Object.keys(porTipo)
-    .map((t) => porTipo[t] + ' ' + LABEL_TIPO_ESCALA[t].texto.toLowerCase() + (porTipo[t] > 1 ? 's' : ''))
+    .map((t) => porTipo[t] + ' ' + (porTipo[t] > 1 ? (PLURAL_TIPO_ESCALA[t] || t) : (LABEL_TIPO_ESCALA[t] || { texto: t }).texto.toLowerCase()))
     .join(' · ');
 }
 
@@ -8453,6 +8798,11 @@ function renderizarEscala() {
 
   document.getElementById('conteudo-principal').innerHTML =
     cabecalho('Faltas e Atestados', 'Escala do mês por setor — folgas da planilha enviada + faltas/atestados lançados na hora, pelo app ou por aqui') +
+    '<div class="toolbar" style="justify-content:flex-end;">' +
+      '<button class="btn-acao secundario" onclick="irPara(\'historico-faltas\')">Histórico de faltas</button>' +
+      '<button class="btn-acao" onclick="document.getElementById(\'escala-arquivo\').click()">📤 Importar escala (X e F)</button>' +
+      '<input type="file" id="escala-arquivo" accept=".xlsx,.xls" style="display:none" onchange="enviarPlanilhaFolgas(this)" />' +
+    '</div>' +
     '<div style="display:flex;align-items:center;justify-content:center;gap:16px;margin-bottom:20px;">' +
       '<button class="chip" onclick="trocarMesEscala(-1)">‹</button>' +
       '<div style="font-weight:700;font-size:14px;min-width:170px;text-align:center;">' + MESES_ESCALA[estado.escalaMes - 1] + ' de ' + estado.escalaAno + '</div>' +
@@ -8500,6 +8850,7 @@ async function salvarFaltaAtestadoPortal(colaboradorId) {
         observacao,
         foto_url: fotoUrl,
         registrado_por_nome: estado.usuario.nome,
+        registrado_em: new Date().toISOString(),
       },
       { onConflict: 'colaborador_loja_id,data' }
     );

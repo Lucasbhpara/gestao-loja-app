@@ -17,7 +17,7 @@ import { supabase } from '../lib/supabase';
 // Tabela própria do ULVA: escala_folgas. Não confundir com "planilhas_folga"
 // (só guarda o arquivo enviado pelo portal) nem com nada do ALCATÉIA.
 
-export type TipoEscala = 'folga' | 'ferias_licenca_inss' | 'falta' | 'atestado';
+export type TipoEscala = 'folga' | 'folga_feriado' | 'ferias_licenca_inss' | 'falta' | 'atestado';
 
 export interface RegistroEscala {
   id: string;
@@ -28,6 +28,7 @@ export interface RegistroEscala {
   registradoPorNome: string | null;
   fotoUrl: string | null;
   criadoEm: string;
+  registradoEm: string | null; // quando a falta/atestado foi lançada
 }
 
 function linhaParaRegistro(l: any): RegistroEscala {
@@ -40,6 +41,7 @@ function linhaParaRegistro(l: any): RegistroEscala {
     registradoPorNome: l.registrado_por_nome,
     fotoUrl: l.foto_url,
     criadoEm: l.criado_em,
+    registradoEm: l.registrado_em ?? null,
   };
 }
 
@@ -132,6 +134,7 @@ export async function registrarFaltaOuAtestado(dados: {
         observacao: dados.observacao,
         foto_url: dados.fotoUrl,
         registrado_por_nome: dados.registradoPorNome,
+        registrado_em: new Date().toISOString(),
       },
       { onConflict: 'colaborador_loja_id,data' }
     )
@@ -162,4 +165,19 @@ export async function enviarFotoAtestado(uriLocal: string): Promise<string> {
   if (error) throw error;
   const { data } = supabase.storage.from('atestado-fotos').getPublicUrl(nomeArquivo);
   return data.publicUrl;
+}
+
+// Histórico de faltas (administradores): todas as faltas e atestados com
+// dia dentro do mês, de qualquer setor, com quem lançou e quando.
+export async function buscarFaltasEAtestadosDoMes(ano: number, mes: number): Promise<RegistroEscala[]> {
+  const { inicio, fim } = limitesDoMes(ano, mes);
+  const { data, error } = await supabase
+    .from('escala_folgas')
+    .select('*')
+    .in('tipo', ['falta', 'atestado'])
+    .gte('data', inicio)
+    .lte('data', fim)
+    .order('data', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(linhaParaRegistro);
 }
