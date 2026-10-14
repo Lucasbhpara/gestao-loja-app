@@ -128,6 +128,28 @@ async function persistirAgora() {
   await AsyncStorage.setItem(CHAVE, JSON.stringify(estado)).catch(() => {});
 }
 
+// Conserta o que estiver guardado pela metade no celular (ex.: uma visita
+// "fantasma" criada por um envio que terminou depois de a visita vazia ter
+// sido descartada). Visita sem dados básicos é apagada; sem lista de
+// respostas, ganha uma lista vazia.
+function limparEstado(e: Estado): Estado {
+  const visitas: Record<string, VisitaLocal> = {};
+  const origem = e && typeof e.visitas === 'object' && e.visitas ? e.visitas : {};
+  Object.entries(origem).forEach(([id, v]) => {
+    if (!v || typeof v !== 'object' || !v.id || !v.setor || !v.unidade || !v.status) return;
+    const respostas: Record<string, RespostaLocal> = {};
+    Object.entries(v.respostas && typeof v.respostas === 'object' ? v.respostas : {}).forEach(([pid, r]) => {
+      if (r && typeof r === 'object') respostas[pid] = { ...r, fotos: Array.isArray(r.fotos) ? r.fotos : [] };
+    });
+    visitas[id] = { ...v, respostas };
+  });
+  return {
+    visitas,
+    perguntas: Array.isArray(e?.perguntas) ? e.perguntas : [],
+    perguntasAtualizadasEm: e?.perguntasAtualizadasEm ?? null,
+  };
+}
+
 export async function carregarOffline(): Promise<void> {
   if (carregado) return;
   if (!carregando) {
@@ -135,6 +157,7 @@ export async function carregarOffline(): Promise<void> {
       try {
         const bruto = await AsyncStorage.getItem(CHAVE);
         if (bruto) estado = { ...estado, ...JSON.parse(bruto) };
+        estado = limparEstado(estado);
       } catch {
         // celular sem nada salvo / dado corrompido — começa limpo
       }
@@ -198,7 +221,7 @@ export function finalizadasPendentes(unidade?: string): VisitaLocal[] {
 
 function visitaTemPendencia(v: VisitaLocal): boolean {
   if (v.cabecalhoPendente) return true;
-  if (Object.values(v.respostas).some((r) => r.pendente)) return true;
+  if (Object.values(v.respostas ?? {}).some((r) => r?.pendente)) return true;
   return v.status === 'finalizada' && !v.resultadoNuvem;
 }
 
@@ -395,7 +418,7 @@ export async function finalizarLocal(visitaId: string, perguntas: VisitaPergunta
 // abriu o setor errado) — não precisa ir pra nuvem.
 export function descartarSeVazia(visitaId: string) {
   const v = estado.visitas[visitaId];
-  if (v && v.status === 'em_andamento' && Object.keys(v.respostas).length === 0 && v.cabecalhoPendente && !v.consideracoes) {
+  if (v && v.status === 'em_andamento' && Object.keys(v.respostas ?? {}).length === 0 && v.cabecalhoPendente && !v.consideracoes) {
     delete estado.visitas[visitaId];
     persistir();
   }
@@ -453,6 +476,8 @@ async function sincronizarVisita(id: string) {
   const statusNuvem = await statusRemotoDaVisita(id);
   if (statusNuvem === 'finalizada') {
     const oficial = await buscarVisitaPorId(id);
+    v = estado.visitas[id];
+    if (!v) return;
     const respostas: Record<string, RespostaLocal> = {};
     Object.values(v.respostas).forEach((r) => (respostas[r.perguntaId] = { ...r, pendente: false }));
     estado.visitas[id] = { ...v, respostas, cabecalhoPendente: false, resultadoNuvem: oficial };
@@ -474,26 +499,28 @@ async function sincronizarVisita(id: string) {
       consideracoesFinais: v.consideracoes || null,
     });
     v = estado.visitas[id];
+    if (!v) return; // descartada enquanto enviava — não recria
     estado.visitas[id] = { ...v, cabecalhoPendente: false };
     persistir();
   }
 
   // 3) Respostas: primeiro sobe as fotos que estão só no celular (uma a
   //    uma, guardando a url de cada), depois grava a resposta com a lista.
-  for (const pid of Object.keys(estado.visitas[id].respostas)) {
+  for (const pid of Object.keys(estado.visitas[id]?.respostas ?? {})) {
+    if (!estado.visitas[id]) return;
     const r = estado.visitas[id].respostas[pid];
     if (!r.pendente) continue;
     for (const f of r.fotos) {
       if (!f.local || f.url) continue;
       const url = await enviarFotoVisita(f.local);
-      const atual = estado.visitas[id].respostas[pid];
+      const atual = estado.visitas[id]?.respostas[pid];
       if (!atual) break;
       atual.fotos = atual.fotos.map((x) => (x.id === f.id ? { ...x, url, local: null } : x));
       estado.visitas[id] = { ...estado.visitas[id] };
       persistir();
       apagarArquivo(f.local);
     }
-    const agora = estado.visitas[id].respostas[pid];
+    const agora = estado.visitas[id]?.respostas[pid];
     if (!agora || agora.fotos.some((f) => !f.url)) continue; // foto nova no meio — próxima rodada
     await gravarRespostaVisita({
       visitaId: id,
@@ -505,7 +532,7 @@ async function sincronizarVisita(id: string) {
       fotosUrls: agora.fotos.map((f) => f.url as string),
       respondidaEm: agora.respondidaEm,
     });
-    const depois = estado.visitas[id].respostas[pid];
+    const depois = estado.visitas[id]?.respostas[pid];
     // Se a pessoa mudou a resposta enquanto enviava, continua pendente.
     if (depois && depois.respondidaEm === agora.respondidaEm) {
       estado.visitas[id].respostas = { ...estado.visitas[id].respostas, [pid]: { ...depois, pendente: false } };
@@ -516,6 +543,7 @@ async function sincronizarVisita(id: string) {
 
   // 4) Finalização (uma vez só — o passo 1 garante isso nas próximas).
   v = estado.visitas[id];
+  if (!v) return;
   if (v.status === 'finalizada' && !v.resultadoNuvem) {
     if (Object.values(v.respostas).some((r) => r.pendente)) return; // tenta de novo depois
     const ordem = perguntasDoSetor(v.setor).map((p) => p.id);
@@ -530,7 +558,7 @@ async function sincronizarVisita(id: string) {
       perguntasNaoAvaliadas: v.resultadoLocal?.naoAvaliadas ?? 0,
       ordemPerguntas: ordem,
     });
-    estado.visitas[id] = { ...estado.visitas[id], resultadoNuvem: oficial };
+    if (estado.visitas[id]) estado.visitas[id] = { ...estado.visitas[id], resultadoNuvem: oficial };
   }
 }
 
