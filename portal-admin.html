@@ -3885,7 +3885,8 @@ var CARD_TEMA = {
   fundoTopo: '#D5E6F6',
   fundoMeio: '#F4F8FD',
   fundoBaixo: '#E1EDF8',
-  selo: ['Ofertas', 'Exclusivas', 'Minas Gerais'],
+  // [texto, tamanho relativo, peso]
+  selo: [['OFERTAS', 1, '800'], ['EXCLUSIVAS', 1, '800'], ['para a unidade de', 0.6, '600'], ['ITATIAIUÇU', 1.02, '900']],
   fonte: 'Archivo, "Arial Black", Arial, sans-serif',
 };
 
@@ -3936,7 +3937,8 @@ function cardAjustar(ctx, texto, larguraMax, maxLinhas, tamMax, tamMin, estilo) 
   for (var t = tamMax; t >= tamMin; t -= 2) {
     ctx.font = estilo + ' ' + t + 'px ' + CARD_TEMA.fonte;
     var l = cardQuebrar(ctx, texto, larguraMax);
-    if (l.length <= maxLinhas) return { linhas: l, tam: t };
+    var cabe = l.every(function (x) { return ctx.measureText(x).width <= larguraMax; });
+    if (l.length <= maxLinhas && cabe) return { linhas: l, tam: t };
   }
   ctx.font = estilo + ' ' + tamMin + 'px ' + CARD_TEMA.fonte;
   var ls = cardQuebrar(ctx, texto, larguraMax).slice(0, maxLinhas);
@@ -3978,18 +3980,19 @@ function cardSelo(ctx, x, w, h) {
   ctx.shadowColor = 'rgba(10,26,109,.35)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 6;
   ctx.fillStyle = t.azulSelo; cardRet(ctx, x, -30, w, h + 30, 22); ctx.fill();
   ctx.restore();
-  // triângulo (símbolo de Minas) estilizado
-  var cx = x + w / 2, ty = h * 0.12, ts = w * 0.2;
-  ctx.fillStyle = '#FFFFFF';
-  ctx.beginPath(); ctx.moveTo(cx, ty); ctx.lineTo(cx + ts * 0.62, ty + ts); ctx.lineTo(cx - ts * 0.62, ty + ts); ctx.closePath(); ctx.fill();
+  // pino de localização
+  var cx = x + w / 2, pr = w * 0.075, py = h * 0.17;
   ctx.fillStyle = t.vermelho;
-  ctx.beginPath(); ctx.moveTo(cx, ty + ts * 0.3); ctx.lineTo(cx + ts * 0.36, ty + ts * 0.88); ctx.lineTo(cx - ts * 0.36, ty + ts * 0.88); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-  var tam = Math.round(w * 0.135), y = ty + ts + tam * 1.45;
-  t.selo.forEach(function (linha, i) {
-    ctx.font = (i === t.selo.length - 1 ? '800 ' : '600 ') + tam + 'px ' + t.fonte;
-    var fit = cardAjustar(ctx, linha, w - 24, 1, tam, 10, i === t.selo.length - 1 ? '800' : '600');
-    ctx.fillText(fit.linhas[0], cx, y + i * tam * 1.18);
+  ctx.beginPath(); ctx.arc(cx, py, pr, Math.PI, 0); ctx.quadraticCurveTo(cx + pr, py + pr * 1.1, cx, py + pr * 2.2); ctx.quadraticCurveTo(cx - pr, py + pr * 1.1, cx - pr, py); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(cx, py, pr * 0.42, 0, Math.PI * 2); ctx.fill();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  var base = Math.round(w * 0.118), y = py + pr * 2.2 + base * 0.35;
+  t.selo.forEach(function (l) {
+    var tam = Math.round(base * l[1]);
+    var fit = cardAjustar(ctx, l[0], w - 22, 1, tam, 9, l[2]);
+    y += fit.tam * 1.2;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(fit.linhas[0], cx, y);
   });
 }
 
@@ -4011,12 +4014,7 @@ function cardFoto(ctx, img, x, y, w, h, nome, multiplicar) {
     ctx.restore();
     return;
   }
-  var raio = Math.min(w, h) * 0.34;
-  ctx.fillStyle = 'rgba(20,59,134,0.08)';
-  ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, raio, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = CARD_TEMA.azulSelo; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '900 ' + Math.round(raio) + 'px ' + CARD_TEMA.fonte;
-  ctx.fillText(String(nome || '?').trim().charAt(0).toUpperCase(), x + w / 2, y + h / 2 + raio * 0.05);
+  // sem foto: o nome do produto ocupa o espaço (ver desenharCardOferta)
 }
 
 // Preço no estilo da arte: "R$" pequeno embaixo à esquerda, número grande em
@@ -4085,17 +4083,27 @@ function desenharCardOferta(canvas, dados) {
       var o = ofertas[0] || { produto: '', precoPor: 0 };
       cardSelo(ctx, 60, 230, 260);
       cardLogo(ctx, logo, W - 60, 70, 280, 170);
-      // nome do produto
-      ctx.fillStyle = t.azulTexto; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-      var nome = cardAjustar(ctx, String(o.produto).toUpperCase(), 640, 2, 46, 30, '800');
-      var yN = 300;
-      nome.linhas.forEach(function (l, i) { ctx.fillText(l, W / 2, yN + nome.tam * (i + 1) * 1.12); });
-      var fotoTopo = yN + nome.tam * nome.linhas.length * 1.12 + 30;
       var temDe = o.precoDe && Number(o.precoDe) > Number(o.precoPor);
       var baseNum = H - 118;
       var tamNum = 250;
       var fotoBaixo = baseNum - tamNum * 0.78 - (temDe ? 60 : 20);
-      cardFoto(ctx, fotos[0], 150, fotoTopo, W - 300, fotoBaixo - fotoTopo, o.produto, multiplicar);
+      ctx.fillStyle = t.azulTexto; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      if (fotos[0]) {
+        // nome do produto em cima e a foto no meio
+        var nome = cardAjustar(ctx, String(o.produto).toUpperCase(), 640, 2, 46, 30, '800');
+        var yN = 300;
+        nome.linhas.forEach(function (l, i) { ctx.fillText(l, W / 2, yN + nome.tam * (i + 1) * 1.12); });
+        var fotoTopo = yN + nome.tam * nome.linhas.length * 1.12 + 30;
+        cardFoto(ctx, fotos[0], 150, fotoTopo, W - 300, fotoBaixo - fotoTopo, o.produto, multiplicar);
+      } else {
+        // sem foto: nome grande no centro, com um traço vermelho embaixo
+        var g = cardAjustar(ctx, String(o.produto).toUpperCase(), 860, 4, 96, 46, '900');
+        var alt = g.tam * 1.08 * g.linhas.length;
+        var topoTxt = 300 + Math.max(0, (fotoBaixo - 40 - 300 - alt) / 2);
+        g.linhas.forEach(function (l, i) { ctx.fillText(l, W / 2, topoTxt + g.tam * (i + 1) * 1.08 - g.tam * 0.12); });
+        ctx.fillStyle = t.vermelho;
+        cardRet(ctx, W / 2 - 70, topoTxt + alt + 22, 140, 10, 5); ctx.fill();
+      }
       if (temDe) cardPrecoDe(ctx, W / 2, baseNum - tamNum * 0.78 - 14, o.precoDe, o.precoPor, 40);
       // número encolhe se o valor for comprido (ex.: 1.299,90)
       ctx.font = 'italic 900 ' + tamNum + 'px ' + t.fonte;
@@ -4129,9 +4137,17 @@ function desenharCardOferta(canvas, dados) {
         var temDe = o.precoDe && Number(o.precoDe) > Number(o.precoPor);
         if (temDe) nomeBase -= 40;
         var nomeTopo = nomeBase - nm.tam * nm.linhas.length * 1.12;
-        nm.linhas.forEach(function (l, k) { ctx.fillText(l, x + cw / 2, nomeTopo + nm.tam * (k + 1) * 1.12); });
+        if (fotos[i]) {
+          nm.linhas.forEach(function (l, k) { ctx.fillText(l, x + cw / 2, nomeTopo + nm.tam * (k + 1) * 1.12); });
+          cardFoto(ctx, fotos[i], x + 24, y + 18, cw - 48, nomeTopo - y - 26, o.produto, false);
+        } else {
+          // sem foto: nome maior ocupando a parte de cima do quadro
+          var g = cardAjustar(ctx, String(o.produto).toUpperCase(), cw - 56, 4, Math.min(52, nomeTam * 1.9), nomeTam, '900');
+          var alt = g.tam * 1.1 * g.linhas.length;
+          var topoTxt = y + 18 + Math.max(0, (nomeBase - y - 18 - alt) / 2);
+          g.linhas.forEach(function (l, k) { ctx.fillText(l, x + cw / 2, topoTxt + g.tam * (k + 1) * 1.1 - g.tam * 0.1); });
+        }
         if (temDe) cardPrecoDe(ctx, x + cw / 2, baseNum - tamNum * 0.86 - 12, o.precoDe, o.precoPor, 22);
-        cardFoto(ctx, fotos[i], x + 24, y + 18, cw - 48, nomeTopo - y - 26, o.produto, false);
         cardPreco(ctx, x + cw / 2, baseNum, o.precoPor, o.unidade, tamNum);
       });
     }
@@ -4163,9 +4179,9 @@ const ofNomeSetor = (k) => (OF_SETORES.find((x) => x.chave === k) || {}).nome ||
 const ofSetorDoGiro = (sg) => (OF_SETORES.find((x) => x.giro.includes(sg)) || {}).chave || null;
 const ofSetorDoApp = (sa) => (OF_SETORES.find((x) => x.app.includes(sa)) || {}).chave || null;
 const OF_TIPOS_SUG = [
-  ['giro', '🐢 Parados', 'Com estoque e 14+ dias sem venda, do maior valor parado pro menor. Preço sugerido 15% abaixo (sem passar do custo + 5%).'],
-  ['estoque_alto', '📦 Estoque alto', 'Vendem, mas o estoque dá pra mais de 45 dias de venda. Preço sugerido 10% abaixo.'],
-  ['validade', '⏳ Vencendo', 'Produtos da Validade que vencem em até 10 dias. Desconto sugerido de 20% (30% se vence em até 3 dias).'],
+  ['giro', '🐢 Parados', 'Com estoque e 14+ dias sem venda, do maior valor parado pro menor. A oferta usa o preço da loja.'],
+  ['estoque_alto', '📦 Estoque alto', 'Vendem, mas o estoque dá pra mais de 45 dias de venda. A oferta usa o preço da loja.'],
+  ['validade', '⏳ Vencendo', 'Produtos da Validade que vencem em até 10 dias. A oferta usa o preço da loja.'],
 ];
 const OF_DIAS = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 const OF_CODIGO_LOGO = '__logo__';
@@ -4214,6 +4230,11 @@ async function ofCarregar() {
   estado.ofLista = data || [];
   estado.ofFotos = estado.ofFotos || {};
   await ofCarregarFotos(estado.ofLista.map((o) => o.codigo).concat([OF_CODIGO_LOGO]));
+  estado.ofPrecosLoja = {};
+  try {
+    const m = await ofPrecos('codigo_interno', [...new Set(estado.ofLista.map((o) => o.codigo).filter(Boolean))]);
+    Object.keys(m).forEach((k) => { if (m[k].preco_venda != null) estado.ofPrecosLoja[k] = Number(m[k].preco_venda); });
+  } catch (e) { /* só o aviso de preço diferente */ }
 }
 async function ofCarregarFotos(codigos) {
   const lista = [...new Set(codigos.filter(Boolean))];
@@ -4278,7 +4299,10 @@ function ofHtmlOfertas(modo) {
       '<td><div class="nome-forte">' + giroEsc(o.produto) + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + (o.codigo ? 'Cód. ' + giroEsc(o.codigo) + ' · ' : '') + (o.setor ? ofNomeSetor(o.setor) + ' · ' : '') + (OF_ORIGEM[o.origem] || o.origem) + (o.criado_por ? ' · por ' + giroEsc(o.criado_por) : '') + '</div>' +
         (modo === 'validar' && o.observacao ? '<div style="font-size:11.5px;color:var(--text-secondary);">💡 ' + giroEsc(o.observacao) + '</div>' : '') + '</td>' +
       '<td style="white-space:nowrap;color:var(--text-muted);text-decoration:line-through;">' + (o.preco_de ? ofReais(o.preco_de) : '') + '</td>' +
-      '<td style="white-space:nowrap;font-weight:800;color:var(--red);">' + ofReais(o.preco_por) + (o.unidade_venda === 'kg' ? '/kg' : '') + '</td>' +
+      '<td style="white-space:nowrap;"><span style="font-weight:800;color:var(--red);">' + ofReais(o.preco_por) + (o.unidade_venda === 'kg' ? '/kg' : '') + '</span>' +
+        ' <button class="link-remover" style="color:var(--accent);font-size:14px;" title="Corrigir preço" aria-label="Corrigir preço" onclick="ofEditarPreco(\'' + o.id + '\')">✏️</button>' +
+        (o.codigo && estado.ofPrecosLoja && estado.ofPrecosLoja[o.codigo] != null && Math.abs(estado.ofPrecosLoja[o.codigo] - Number(o.preco_por)) > 0.004
+          ? '<div style="font-size:11px;color:var(--orange);font-weight:700;">⚠️ loja: ' + ofReais(estado.ofPrecosLoja[o.codigo]) + '</div>' : '') + '</td>' +
       '<td style="white-space:nowrap;">' + (o.fim ? ofData(o.fim) : '—') + '</td>' +
       '<td>' + ofStatusHtml(o) + '</td>' +
       '<td style="white-space:nowrap;">' + acoes + '</td></tr>';
@@ -4382,7 +4406,9 @@ async function ofEscolherProduto(i) {
   const x = estado.ofBusca[i];
   Object.assign(estado.ofRascunho, { codigo: x.codigo_interno, codigo_barras: x.codigo_barras, produto: x.produto });
   if (/\bKG\b/i.test(x.produto)) document.getElementById('of-un').value = 'kg';
-  if (x.preco_venda != null) document.getElementById('of-de').value = Number(x.preco_venda).toFixed(2).replace('.', ',');
+  // A oferta usa o preço oficial da loja; o "de" fica vazio.
+  if (x.preco_venda != null) document.getElementById('of-por').value = Number(x.preco_venda).toFixed(2).replace('.', ',');
+  document.getElementById('of-de').value = '';
   const busca = document.getElementById('of-busca');
   busca.value = x.produto;
   document.getElementById('of-busca-res').innerHTML = '';
@@ -4416,6 +4442,29 @@ async function ofSalvarEditor() {
   await ofCarregar(); renderizarOfertasWhats();
 }
 
+// ---- lápis do preço ----
+function ofEditarPreco(id) {
+  const o = estado.ofLista.find((x) => x.id === id);
+  if (!o) return;
+  const loja = o.codigo && estado.ofPrecosLoja ? estado.ofPrecosLoja[o.codigo] : null;
+  const fmt = (v) => v == null ? '' : Number(v).toFixed(2).replace('.', ',');
+  abrirModal('Corrigir preço',
+    '<p class="sub" style="margin:0 0 12px;">' + giroEsc(o.produto) + '</p>' +
+    (loja != null ? '<button class="btn-acao secundario" style="width:100%;margin-bottom:12px;" onclick="document.getElementById(\'ofp-por\').value=\'' + fmt(loja) + '\';document.getElementById(\'ofp-de\').value=\'\'">Usar o preço da loja no sistema: <b>' + ofReais(loja) + '</b></button>' : '') +
+    '<div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">' +
+      '<div class="form-linha"><label class="campo-label" for="ofp-por">Preço da oferta</label><input class="campo-input" id="ofp-por" inputmode="decimal" value="' + fmt(o.preco_por) + '" style="margin-bottom:0;border-color:var(--red);color:var(--red);font-weight:800;"></div>' +
+      '<div class="form-linha"><label class="campo-label" for="ofp-de">"De" riscado (opcional)</label><input class="campo-input" id="ofp-de" inputmode="decimal" value="' + fmt(o.preco_de) + '" style="margin-bottom:0"></div>' +
+    '</div>',
+    'Salvar preço', async () => {
+      const por = ofNum(document.getElementById('ofp-por').value), de = ofNum(document.getElementById('ofp-de').value);
+      if (!por || por <= 0) { mostrarToast('Informe o preço da oferta.', 'erro'); return; }
+      if (de != null && de <= por) { mostrarToast('O "de" precisa ser maior que o preço da oferta (ou deixe vazio).', 'erro'); return; }
+      const { error } = await sb.from('ofertas').update({ preco_por: por, preco_de: de }).eq('id', id);
+      if (error) { mostrarToast('Não consegui salvar: ' + error.message, 'erro'); return; }
+      fecharModal(); mostrarToast('Preço corrigido.', 'sucesso'); await ofCarregar(); renderizarOfertasWhats();
+    });
+}
+
 // ---- fotos ----
 function ofAbrirFoto(codigo) {
   if (!codigo) { mostrarToast('Essa oferta não tem produto com código — não dá pra salvar foto.', 'erro'); return; }
@@ -4425,8 +4474,10 @@ function ofAbrirFoto(codigo) {
   fecharModal();
   abrirModal('Foto do produto',
     (url ? '<img src="' + url + '" style="width:100%;max-height:240px;object-fit:contain;background:#fff;border-radius:12px;margin-bottom:12px;">' : '<p class="sub">Sem foto ainda.</p>') +
-    (estado.ofFotoAlvo.codigo_barras ? '<button class="btn-acao secundario" style="width:100%;margin-bottom:10px;" onclick="ofFotoInternet()">🔎 Buscar na internet (código de barras ' + giroEsc(estado.ofFotoAlvo.codigo_barras) + ')</button>' : '') +
-    '<div class="form-linha"><label class="campo-label">Ou envie uma foto</label><input type="file" id="of-foto-arquivo" accept="image/*"></div>',
+    '<button class="btn-acao secundario" style="width:100%;margin-bottom:6px;" onclick="window.open(\'https://www.google.com/search?tbm=isch&q=\' + encodeURIComponent(' + JSON.stringify(o.produto || '').replace(/"/g, '&quot;') + '), \'_blank\')">🔎 Pesquisar imagem no Google (abre outra aba)</button>' +
+    '<p class="sub" style="margin:0 0 12px;font-size:12px;">Escolha a foto, clique com o botão direito → "Salvar imagem como…" e depois envie o arquivo aqui embaixo.</p>' +
+    '<div class="form-linha"><label class="campo-label" for="of-foto-arquivo">Enviar foto (do computador ou do celular)</label><input type="file" id="of-foto-arquivo" accept="image/*"></div>' +
+    (url ? '<button class="link-remover" style="margin-top:4px;" onclick="ofSemFoto()">🚫 Usar sem foto (o card sai só com o nome, grande)</button>' : ''),
     'Salvar foto', ofSalvarFotoArquivo);
 }
 async function ofSalvarFotoBlob(blob, origem) {
@@ -4445,6 +4496,14 @@ async function ofSalvarFotoArquivo() {
   if (!arq) { mostrarToast('Escolha uma foto.', 'erro'); return; }
   try { await ofSalvarFotoBlob(arq, 'galeria'); fecharModal(); mostrarToast('Foto salva.', 'sucesso'); renderizarOfertasWhats(); }
   catch (e) { mostrarToast('Não consegui salvar a foto: ' + e.message, 'erro'); }
+}
+async function ofSemFoto() {
+  const alvo = estado.ofFotoAlvo;
+  if (!alvo || !confirm('Tirar a foto desse produto? O card sai só com o nome, em letras grandes.')) return;
+  const { error } = await sb.from('produto_fotos').delete().eq('codigo', alvo.codigo);
+  if (error) { mostrarToast('Não consegui tirar a foto: ' + error.message, 'erro'); return; }
+  delete estado.ofFotos[alvo.codigo];
+  fecharModal(); mostrarToast('Foto removida.', 'sucesso'); renderizarOfertasWhats();
 }
 async function ofFotoInternet() {
   const ean = String(estado.ofFotoAlvo.codigo_barras || '').replace(/\D/g, '');
@@ -4545,12 +4604,11 @@ async function ofRenderSugestoes() {
     estado.ofSug = lista;
     await ofCarregarFotos(lista.map((s) => s.codigo));
     const ativos = new Set(estado.ofLista.filter((o) => ofAtiva(o) && o.status !== 'reprovada').map((o) => o.codigo));
-    el.innerHTML = seg + '<div class="tabela-wrap"><table><thead><tr><th>Foto</th><th>Produto</th><th>Motivo</th><th>Preço</th><th>Sugerido</th><th></th></tr></thead><tbody>' +
+    el.innerHTML = seg + '<div class="tabela-wrap"><table><thead><tr><th>Foto</th><th>Produto</th><th>Motivo</th><th>Preço da loja</th><th></th></tr></thead><tbody>' +
       (lista.length ? lista.map((s, i) => '<tr><td>' + ofMini(s.codigo, s.produto) + '</td><td><div class="nome-forte">' + giroEsc(s.produto) + '</div><div style="font-size:11px;color:var(--text-muted);">' + (s.setor ? ofNomeSetor(s.setor) : '') + '</div></td>' +
-        '<td style="font-size:12px;color:var(--text-secondary);">' + giroEsc(s.motivo) + '</td><td style="white-space:nowrap;">' + ofReais(s.preco) + '</td>' +
-        '<td style="white-space:nowrap;font-weight:800;color:var(--red);">' + ofReais(s.precoSugerido) + '</td>' +
+        '<td style="font-size:12px;color:var(--text-secondary);">' + giroEsc(s.motivo) + '</td><td style="white-space:nowrap;font-weight:800;color:var(--red);">' + ofReais(s.preco) + '</td>' +
         '<td>' + (ativos.has(s.codigo) ? '<span class="pill verde">já sugerida</span>' : '<button class="btn-acao" style="padding:6px 10px;font-size:12px;" onclick="ofCriarDaSugestao(' + i + ')">Criar oferta</button>') + '</td></tr>').join('')
-        : '<tr><td colspan="6"><div class="celula-vazio">' + (t === 'validade' && st && !OF_SETORES.find((x) => x.chave === st).app.length ? 'Esse setor não usa a Validade do app.' : 'Nenhuma sugestão agora para esse setor.') + '</div></td></tr>') + '</tbody></table></div>';
+        : '<tr><td colspan="5"><div class="celula-vazio">' + (t === 'validade' && st && !OF_SETORES.find((x) => x.chave === st).app.length ? 'Esse setor não usa a Validade do app.' : 'Nenhuma sugestão agora para esse setor.') + '</div></td></tr>') + '</tbody></table></div>';
   } catch (e) { el.innerHTML = seg + '<div class="celula-vazio">Não consegui carregar: ' + giroEsc(e.message || '') + '</div>'; }
 }
 async function ofPrecos(campo, valores) {
@@ -4619,7 +4677,7 @@ async function ofSugestoesValidade(setor) {
 }
 function ofCriarDaSugestao(i) {
   const s = estado.ofSug[i];
-  ofAbrirEditor(null, { codigo: s.codigo, codigo_barras: s.codigoBarras, produto: s.produto, preco_de: s.preco, preco_por: s.precoSugerido || s.preco, setor: s.setor,
+  ofAbrirEditor(null, { codigo: s.codigo, codigo_barras: s.codigoBarras, produto: s.produto, preco_de: null, preco_por: s.preco, setor: s.setor,
     origem: s.origem, observacao: s.motivo, unidade_venda: /\bKG\b/i.test(s.produto) ? 'kg' : 'un', fim: ofSomar(ofHoje(), s.origem === 'validade' ? 2 : 7) });
 }
 
