@@ -3,6 +3,8 @@ import { View, ActivityIndicator, BackHandler } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import IntroScreen from './src/screens/IntroScreen';
+import IntroUlva2Screen from './src/screens/IntroUlva2Screen';
+import { podeTestarUlva2, ulva2LiberadoEmCache, buscarUlva2Liberado } from './src/data/ulva2Flag';
 import LoginScreen from './src/screens/LoginScreen';
 import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import CreatePasswordScreen from './src/screens/CreatePasswordScreen';
@@ -30,6 +32,27 @@ function AppInterno() {
   useEffect(() => {
     if (!usuarioAtual) setMostrarIntro(true);
   }, [usuarioAtual]);
+
+  // Abertura nova (logo ULVA 2.0 com o olho piscando) para quem testa o 2.0
+  // ou para todos depois de liberado; os demais seguem com o vídeo do lobo.
+  const [introNova, setIntroNova] = useState<boolean | null>(null);
+  const matricula = usuarioAtual?.matricula ?? null;
+  useEffect(() => {
+    if (!matricula) {
+      setIntroNova(null);
+      return;
+    }
+    if (podeTestarUlva2(matricula)) {
+      setIntroNova(true);
+      return;
+    }
+    let vivo = true;
+    ulva2LiberadoEmCache().then((v) => vivo && setIntroNova(v));
+    buscarUlva2Liberado().catch(() => {});
+    return () => {
+      vivo = false;
+    };
+  }, [matricula]);
 
   // Seta/gesto nativo de voltar do Android: na tela de "Esqueci a senha",
   // volta pro Login em vez de sair do app (o resto das telas internas já
@@ -80,7 +103,14 @@ function AppInterno() {
       </>
     );
   } else if (tocandoIntro) {
-    conteudo = <IntroScreen onFim={() => setMostrarIntro(false)} />;
+    conteudo =
+      introNova === null ? (
+        <View style={{ flex: 1, backgroundColor: '#0E1B2C' }} />
+      ) : introNova ? (
+        <IntroUlva2Screen onFim={() => setMostrarIntro(false)} />
+      ) : (
+        <IntroScreen onFim={() => setMostrarIntro(false)} />
+      );
   } else if (!usuarioAtual.isAdmin && ehTecnicoVeterinario(usuarioAtual.funcao)) {
     // Técnico Veterinário (função cadastrada no portal contendo
     // "Veterinário"): não tem Home — cai direto na Visita Técnica, que é a
