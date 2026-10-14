@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import LogoUlva from '../components/LogoUlva';
 import { Feather } from '@expo/vector-icons';
 
 // ULVA 2.0 — Início com as ferramentas agrupadas (Rotina, Comercial,
@@ -141,7 +142,7 @@ export default function InicioUlva2(p: Props) {
       <View style={s.topo}>
         <View style={s.topoLinha}>
           <View style={s.marca}>
-            <Image source={require('../../assets/icon.png')} style={s.marcaIcone} />
+            <LogoUlva tamanho={34} />
             <Text style={s.marcaTxt}>ULVA</Text>
           </View>
           <TouchableOpacity onPress={p.onSair} style={s.conta} accessibilityLabel="Conta">
