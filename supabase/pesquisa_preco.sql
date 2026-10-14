@@ -35,7 +35,7 @@ create table if not exists public.pesquisa_preco_itens (
   codigo_interno text,
   produto_loja text,
   preco_loja numeric(12,2),
-  similar boolean not null default false,
+  eh_similar boolean not null default false,
   foto_url text,
   observacao text,
   criado_em timestamptz not null default now()

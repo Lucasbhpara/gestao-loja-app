@@ -1753,7 +1753,7 @@ function renderizarPesquisaAberta() {
         (it.observacao ? '<div style="font-size:12px;color:var(--text-secondary);margin-top:3px;">' + it.observacao + '</div>' : '') +
         (it.foto_url ? '<a href="' + it.foto_url + '" target="_blank" class="link-foto">Ver foto</a>' : '') + '</td>' +
       '<td class="vl-num">' + ppReais(it.preco_concorrente) + '</td>' +
-      '<td>' + (it.produto_loja ? it.produto_loja + (it.similar ? ' <span class="pill feriado">similar</span>' : '') : '<span style="color:var(--text-muted)">—</span>') + '</td>' +
+      '<td>' + (it.produto_loja ? it.produto_loja + (it.eh_similar ? ' <span class="pill feriado">similar</span>' : '') : '<span style="color:var(--text-muted)">—</span>') + '</td>' +
       '<td class="vl-num">' + ppReais(it.preco_loja) + '</td>' +
       '<td class="vl-num">' + (c.dif == null ? '—' : (c.dif > 0 ? '+' : '') + ppReais(c.dif).replace('R$ -', '−R$ ')) + '</td>' +
       '<td class="vl-num">' + (c.pct == null ? '—' : '<span class="vl-var ' + (c.pct > 0 ? 'neg' : c.pct < 0 ? 'pos' : 'neutro') + '">' + (c.pct > 0 ? '+' : '') + c.pct.toFixed(1).replace('.', ',') + '%</span>') + '</td>' +
@@ -1786,7 +1786,7 @@ function exportarPesquisaPreco() {
   const tit = ['Setor', 'Produto no concorrente', 'Cód. barras', 'Preço concorrente', 'Produto da loja', 'Cód. interno', 'Preço loja', 'Diferença R$ (loja − concorrente)', 'Diferença %', 'Situação', 'Similar', 'Observação'];
   const linhas = [...itens].sort((a, b) => (a.setor || 'ZZ').localeCompare(b.setor || 'ZZ') || a.produto_concorrente.localeCompare(b.produto_concorrente)).map((it) => {
     const c = ppComparar(it);
-    return [it.setor || '', it.produto_concorrente, it.codigo_barras || '', Number(it.preco_concorrente), it.produto_loja || '', it.codigo_interno || '', it.preco_loja == null ? '' : Number(it.preco_loja), c.dif == null ? '' : c.dif, c.pct == null ? '' : c.pct / 100, PP_SITUACAO[c.situacao].texto, it.similar ? 'Sim' : 'Não', it.observacao || ''];
+    return [it.setor || '', it.produto_concorrente, it.codigo_barras || '', Number(it.preco_concorrente), it.produto_loja || '', it.codigo_interno || '', it.preco_loja == null ? '' : Number(it.preco_loja), c.dif == null ? '' : c.dif, c.pct == null ? '' : c.pct / 100, PP_SITUACAO[c.situacao].texto, it.eh_similar ? 'Sim' : 'Não', it.observacao || ''];
   });
   const aba = XLSX.utils.aoa_to_sheet([...topo, tit, ...linhas]);
   aba['!cols'] = [14, 34, 15, 12, 34, 11, 11, 14, 11, 16, 8, 24].map((w) => ({ wch: w }));
