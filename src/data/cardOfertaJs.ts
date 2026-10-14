@@ -1,6 +1,6 @@
 // =============================================================================
 // Desenho do card de oferta (imagem pro WhatsApp), em <canvas>, no padrão da
-// arte da loja: fundo azul-claro, selo "Ofertas Exclusivas Minas Gerais" no
+// arte da loja: fundo azul-claro, selo "Ofertas exclusivas para a unidade de Itatiaiuçu" no
 // canto, logo no outro, nome do produto em azul e o preço grande em vermelho.
 //
 // O MESMO código roda no app (dentro de uma WebView — ver OfertasScreen) e no
@@ -28,7 +28,8 @@ var CARD_TEMA = {
   fundoTopo: '#D5E6F6',
   fundoMeio: '#F4F8FD',
   fundoBaixo: '#E1EDF8',
-  selo: ['Ofertas', 'Exclusivas', 'Minas Gerais'],
+  // [texto, tamanho relativo, peso]
+  selo: [['OFERTAS', 1, '800'], ['EXCLUSIVAS', 1, '800'], ['para a unidade de', 0.6, '600'], ['ITATIAIUÇU', 1.02, '900']],
   fonte: 'Archivo, "Arial Black", Arial, sans-serif',
 };
 
@@ -79,7 +80,8 @@ function cardAjustar(ctx, texto, larguraMax, maxLinhas, tamMax, tamMin, estilo) 
   for (var t = tamMax; t >= tamMin; t -= 2) {
     ctx.font = estilo + ' ' + t + 'px ' + CARD_TEMA.fonte;
     var l = cardQuebrar(ctx, texto, larguraMax);
-    if (l.length <= maxLinhas) return { linhas: l, tam: t };
+    var cabe = l.every(function (x) { return ctx.measureText(x).width <= larguraMax; });
+    if (l.length <= maxLinhas && cabe) return { linhas: l, tam: t };
   }
   ctx.font = estilo + ' ' + tamMin + 'px ' + CARD_TEMA.fonte;
   var ls = cardQuebrar(ctx, texto, larguraMax).slice(0, maxLinhas);
@@ -121,18 +123,19 @@ function cardSelo(ctx, x, w, h) {
   ctx.shadowColor = 'rgba(10,26,109,.35)'; ctx.shadowBlur = 18; ctx.shadowOffsetY = 6;
   ctx.fillStyle = t.azulSelo; cardRet(ctx, x, -30, w, h + 30, 22); ctx.fill();
   ctx.restore();
-  // triângulo (símbolo de Minas) estilizado
-  var cx = x + w / 2, ty = h * 0.12, ts = w * 0.2;
-  ctx.fillStyle = '#FFFFFF';
-  ctx.beginPath(); ctx.moveTo(cx, ty); ctx.lineTo(cx + ts * 0.62, ty + ts); ctx.lineTo(cx - ts * 0.62, ty + ts); ctx.closePath(); ctx.fill();
+  // pino de localização
+  var cx = x + w / 2, pr = w * 0.075, py = h * 0.17;
   ctx.fillStyle = t.vermelho;
-  ctx.beginPath(); ctx.moveTo(cx, ty + ts * 0.3); ctx.lineTo(cx + ts * 0.36, ty + ts * 0.88); ctx.lineTo(cx - ts * 0.36, ty + ts * 0.88); ctx.closePath(); ctx.fill();
-  ctx.fillStyle = '#FFFFFF'; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-  var tam = Math.round(w * 0.135), y = ty + ts + tam * 1.45;
-  t.selo.forEach(function (linha, i) {
-    ctx.font = (i === t.selo.length - 1 ? '800 ' : '600 ') + tam + 'px ' + t.fonte;
-    var fit = cardAjustar(ctx, linha, w - 24, 1, tam, 10, i === t.selo.length - 1 ? '800' : '600');
-    ctx.fillText(fit.linhas[0], cx, y + i * tam * 1.18);
+  ctx.beginPath(); ctx.arc(cx, py, pr, Math.PI, 0); ctx.quadraticCurveTo(cx + pr, py + pr * 1.1, cx, py + pr * 2.2); ctx.quadraticCurveTo(cx - pr, py + pr * 1.1, cx - pr, py); ctx.closePath(); ctx.fill();
+  ctx.fillStyle = '#FFFFFF'; ctx.beginPath(); ctx.arc(cx, py, pr * 0.42, 0, Math.PI * 2); ctx.fill();
+  ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+  var base = Math.round(w * 0.118), y = py + pr * 2.2 + base * 0.35;
+  t.selo.forEach(function (l) {
+    var tam = Math.round(base * l[1]);
+    var fit = cardAjustar(ctx, l[0], w - 22, 1, tam, 9, l[2]);
+    y += fit.tam * 1.2;
+    ctx.fillStyle = '#FFFFFF';
+    ctx.fillText(fit.linhas[0], cx, y);
   });
 }
 
@@ -154,12 +157,7 @@ function cardFoto(ctx, img, x, y, w, h, nome, multiplicar) {
     ctx.restore();
     return;
   }
-  var raio = Math.min(w, h) * 0.34;
-  ctx.fillStyle = 'rgba(20,59,134,0.08)';
-  ctx.beginPath(); ctx.arc(x + w / 2, y + h / 2, raio, 0, Math.PI * 2); ctx.fill();
-  ctx.fillStyle = CARD_TEMA.azulSelo; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-  ctx.font = '900 ' + Math.round(raio) + 'px ' + CARD_TEMA.fonte;
-  ctx.fillText(String(nome || '?').trim().charAt(0).toUpperCase(), x + w / 2, y + h / 2 + raio * 0.05);
+  // sem foto: o nome do produto ocupa o espaço (ver desenharCardOferta)
 }
 
 // Preço no estilo da arte: "R$" pequeno embaixo à esquerda, número grande em
@@ -228,17 +226,27 @@ function desenharCardOferta(canvas, dados) {
       var o = ofertas[0] || { produto: '', precoPor: 0 };
       cardSelo(ctx, 60, 230, 260);
       cardLogo(ctx, logo, W - 60, 70, 280, 170);
-      // nome do produto
-      ctx.fillStyle = t.azulTexto; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
-      var nome = cardAjustar(ctx, String(o.produto).toUpperCase(), 640, 2, 46, 30, '800');
-      var yN = 300;
-      nome.linhas.forEach(function (l, i) { ctx.fillText(l, W / 2, yN + nome.tam * (i + 1) * 1.12); });
-      var fotoTopo = yN + nome.tam * nome.linhas.length * 1.12 + 30;
       var temDe = o.precoDe && Number(o.precoDe) > Number(o.precoPor);
       var baseNum = H - 118;
       var tamNum = 250;
       var fotoBaixo = baseNum - tamNum * 0.78 - (temDe ? 60 : 20);
-      cardFoto(ctx, fotos[0], 150, fotoTopo, W - 300, fotoBaixo - fotoTopo, o.produto, multiplicar);
+      ctx.fillStyle = t.azulTexto; ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+      if (fotos[0]) {
+        // nome do produto em cima e a foto no meio
+        var nome = cardAjustar(ctx, String(o.produto).toUpperCase(), 640, 2, 46, 30, '800');
+        var yN = 300;
+        nome.linhas.forEach(function (l, i) { ctx.fillText(l, W / 2, yN + nome.tam * (i + 1) * 1.12); });
+        var fotoTopo = yN + nome.tam * nome.linhas.length * 1.12 + 30;
+        cardFoto(ctx, fotos[0], 150, fotoTopo, W - 300, fotoBaixo - fotoTopo, o.produto, multiplicar);
+      } else {
+        // sem foto: nome grande no centro, com um traço vermelho embaixo
+        var g = cardAjustar(ctx, String(o.produto).toUpperCase(), 860, 4, 96, 46, '900');
+        var alt = g.tam * 1.08 * g.linhas.length;
+        var topoTxt = 300 + Math.max(0, (fotoBaixo - 40 - 300 - alt) / 2);
+        g.linhas.forEach(function (l, i) { ctx.fillText(l, W / 2, topoTxt + g.tam * (i + 1) * 1.08 - g.tam * 0.12); });
+        ctx.fillStyle = t.vermelho;
+        cardRet(ctx, W / 2 - 70, topoTxt + alt + 22, 140, 10, 5); ctx.fill();
+      }
       if (temDe) cardPrecoDe(ctx, W / 2, baseNum - tamNum * 0.78 - 14, o.precoDe, o.precoPor, 40);
       // número encolhe se o valor for comprido (ex.: 1.299,90)
       ctx.font = 'italic 900 ' + tamNum + 'px ' + t.fonte;
@@ -272,9 +280,17 @@ function desenharCardOferta(canvas, dados) {
         var temDe = o.precoDe && Number(o.precoDe) > Number(o.precoPor);
         if (temDe) nomeBase -= 40;
         var nomeTopo = nomeBase - nm.tam * nm.linhas.length * 1.12;
-        nm.linhas.forEach(function (l, k) { ctx.fillText(l, x + cw / 2, nomeTopo + nm.tam * (k + 1) * 1.12); });
+        if (fotos[i]) {
+          nm.linhas.forEach(function (l, k) { ctx.fillText(l, x + cw / 2, nomeTopo + nm.tam * (k + 1) * 1.12); });
+          cardFoto(ctx, fotos[i], x + 24, y + 18, cw - 48, nomeTopo - y - 26, o.produto, false);
+        } else {
+          // sem foto: nome maior ocupando a parte de cima do quadro
+          var g = cardAjustar(ctx, String(o.produto).toUpperCase(), cw - 56, 4, Math.min(52, nomeTam * 1.9), nomeTam, '900');
+          var alt = g.tam * 1.1 * g.linhas.length;
+          var topoTxt = y + 18 + Math.max(0, (nomeBase - y - 18 - alt) / 2);
+          g.linhas.forEach(function (l, k) { ctx.fillText(l, x + cw / 2, topoTxt + g.tam * (k + 1) * 1.1 - g.tam * 0.1); });
+        }
         if (temDe) cardPrecoDe(ctx, x + cw / 2, baseNum - tamNum * 0.86 - 12, o.precoDe, o.precoPor, 22);
-        cardFoto(ctx, fotos[i], x + 24, y + 18, cw - 48, nomeTopo - y - 26, o.produto, false);
         cardPreco(ctx, x + cw / 2, baseNum, o.precoPor, o.unidade, tamNum);
       });
     }

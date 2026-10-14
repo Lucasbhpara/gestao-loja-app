@@ -35,7 +35,9 @@ import {
   DIAS_SEMANA,
   buscarProdutosParaOferta,
   buscarFotos,
-  procurarFotoNaInternet,
+  precosDaLoja,
+  removerFotoProduto,
+  linkPesquisaImagem,
   salvarFotoProduto,
   listarOfertas,
   salvarOferta,
@@ -84,9 +86,9 @@ const UNIDADES = [
 const ORIGEM_ROTULO: Record<string, string> = { manual: 'Manual', giro: 'Parado', estoque_alto: 'Estoque alto', validade: 'Validade', jornal: 'Jornal' };
 const MOTIVOS_REPROVACAO = ['Preço', 'Sem estoque suficiente', 'Já está no jornal', 'Margem baixa', 'Fora do momento'];
 const TIPOS_SUGESTAO: { k: TipoSugestao; r: string; dica: string }[] = [
-  { k: 'giro', r: '🐢 Parados', dica: 'Com estoque e 14+ dias sem venda, do maior valor parado pro menor. Preço sugerido 15% abaixo (sem passar do custo + 5%).' },
-  { k: 'estoque_alto', r: '📦 Estoque alto', dica: 'Vendem, mas o estoque dá pra mais de 45 dias de venda. Preço sugerido 10% abaixo.' },
-  { k: 'validade', r: '⏳ Vencendo', dica: 'Cadastrados na Validade que vencem em até 10 dias. Desconto sugerido de 20% (30% se vence em até 3 dias).' },
+  { k: 'giro', r: '🐢 Parados', dica: 'Com estoque e 14+ dias sem venda, do maior valor parado pro menor. A oferta usa o preço da loja.' },
+  { k: 'estoque_alto', r: '📦 Estoque alto', dica: 'Vendem, mas o estoque dá pra mais de 45 dias de venda. A oferta usa o preço da loja.' },
+  { k: 'validade', r: '⏳ Vencendo', dica: 'Cadastrados na Validade que vencem em até 10 dias. A oferta usa o preço da loja.' },
 ];
 
 const numero = (t: string | undefined): number | null => {
@@ -122,6 +124,8 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
   const [aba, setAba] = useState<Aba>(gerente ? 'validar' : disparador ? 'disparar' : 'sugestoes');
   const [ofertas, setOfertas] = useState<Oferta[]>([]);
   const [fotos, setFotos] = useState<Record<string, string>>({});
+  const [precosLoja, setPrecosLoja] = useState<Record<string, number>>({});
+  const [editPreco, setEditPreco] = useState<{ o: Oferta; por: string; de: string } | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [atualizando, setAtualizando] = useState(false);
   const [erro, setErro] = useState<string | null>(null);
@@ -169,6 +173,8 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
         setErro(null);
         const f = await buscarFotos(lista.map((o) => o.codigo ?? '')).catch(() => ({}));
         setFotos((ant) => ({ ...ant, ...f }));
+        const pr = await precosDaLoja(lista.map((o) => o.codigo ?? '')).catch(() => ({}));
+        setPrecosLoja((ant) => ({ ...ant, ...pr }));
       })
       .catch((e) =>
         setErro(/ofertas|produto_fotos/.test(e?.message ?? '') ? 'A base das ofertas ainda não foi criada no Supabase (schema_ofertas_whatsapp.sql).' : e?.message ?? 'Não consegui carregar.'),
@@ -254,8 +260,9 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
       codigo: s.codigo,
       codigoBarras: s.codigoBarras,
       produto: s.produto,
-      precoDe: s.preco,
-      precoPor: s.precoSugerido ?? s.preco ?? undefined,
+      // Sempre o preço oficial da loja — quem precisar ajusta no lápis.
+      precoDe: null,
+      precoPor: s.preco ?? undefined,
       origem: s.origem,
       setor: s.setor,
       fim: s.origem === 'validade' ? somarDias(hojeIso(), 2) : somarDias(hojeIso(), 7),
@@ -286,7 +293,8 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
       codigoBarras: p.codigoBarras,
       produto: p.produto,
       unidadeVenda: /\bKG\b/i.test(p.produto) ? 'kg' : rascunho.unidadeVenda,
-      precoDeTexto: precoTexto(p.preco),
+      precoDeTexto: '',
+      precoPorTexto: precoTexto(p.preco),
     });
     if (p.codigo) buscarFotos([p.codigo]).then((f) => setFotos((ant) => ({ ...ant, ...f }))).catch(() => {});
   }
@@ -361,26 +369,16 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
   }
 
   // ---------------------------------------------------------------- fotos
-  async function trocarFoto(alvo: { codigo: string | null; codigoBarras: string | null; produto: string }, origem: 'internet' | 'camera' | 'galeria') {
+  async function trocarFoto(alvo: { codigo: string | null; codigoBarras: string | null; produto: string }, origem: 'camera' | 'galeria') {
     if (!alvo.codigo) return Alert.alert('Foto', 'Escolha um produto cadastrado (com código) pra salvar a foto nele.');
-    let uriOuUrl: string | null = null;
     try {
       setTrabalhandoFoto(true);
-      if (origem === 'internet') {
-        uriOuUrl = await procurarFotoNaInternet(alvo.codigoBarras);
-        if (!uriOuUrl) {
-          Alert.alert('Não achei na internet', 'Esse produto não tem foto na base pública. Tire uma foto pelo celular — fica salva pra próxima vez.');
-          return;
-        }
-      } else {
-        const perm = origem === 'camera' ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
-        if (!perm.granted) return Alert.alert('Sem permissão', 'Libere o acesso nas configurações do celular.');
-        const opcoes: ImagePicker.ImagePickerOptions = { quality: 0.75, allowsEditing: true, aspect: [1, 1], mediaTypes: ImagePicker.MediaTypeOptions.Images };
-        const r = origem === 'camera' ? await ImagePicker.launchCameraAsync(opcoes) : await ImagePicker.launchImageLibraryAsync(opcoes);
-        if (r.canceled || !r.assets?.[0]) return;
-        uriOuUrl = r.assets[0].uri;
-      }
-      const url = await salvarFotoProduto({ codigo: alvo.codigo, codigoBarras: alvo.codigoBarras, origem, uriOuUrl, por: quem.nome });
+      const perm = origem === 'camera' ? await ImagePicker.requestCameraPermissionsAsync() : await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) return Alert.alert('Sem permissão', 'Libere o acesso nas configurações do celular.');
+      const opcoes: ImagePicker.ImagePickerOptions = { quality: 0.75, allowsEditing: true, aspect: [1, 1], mediaTypes: ImagePicker.MediaTypeOptions.Images };
+      const r = origem === 'camera' ? await ImagePicker.launchCameraAsync(opcoes) : await ImagePicker.launchImageLibraryAsync(opcoes);
+      if (r.canceled || !r.assets?.[0]) return;
+      const url = await salvarFotoProduto({ codigo: alvo.codigo, codigoBarras: alvo.codigoBarras, origem, uriOuUrl: r.assets[0].uri, por: quem.nome });
       setFotos((ant) => ({ ...ant, [alvo.codigo!]: url }));
     } catch (e: any) {
       Alert.alert('Foto', e?.message ?? 'Não consegui salvar a foto.');
@@ -389,13 +387,66 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
     }
   }
 
+  // Abre a pesquisa de imagens no navegador; a pessoa salva a foto escolhida
+  // e volta pra pegar na galeria.
+  function pesquisarFoto(alvo: { codigo: string | null; codigoBarras: string | null; produto: string }) {
+    Alert.alert(
+      'Pesquisar no navegador',
+      'Vai abrir a pesquisa de imagens. Toque e segure na foto escolhida → "Baixar imagem". Depois volte aqui e toque em "Escolher da galeria".',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Abrir', onPress: () => Linking.openURL(linkPesquisaImagem(alvo.produto)).catch(() => Alert.alert('Navegador', 'Não consegui abrir o navegador.')) },
+      ]
+    );
+  }
+
+  function semFoto(alvo: { codigo: string | null; produto: string }) {
+    if (!alvo.codigo || !fotos[alvo.codigo]) return;
+    Alert.alert('Usar sem foto?', 'O card sai só com o nome do produto, em letras grandes.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Tirar a foto',
+        style: 'destructive',
+        onPress: async () => {
+          try {
+            await removerFotoProduto(alvo.codigo!);
+            setFotos((ant) => {
+              const n = { ...ant };
+              delete n[alvo.codigo!];
+              return n;
+            });
+          } catch (e: any) {
+            Alert.alert('Foto', e?.message ?? 'Não consegui tirar a foto.');
+          }
+        },
+      },
+    ]);
+  }
+
   function menuFoto(alvo: { codigo: string | null; codigoBarras: string | null; produto: string }) {
     Alert.alert('Foto do produto', alvo.produto, [
-      ...(alvo.codigoBarras ? [{ text: '🔎 Buscar na internet', onPress: () => trocarFoto(alvo, 'internet') }] : []),
       { text: '📷 Tirar foto', onPress: () => trocarFoto(alvo, 'camera') },
       { text: '🖼️ Escolher da galeria', onPress: () => trocarFoto(alvo, 'galeria') },
+      { text: '🔎 Pesquisar no navegador', onPress: () => pesquisarFoto(alvo) },
+      ...(alvo.codigo && fotos[alvo.codigo] ? [{ text: '🚫 Sem foto', onPress: () => semFoto(alvo) }] : []),
       { text: 'Cancelar', style: 'cancel' as const },
     ]);
+  }
+
+  // ---------------------------------------------------------------- lápis do preço
+  async function salvarPreco() {
+    if (!editPreco) return;
+    const por = numero(editPreco.por);
+    const de = numero(editPreco.de);
+    if (!por || por <= 0) return Alert.alert('Preço', 'Informe o preço da oferta.');
+    if (de != null && de <= por) return Alert.alert('Preço', 'O preço "de" precisa ser maior que o da oferta — ou deixe em branco.');
+    try {
+      const o = await salvarOferta({ ...editPreco.o, precoPor: por, precoDe: de }, quem);
+      setOfertas((ant) => ant.map((x) => (x.id === o.id ? o : x)));
+      setEditPreco(null);
+    } catch (e: any) {
+      Alert.alert('Não consegui salvar', e?.message ?? 'Tente novamente.');
+    }
   }
 
   // ---------------------------------------------------------------- prévia / envio
@@ -522,13 +573,26 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
             <Text style={styles.cardNome} numberOfLines={2}>
               {o.produto}
             </Text>
-            <View style={{ flexDirection: 'row', alignItems: 'baseline', gap: 8, marginTop: 4 }}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 4 }}>
               {o.precoDe ? <Text style={styles.precoDe}>{reais(o.precoDe)}</Text> : null}
               <Text style={styles.precoPor}>
                 {reais(o.precoPor)}
                 {o.unidadeVenda === 'kg' ? '/kg' : ''}
               </Text>
+              {podeEditar ? (
+                <TouchableOpacity
+                  onPress={() => setEditPreco({ o, por: precoTexto(o.precoPor), de: precoTexto(o.precoDe) })}
+                  hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}
+                  accessibilityLabel="Corrigir preço"
+                  style={styles.lapis}
+                >
+                  <Feather name="edit-2" size={14} color={colors.navy700} />
+                </TouchableOpacity>
+              ) : null}
             </View>
+            {o.codigo && precosLoja[o.codigo] != null && Math.abs(precosLoja[o.codigo] - o.precoPor) > 0.004 ? (
+              <Text style={styles.avisoPreco}>⚠️ Preço da loja no sistema: {reais(precosLoja[o.codigo])}</Text>
+            ) : null}
             <Text style={styles.cardMeta}>
               Válida até {o.fim ? dataBr(o.fim) : '—'}
               {o.setor ? ` · ${nomeSetorOferta(o.setor)}` : ''}
@@ -714,9 +778,7 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
                     </Text>
                     <Text style={styles.cardMeta}>{sg.motivo}</Text>
                     <Text style={styles.cardMeta}>
-                      Preço {reais(sg.preco)}
-                      {sg.precoSugerido ? '  →  sugerido ' : ''}
-                      {sg.precoSugerido ? <Text style={{ color: colors.red500, fontWeight: '800' }}>{reais(sg.precoSugerido)}</Text> : null}
+                      Preço da loja <Text style={{ color: colors.red500, fontWeight: '800' }}>{reais(sg.preco)}</Text>
                     </Text>
                   </View>
                 </View>
@@ -1145,6 +1207,49 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
         </KeyboardAvoidingView>
       </Modal>
 
+      {/* ----------------------------------------------------------- Lápis do preço */}
+      <Modal visible={!!editPreco} transparent animationType="slide" onRequestClose={() => setEditPreco(null)}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalFundo}>
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => setEditPreco(null)} />
+          <View style={styles.folha}>
+            <View style={styles.folhaAlca} />
+            <Text style={styles.folhaTitulo}>Corrigir preço</Text>
+            <Text style={[styles.cardMeta, { marginTop: 4 }]}>{editPreco?.o.produto}</Text>
+            {editPreco?.o.codigo && precosLoja[editPreco.o.codigo] != null ? (
+              <TouchableOpacity
+                style={styles.precoLojaBox}
+                onPress={() => editPreco && setEditPreco({ ...editPreco, por: precoTexto(precosLoja[editPreco.o.codigo!]), de: '' })}
+              >
+                <Text style={styles.cardMeta}>Preço da loja no sistema</Text>
+                <Text style={styles.precoLojaValor}>{reais(precosLoja[editPreco.o.codigo])}</Text>
+                <Text style={styles.precoLojaUsar}>Toque para usar este preço</Text>
+              </TouchableOpacity>
+            ) : null}
+            <Text style={styles.rotulo}>Preço da oferta</Text>
+            <TextInput
+              style={[styles.input, { fontSize: 22, fontWeight: '800', color: colors.red500 }]}
+              keyboardType="decimal-pad"
+              value={editPreco?.por ?? ''}
+              onChangeText={(t) => editPreco && setEditPreco({ ...editPreco, por: t })}
+              placeholder="0,00"
+              placeholderTextColor={colors.gray400}
+            />
+            <Text style={styles.rotulo}>"De" riscado (opcional)</Text>
+            <TextInput
+              style={styles.input}
+              keyboardType="decimal-pad"
+              value={editPreco?.de ?? ''}
+              onChangeText={(t) => editPreco && setEditPreco({ ...editPreco, de: t })}
+              placeholder="Deixe vazio se não tiver"
+              placeholderTextColor={colors.gray400}
+            />
+            <TouchableOpacity style={styles.btnGrande} onPress={salvarPreco}>
+              <Text style={styles.btnGrandeTexto}>Salvar preço</Text>
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
       {/* ----------------------------------------------------------- Agenda */}
       <Modal visible={!!editAgenda} transparent animationType="slide" onRequestClose={() => setEditAgenda(null)}>
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalFundo}>
@@ -1323,6 +1428,11 @@ const styles = StyleSheet.create({
   cardMeta: { fontSize: 11.5, color: colors.gray600, marginTop: 3, lineHeight: 16 },
   cardBotoes: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md },
   precoDe: { fontSize: 12, color: colors.gray400, textDecorationLine: 'line-through' },
+  lapis: { width: 30, height: 30, borderRadius: 15, backgroundColor: colors.gray50, alignItems: 'center', justifyContent: 'center' },
+  avisoPreco: { fontSize: 11.5, color: '#B4650E', fontWeight: '700', marginTop: 4 },
+  precoLojaBox: { marginTop: spacing.md, backgroundColor: '#EEF4FF', borderRadius: radius.md, padding: spacing.md },
+  precoLojaValor: { fontSize: 20, fontWeight: '900', color: colors.navy900, marginTop: 2 },
+  precoLojaUsar: { fontSize: 12, fontWeight: '700', color: '#2F7BFF', marginTop: 2 },
   precoPor: { fontSize: 17, fontWeight: '900', color: colors.red500 },
   tags: { flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 6 },
   tag: { fontSize: 10.5, fontWeight: '700', color: colors.gray600, backgroundColor: colors.gray50, borderRadius: radius.full, paddingVertical: 2, paddingHorizontal: 8, overflow: 'hidden' },

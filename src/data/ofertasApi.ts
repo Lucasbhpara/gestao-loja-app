@@ -177,6 +177,32 @@ export async function buscarFotos(codigos: string[]): Promise<Record<string, str
   return m;
 }
 
+// Preço oficial da loja (Estoque Loja) de cada código — a oferta usa esse
+// preço; o app só avisa quando o da oferta está diferente.
+export async function precosDaLoja(codigos: string[]): Promise<Record<string, number>> {
+  const lista = [...new Set(codigos.filter(Boolean))];
+  const m: Record<string, number> = {};
+  for (let i = 0; i < lista.length; i += 200) {
+    const { data, error } = await supabase.from('estoque_loja_itens').select('codigo_interno, preco_venda').in('codigo_interno', lista.slice(i, i + 200));
+    if (error) throw error;
+    (data ?? []).forEach((l: any) => {
+      if (l.preco_venda != null) m[l.codigo_interno] = Number(l.preco_venda);
+    });
+  }
+  return m;
+}
+
+// Tira a foto do produto: o card sai só com o nome, grande.
+export async function removerFotoProduto(codigo: string): Promise<void> {
+  const { error } = await supabase.from('produto_fotos').delete().eq('codigo', codigo);
+  if (error) throw error;
+}
+
+// Pesquisa de imagens no navegador do celular, pelo nome do produto.
+export function linkPesquisaImagem(produto: string): string {
+  return `https://www.google.com/search?tbm=isch&q=${encodeURIComponent(produto)}`;
+}
+
 // Open Food Facts: base pública e gratuita de produtos por código de barras.
 export async function procurarFotoNaInternet(codigoBarras: string | null): Promise<string | null> {
   const ean = (codigoBarras ?? '').replace(/\D/g, '');
