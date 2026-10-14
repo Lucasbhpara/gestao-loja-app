@@ -156,12 +156,13 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
   );
 
   function carregarRegistros() {
-    if (colaboradoresDoSetor.length === 0) {
+    if (todosColaboradores.length === 0) {
       setRegistrosDoDia(new Map());
       return;
     }
     setCarregandoRegistros(true);
-    buscarEscalaDeVariosNoDia(colaboradoresDoSetor.map((c) => c.id), dataSelecionada)
+    // Busca o dia da loja inteira (não só do setor) para montar o resumo de folgas.
+    buscarEscalaDeVariosNoDia(todosColaboradores.map((c) => c.id), dataSelecionada)
       .then((registros) => {
         const mapa = new Map<string, RegistroEscala>();
         registros.forEach((r) => mapa.set(r.colaboradorLojaId, r));
@@ -173,7 +174,22 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
 
   useEffect(() => {
     carregarRegistros();
-  }, [colaboradoresDoSetor, dataSelecionada]);
+  }, [todosColaboradores, dataSelecionada]);
+
+  // Resumo do dia: quantos trabalham, quantos estão de folga e quantos ausentes
+  function resumir(lista: ColaboradorLoja[]) {
+    let folga = 0, feriado = 0, ausentes = 0;
+    lista.forEach((c) => {
+      const r = registrosDoDia.get(c.id);
+      if (!r) return;
+      if (r.tipo === 'folga') folga++;
+      else if (r.tipo === 'folga_feriado') feriado++;
+      else ausentes++;
+    });
+    return { total: lista.length, folga, feriado, ausentes, trabalhando: lista.length - folga - feriado - ausentes };
+  }
+  const resumoLoja = useMemo(() => resumir(todosColaboradores), [todosColaboradores, registrosDoDia]);
+  const resumoSetor = useMemo(() => resumir(colaboradoresDoSetor), [colaboradoresDoSetor, registrosDoDia]);
 
   if (!usuarioAtual) return null;
 
@@ -349,6 +365,21 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
           </TouchableOpacity>
         )}
 
+        {!carregandoColaboradores && todosColaboradores.length > 0 && (
+          <View style={styles.resumoCard}>
+            {souGerencia && (
+              <LinhaResumo titulo="Loja toda" r={resumoLoja} semBorda />
+            )}
+            {!!setorSelecionado && colaboradoresDoSetor.length > 0 && (
+              <LinhaResumo
+                titulo={setores.find((x) => x.key === setorSelecionado)?.nome ?? 'Setor'}
+                r={resumoSetor}
+                semBorda={!souGerencia}
+              />
+            )}
+          </View>
+        )}
+
         {souGerencia && setoresComGente.length > 0 && (
           <View style={styles.chipsWrap}>
             {setoresComGente.map((s) => (
@@ -519,7 +550,39 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
   );
 }
 
+
+function LinhaResumo({ titulo, r, semBorda }: { titulo: string; r: { total: number; folga: number; feriado: number; ausentes: number; trabalhando: number }; semBorda?: boolean }) {
+  const folgaTotal = r.folga + r.feriado;
+  return (
+    <View style={[styles.resumoLinha, semBorda && { borderTopWidth: 0 }]}>
+      <Text style={styles.resumoTitulo}>{titulo} · {r.total} pessoas</Text>
+      <View style={styles.resumoNumeros}>
+        <View style={styles.resumoItem}>
+          <Text style={[styles.resumoNum, { color: colors.green500 }]}>{r.trabalhando}</Text>
+          <Text style={styles.resumoRot}>Trabalhando</Text>
+        </View>
+        <View style={styles.resumoItem}>
+          <Text style={[styles.resumoNum, { color: colors.navy700 }]}>{folgaTotal}</Text>
+          <Text style={styles.resumoRot}>De folga{r.feriado > 0 ? `\n(${r.feriado} de feriado)` : ''}</Text>
+        </View>
+        <View style={styles.resumoItem}>
+          <Text style={[styles.resumoNum, { color: r.ausentes > 0 ? colors.red500 : colors.gray400 }]}>{r.ausentes}</Text>
+          <Text style={styles.resumoRot}>Falta, atestado{'\n'}ou afastado</Text>
+        </View>
+      </View>
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
+  resumoCard: { backgroundColor: colors.white, borderRadius: radius.lg, paddingHorizontal: spacing.lg, marginBottom: spacing.lg },
+  resumoLinha: { paddingVertical: spacing.md, borderTopWidth: 1, borderTopColor: colors.gray100 },
+  resumoTitulo: { fontSize: 12.5, fontWeight: '700', color: colors.gray600, marginBottom: spacing.sm },
+  resumoNumeros: { flexDirection: 'row', gap: spacing.sm },
+  resumoItem: { flex: 1 },
+  resumoNum: { fontSize: 24, fontWeight: '800' },
+  resumoRot: { fontSize: 11, color: colors.gray600, marginTop: 2 },
+
   flex: { flex: 1, backgroundColor: colors.gray50 },
   header: {
     flexDirection: 'row',

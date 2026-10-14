@@ -9192,8 +9192,52 @@ async function paginaEscala() {
   if (!estado.escalaSetor || !setoresComGente.some((s) => s.key === estado.escalaSetor)) {
     estado.escalaSetor = setoresComGente.length > 0 ? setoresComGente[0].key : null;
   }
-  await carregarEscalaDoMes();
+  await Promise.all([carregarEscalaDoMes(), carregarResumoDiaEscala()]);
   renderizarEscala();
+}
+
+// Resumo de um dia (loja inteira): quantos trabalham / folga / ausentes por setor
+function isoHojeEscala() { const d = new Date(); return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+async function carregarResumoDiaEscala() {
+  if (!estado.escalaResumoDia) estado.escalaResumoDia = isoHojeEscala();
+  const ids = estado.colaboradoresLoja.filter((c) => c.ativo !== false).map((c) => c.id);
+  estado.escalaResumoRegs = [];
+  for (let i = 0; i < ids.length; i += 150) {
+    const { data, error } = await sb.from('escala_folgas').select('colaborador_loja_id,tipo').in('colaborador_loja_id', ids.slice(i, i + 150)).eq('data', estado.escalaResumoDia);
+    if (error) throw error;
+    estado.escalaResumoRegs.push(...(data || []));
+  }
+}
+function trocarDiaResumoEscala(delta) {
+  const [a, m, d] = estado.escalaResumoDia.split('-').map(Number);
+  const dt = new Date(a, m - 1, d + delta);
+  estado.escalaResumoDia = dt.getFullYear() + '-' + String(dt.getMonth() + 1).padStart(2, '0') + '-' + String(dt.getDate()).padStart(2, '0');
+  carregarResumoDiaEscala().then(renderizarEscala).catch((e) => mostrarToast('Não consegui carregar: ' + e.message, 'erro'));
+}
+function htmlResumoDiaEscala() {
+  const tipoDe = {};
+  (estado.escalaResumoRegs || []).forEach((r) => { tipoDe[r.colaborador_loja_id] = r.tipo; });
+  const ativos = estado.colaboradoresLoja.filter((c) => c.ativo !== false);
+  const conta = (lista) => {
+    const r = { total: lista.length, folga: 0, feriado: 0, ausentes: 0 };
+    lista.forEach((c) => { const t = tipoDe[c.id]; if (!t) return; if (t === 'folga') r.folga++; else if (t === 'folga_feriado') r.feriado++; else r.ausentes++; });
+    r.trabalhando = r.total - r.folga - r.feriado - r.ausentes;
+    return r;
+  };
+  const linha = (nome, r, forte) => '<tr' + (forte ? ' style="background:var(--surface-2);"' : '') + '><td class="nome-forte">' + nome + '</td>' +
+    '<td class="vl-num">' + r.total + '</td><td class="vl-num" style="color:var(--green);font-weight:700;">' + r.trabalhando + '</td>' +
+    '<td class="vl-num" style="font-weight:700;">' + (r.folga + r.feriado) + (r.feriado ? ' <span style="color:var(--text-muted);font-weight:500;">(' + r.feriado + ' feriado)</span>' : '') + '</td>' +
+    '<td class="vl-num"' + (r.ausentes ? ' style="color:var(--red);font-weight:700;"' : '') + '>' + r.ausentes + '</td></tr>';
+  const setores = SETORES.filter((s) => ativos.some((c) => c.setor === s.key));
+  const [a, m, d] = estado.escalaResumoDia.split('-').map(Number);
+  const dt = new Date(a, m - 1, d);
+  const nomeDia = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'][dt.getDay()] + ', ' + String(d).padStart(2, '0') + '/' + String(m).padStart(2, '0') + (estado.escalaResumoDia === isoHojeEscala() ? ' (hoje)' : '');
+  return '<div class="pq-card" style="margin-bottom:20px;"><div class="pq-topo" style="flex-wrap:wrap;gap:10px;"><h3>Resumo do dia</h3>' +
+      '<div style="display:flex;align-items:center;gap:10px;"><button class="chip" onclick="trocarDiaResumoEscala(-1)">‹</button>' +
+      '<b style="min-width:150px;text-align:center;font-size:13.5px;">' + nomeDia + '</b><button class="chip" onclick="trocarDiaResumoEscala(1)">›</button></div></div>' +
+    '<div class="tabela-wrap"><table style="min-width:0;width:100%;"><thead><tr><th>Setor</th><th style="text-align:right;">Pessoas</th><th style="text-align:right;">Trabalhando</th><th style="text-align:right;">De folga</th><th style="text-align:right;">Falta / atestado / afastado</th></tr></thead><tbody>' +
+      linha('Loja toda', conta(ativos), true) + setores.map((s) => linha(s.nome, conta(ativos.filter((c) => c.setor === s.key)))).join('') +
+    '</tbody></table></div></div>';
 }
 
 async function carregarEscalaDoMes() {
@@ -9319,7 +9363,7 @@ function renderizarEscala() {
     '</div>' +
     (setoresComGente.length === 0
       ? '<div class="celula-vazio">Nenhum colaborador de chão de loja cadastrado ainda (aba Equipe).</div>'
-      : '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;">' + chips + '</div>' + linhas);
+      : htmlResumoDiaEscala() + '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px;">' + chips + '</div>' + linhas);
 }
 
 function abrirModalFaltaAtestado(colaboradorId, nomeColaborador) {
