@@ -124,7 +124,7 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
     const promessa = souGerencia ? buscarColaboradoresLoja() : buscarColaboradoresLojaDoSetor(setorFixo as SetorKey);
     promessa
       .then((lista) => {
-        setTodosColaboradores(lista);
+        setTodosColaboradores(lista.filter((c) => c.ativo)); // excluídos no portal somem daqui
         setErro(null);
       })
       .catch((e) => setErro(e?.message ?? 'Não consegui carregar os colaboradores.'))

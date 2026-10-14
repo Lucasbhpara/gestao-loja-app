@@ -1349,7 +1349,7 @@ async function carregarUltimaPlanilhaFolga() {
 // da gaveta que abre ao clicar nele na tabela da Equipe. Claudiane (A.P.P)
 // não tem equipe própria, então a gaveta dela fica sempre vazia.
 function equipeDoLider(c) {
-  return (estado.colaboradoresLoja || []).filter((cl) => cl.setor === c.setor);
+  return (estado.colaboradoresLoja || []).filter((cl) => cl.setor === c.setor && cl.ativo !== false);
 }
 function formatarDataSimples(iso) {
   if (!iso) return '';
@@ -1535,8 +1535,81 @@ async function salvarEdicaoColaboradorLoja(id) {
     if (error) throw error;
     fecharModal();
     mostrarToast('Colaborador atualizado.', 'sucesso');
-    await paginaEquipe();
+    await recarregarTelaColaboradores();
   } catch (e) { mostrarToast('Não consegui salvar: ' + e.message, 'erro'); }
+}
+
+
+// ---------- Cadastrar / excluir colaborador da escala (colaboradores_loja) ----------
+// Não é o login do app (isso é "Adicionar colaborador" em Equipe): é a lista
+// de quem aparece na escala, nas faltas/atestados e no histórico.
+async function recarregarTelaColaboradores() {
+  if (estado.pagina === 'escala') { await carregarColaboradoresLoja(); await carregarEscalaDoMes(); renderizarEscala(); }
+  else await irPara(estado.pagina || 'equipe');
+}
+function abrirModalNovoColaboradorLoja(setorPadrao) {
+  const opcoesSetor = SETORES.map((s) => '<option value="' + s.key + '"' + (s.key === setorPadrao ? ' selected' : '') + '>' + s.nome + '</option>').join('');
+  abrirModal('Cadastrar colaborador na escala',
+    '<div class="form-linha"><label class="campo-label" for="ncl-nome">Nome completo</label><input class="campo-input" id="ncl-nome" style="margin-bottom:0" /></div>' +
+    '<div class="form-linha"><label class="campo-label" for="ncl-matricula">Matrícula (opcional)</label><input class="campo-input" id="ncl-matricula" style="margin-bottom:0" /></div>' +
+    '<div class="form-linha"><label class="campo-label" for="ncl-cargo">Cargo (opcional)</label><input class="campo-input" id="ncl-cargo" style="margin-bottom:0" /></div>' +
+    '<div class="form-linha"><label class="campo-label" for="ncl-setor">Setor</label><select class="campo-input" id="ncl-setor" style="margin-bottom:0">' + opcoesSetor + '</select></div>' +
+    '<div class="celula-vazio" style="padding:8px 0 0; font-size:11.5px; text-align:left;">Use o mesmo nome da planilha de escala (ou o nome completo) para a importação reconhecer a pessoa. Isso não cria login no app.</div>',
+    'Cadastrar', salvarNovoColaboradorLoja);
+}
+async function salvarNovoColaboradorLoja() {
+  const nome = document.getElementById('ncl-nome').value.trim();
+  const matricula = document.getElementById('ncl-matricula').value.trim() || null;
+  const cargo = document.getElementById('ncl-cargo').value.trim() || null;
+  const setor = document.getElementById('ncl-setor').value;
+  if (!nome) { mostrarToast('Preencha o nome.', 'erro'); return; }
+  const repetido = estado.colaboradoresLoja.find((c) => c.ativo !== false && escalaNormalizar(c.nome) === escalaNormalizar(nome));
+  if (repetido) { mostrarToast(nome + ' já está cadastrado (' + nomeSetor(repetido.setor) + ').', 'erro'); return; }
+  try {
+    const { error } = await sb.from('colaboradores_loja').insert({ nome, matricula, cargo, setor, ativo: true });
+    if (error) throw error;
+    fecharModal();
+    mostrarToast(nome + ' cadastrado em ' + nomeSetor(setor) + '.', 'sucesso');
+    await recarregarTelaColaboradores();
+  } catch (e) { mostrarToast('Não consegui cadastrar: ' + e.message, 'erro'); }
+}
+async function abrirModalExcluirColaboradorLoja(id) {
+  const c = estado.colaboradoresLoja.find((x) => x.id === id);
+  if (!c) return;
+  let qtd = 0;
+  try {
+    const { data } = await sb.from('escala_folgas').select('id').eq('colaborador_loja_id', id).in('tipo', ['falta', 'atestado']);
+    qtd = (data || []).length;
+  } catch (e) { /* segue */ }
+  const nomeJs = c.nome.replace(/'/g, "\\'");
+  if (qtd === 0) {
+    abrirModal('Excluir ' + c.nome + '?',
+      '<p style="margin:0;font-size:14px;">' + c.nome + ' (' + nomeSetor(c.setor) + ') sai da escala e das listas de colaboradores. As folgas importadas dessa pessoa também são apagadas.</p>',
+      'Excluir', () => excluirColaboradorLoja(id, true));
+  } else {
+    abrirModal('Excluir ' + c.nome + '?',
+      '<p style="margin:0 0 10px;font-size:14px;">' + c.nome + ' tem <b>' + qtd + ' falta' + (qtd === 1 ? '' : 's') + '/atestado' + (qtd === 1 ? '' : 's') + '</b> no histórico.</p>' +
+      '<p style="margin:0 0 10px;font-size:14px;"><b>Excluir</b> tira a pessoa da escala e das listas, mas guarda o histórico de faltas (continua aparecendo no Histórico de faltas).</p>' +
+      '<button class="link-remover" style="font-size:13px;" onclick="if (confirm(\'Apagar ' + nomeJs + ' e TODO o histórico de faltas dela? Não dá para desfazer.\')) excluirColaboradorLoja(\'' + id + '\', true)">Apagar de vez, junto com o histórico</button>',
+      'Excluir (guardar histórico)', () => excluirColaboradorLoja(id, false));
+  }
+}
+async function excluirColaboradorLoja(id, deVez) {
+  const c = estado.colaboradoresLoja.find((x) => x.id === id) || { nome: '' };
+  try {
+    const r = deVez
+      ? await sb.from('colaboradores_loja').delete().eq('id', id)
+      : await sb.from('colaboradores_loja').update({ ativo: false }).eq('id', id);
+    if (r.error) throw r.error;
+    if (!deVez) {
+      // tira as folgas futuras da escala (o histórico de faltas fica)
+      const hoje = new Date().toISOString().slice(0, 10);
+      await sb.from('escala_folgas').delete().eq('colaborador_loja_id', id).in('tipo', ['folga', 'folga_feriado']).gte('data', hoje);
+    }
+    fecharModal();
+    mostrarToast(c.nome + ' foi excluído' + (deVez ? '.' : ' (histórico de faltas guardado).'), 'sucesso');
+    await recarregarTelaColaboradores();
+  } catch (e) { mostrarToast('Não consegui excluir: ' + e.message, 'erro'); }
 }
 
 // =============================================================================
@@ -8401,11 +8474,6 @@ function escalaAcharColaborador(nomePlanilha, nomeAba, colaboradores) {
     const exato = cands.filter((c) => escalaTokens(c.nome).join(' ') === tk.join(' '));
     if (exato.length === 1) cands = exato;
   }
-  if (cands.length > 1) {
-    const menor = Math.min(...cands.map((c) => escalaTokens(c.nome).length));
-    const curtos = cands.filter((c) => escalaTokens(c.nome).length === menor);
-    if (curtos.length === 1) cands = curtos;
-  }
   if (cands.length === 1) return { status: 'ok', colaborador: cands[0], candidatos: cands, aproximado };
   return { status: cands.length ? 'ambiguo' : 'nao_achado', candidatos: cands };
 }
@@ -8414,7 +8482,16 @@ function escalaAcharColaborador(nomePlanilha, nomeAba, colaboradores) {
 // aproximado é descartado (LUZIANA não vira LUCIANA, que já está na lista).
 function escalaResolverRepetidos(resultados) {
   const exatos = new Set(resultados.filter((r) => r.status === 'ok' && !r.aproximado).map((r) => r.colaborador.id));
-  return resultados.map((r) => (r.status === 'ok' && r.aproximado && exatos.has(r.colaborador.id)) ? { status: 'nao_achado', candidatos: [] } : r);
+  let res = resultados.map((r) => (r.status === 'ok' && r.aproximado && exatos.has(r.colaborador.id)) ? { status: 'nao_achado', candidatos: [] } : r);
+  // Nome que bateu com duas pessoas ("GUILHERME HENRIQUE"): tira quem já foi
+  // achado por outra linha; sobrando uma só, é ela.
+  const usados = new Set(res.filter((r) => r.status === 'ok').map((r) => r.colaborador.id));
+  res = res.map((r) => {
+    if (r.status !== 'ambiguo') return r;
+    const resto = r.candidatos.filter((c) => !usados.has(c.id));
+    return resto.length === 1 ? { status: 'ok', colaborador: resto[0], candidatos: resto } : r;
+  });
+  return res;
 }
 // Lê o workbook (SheetJS) e devolve { ano, mes, linhas:[{aba, nome, marcas:{dia: 'folga'|'folga_feriado'}}] }
 function escalaLerWorkbook(wb) {
@@ -8742,7 +8819,7 @@ const PLURAL_TIPO_ESCALA = { folga: 'folgas', folga_feriado: 'folgas de feriado'
 
 async function paginaEscala() {
   await carregarColaboradoresLoja();
-  const setoresComGente = SETORES.filter((s) => estado.colaboradoresLoja.some((c) => c.setor === s.key));
+  const setoresComGente = SETORES.filter((s) => estado.colaboradoresLoja.some((c) => c.setor === s.key && c.ativo !== false));
   if (!estado.escalaSetor || !setoresComGente.some((s) => s.key === estado.escalaSetor)) {
     estado.escalaSetor = setoresComGente.length > 0 ? setoresComGente[0].key : null;
   }
@@ -8797,13 +8874,13 @@ function resumoRegistrosColaborador(colaboradorId) {
 }
 
 function renderizarEscala() {
-  const setoresComGente = SETORES.filter((s) => estado.colaboradoresLoja.some((c) => c.setor === s.key));
+  const setoresComGente = SETORES.filter((s) => estado.colaboradoresLoja.some((c) => c.setor === s.key && c.ativo !== false));
   const chips = setoresComGente.map((s) =>
     '<button class="chip' + (estado.escalaSetor === s.key ? ' ativo' : '') + '" onclick="trocarSetorEscala(\'' + s.key + '\')">' + s.nome + '</button>'
   ).join('');
 
   const colaboradoresDoSetor = estado.colaboradoresLoja
-    .filter((c) => c.setor === estado.escalaSetor)
+    .filter((c) => c.setor === estado.escalaSetor && c.ativo !== false)
     .sort((a, b) => a.nome.localeCompare(b.nome));
 
   const linhas = colaboradoresDoSetor.length === 0
@@ -8839,7 +8916,11 @@ function renderizarEscala() {
         const detalhe = !aberto ? '' :
           '<div style="margin-top:12px;border-top:1px solid var(--border);padding-top:10px;">' +
             listaRegistros +
-            '<button class="btn-acao secundario" style="margin-top:10px;" onclick="abrirModalFaltaAtestado(\'' + c.id + '\', \'' + c.nome.replace(/'/g, "\\'") + '\')">+ Registrar falta ou atestado</button>' +
+            '<div style="display:flex;flex-wrap:wrap;gap:8px;margin-top:10px;">' +
+              '<button class="btn-acao secundario" onclick="abrirModalFaltaAtestado(\'' + c.id + '\', \'' + c.nome.replace(/'/g, "\\'") + '\')">+ Registrar falta ou atestado</button>' +
+              '<button class="btn-acao secundario" onclick="abrirModalEditarColaboradorLoja(\'' + c.id + '\')">Editar dados</button>' +
+              '<button class="btn-acao secundario" style="color:var(--red);" onclick="abrirModalExcluirColaboradorLoja(\'' + c.id + '\')">Excluir colaborador</button>' +
+            '</div>' +
           '</div>';
 
         return '<div class="item-card" style="margin-bottom:10px;">' +
@@ -8858,6 +8939,7 @@ function renderizarEscala() {
     cabecalho('Faltas e Atestados', 'Escala do mês por setor — folgas da planilha enviada + faltas/atestados lançados na hora, pelo app ou por aqui') +
     '<div class="toolbar" style="justify-content:flex-end;">' +
       '<button class="btn-acao secundario" onclick="irPara(\'historico-faltas\')">Histórico de faltas</button>' +
+      '<button class="btn-acao secundario" onclick="abrirModalNovoColaboradorLoja(estado.escalaSetor)">+ Cadastrar colaborador</button>' +
       '<button class="btn-acao" onclick="document.getElementById(\'escala-arquivo\').click()">📤 Importar escala (X e F)</button>' +
       '<input type="file" id="escala-arquivo" accept=".xlsx,.xls" style="display:none" onchange="enviarPlanilhaFolgas(this)" />' +
     '</div>' +
