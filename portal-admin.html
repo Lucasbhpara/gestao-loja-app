@@ -8609,6 +8609,7 @@ async function confirmarImportacaoEscala() {
 async function paginaHistoricoFaltas() {
   await carregarColaboradoresLoja();
   if (!estado.hfMes) { const h = new Date(); estado.hfMes = h.getMonth() + 1; estado.hfAno = h.getFullYear(); }
+  estado.hfColab = '';
   estado.hfPor = estado.hfPor || ''; estado.hfSetor = estado.hfSetor || ''; estado.hfTipo = estado.hfTipo || '';
   await carregarHistoricoFaltas();
   renderizarHistoricoFaltas();
@@ -8628,6 +8629,50 @@ function trocarMesHistoricoFaltas(delta) {
   estado.hfMes = m; estado.hfAno = a;
   carregarHistoricoFaltas().then(renderizarHistoricoFaltas).catch((e) => mostrarToast('Não consegui carregar: ' + e.message, 'erro'));
 }
+// Histórico de UM colaborador: todas as faltas e atestados dele, de todos os meses.
+async function abrirHistoricoColaborador(id) {
+  estado.hfColab = id || '';
+  if (!id) { renderizarHistoricoFaltas(); return; }
+  try {
+    const { data, error } = await sb.from('escala_folgas').select('*').eq('colaborador_loja_id', id).in('tipo', ['falta', 'atestado']).order('data', { ascending: false });
+    if (error) throw error;
+    estado.hfColabRegistros = data || [];
+    renderizarHistoricoColaborador();
+  } catch (e) { mostrarToast('Não consegui carregar: ' + e.message, 'erro'); }
+}
+function renderizarHistoricoColaborador() {
+  const c = estado.colaboradoresLoja.find((x) => x.id === estado.hfColab) || { nome: '(colaborador)', setor: '' };
+  const regs = estado.hfColabRegistros || [];
+  const anoAtual = new Date().getFullYear();
+  const fmtD = (iso) => iso.split('-').reverse().join('/');
+  const conta = (lista, t) => lista.filter((r) => r.tipo === t).length;
+  const doAno = regs.filter((r) => r.data.startsWith(String(anoAtual)));
+  const porMes = {};
+  regs.forEach((r) => { const k = r.data.slice(0, 7); porMes[k] = porMes[k] || []; porMes[k].push(r); });
+  const blocos = Object.keys(porMes).sort().reverse().map((k) => {
+    const [a, m] = k.split('-');
+    const itens = porMes[k];
+    return '<div class="pq-sub" style="margin-top:16px;">' + MESES_ESCALA[Number(m) - 1] + ' de ' + a + ' · ' + conta(itens, 'falta') + ' falta' + (conta(itens, 'falta') === 1 ? '' : 's') + ', ' + conta(itens, 'atestado') + ' atestado' + (conta(itens, 'atestado') === 1 ? '' : 's') + '</div>' +
+      '<div class="tabela-wrap hf-tabela"><table><tbody>' + itens.map((r) => '<tr>' +
+        '<td class="nome-forte">' + fmtD(r.data) + '</td>' +
+        '<td>' + (r.observacao ? r.observacao : '<span style="color:var(--text-muted)">—</span>') + (r.foto_url ? '<div><a href="' + r.foto_url + '" target="_blank" class="link-foto">Ver foto</a></div>' : '') + '</td>' +
+        '<td><span class="pill ' + LABEL_TIPO_ESCALA[r.tipo].classe + '">' + LABEL_TIPO_ESCALA[r.tipo].texto + '</span></td>' +
+        '<td>' + (r.registrado_por_nome || '(sem nome)') + '</td>' +
+        '<td style="white-space:nowrap;">' + formatarDataHora(r.registrado_em || r.criado_em) + '</td></tr>').join('') +
+      '</tbody></table></div>';
+  }).join('');
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho(c.nome, (c.setor ? nomeSetor(c.setor) + ' · ' : '') + 'histórico de faltas e atestados') +
+    '<div class="toolbar"><button class="btn-acao secundario" onclick="abrirHistoricoColaborador(\'\')">← Voltar ao histórico do mês</button></div>' +
+    '<div class="resumo-perdas">' +
+      '<div class="box"><div class="rotulo">Faltas em ' + anoAtual + '</div><div class="valor">' + conta(doAno, 'falta') + '</div></div>' +
+      '<div class="box"><div class="rotulo">Atestados em ' + anoAtual + '</div><div class="valor">' + conta(doAno, 'atestado') + '</div></div>' +
+      '<div class="box"><div class="rotulo">Total registrado</div><div class="valor">' + regs.length + '</div></div>' +
+      '<div class="box"><div class="rotulo">Última ocorrência</div><div class="valor" style="font-size:15px;">' + (regs[0] ? fmtD(regs[0].data) : '—') + '</div></div>' +
+    '</div>' +
+    (regs.length ? blocos : '<div class="celula-vazio">Nenhuma falta ou atestado registrado para essa pessoa.</div>');
+}
+
 function renderizarHistoricoFaltas() {
   const colab = {}; estado.colaboradoresLoja.forEach((c) => { colab[c.id] = c; });
   const todos = estado.hfRegistros.map((r) => ({ ...r, c: colab[r.colaborador_loja_id] || { nome: '(colaborador removido)', setor: '' }, por: r.registrado_por_nome || '(sem nome)' }));
@@ -8642,6 +8687,15 @@ function renderizarHistoricoFaltas() {
       '<div class="pq-setor-rodape"><span>' + q.falta + ' falta' + (q.falta === 1 ? '' : 's') + ' · ' + q.atestado + ' atestado' + (q.atestado === 1 ? '' : 's') + '</span><span>' + q.pessoas.size + ' pessoa' + (q.pessoas.size === 1 ? '' : 's') + '</span></div>' +
     '</button>').join('');
 
+  const porPessoa = {};
+  todos.forEach((r) => { porPessoa[r.colaborador_loja_id] = porPessoa[r.colaborador_loja_id] || { c: r.c, falta: 0, atestado: 0 }; porPessoa[r.colaborador_loja_id][r.tipo]++; });
+  const porPessoaHtml = Object.entries(porPessoa).sort((a, b) => (b[1].falta + b[1].atestado) - (a[1].falta + a[1].atestado)).map(([id, q]) =>
+    '<button class="pq-setor" onclick="abrirHistoricoColaborador(\'' + id + '\')">' +
+      '<div class="pq-setor-nome">' + (q.c.setor ? nomeSetor(q.c.setor) : '') + '</div><div class="pq-setor-valor" style="font-size:15px;">' + q.c.nome + '</div>' +
+      '<div class="pq-setor-rodape"><span>' + q.falta + ' falta' + (q.falta === 1 ? '' : 's') + ' · ' + q.atestado + ' atestado' + (q.atestado === 1 ? '' : 's') + '</span><span>ver tudo ›</span></div>' +
+    '</button>').join('');
+  const opcoesPessoa = [...estado.colaboradoresLoja].filter((c) => c.ativo !== false).sort((a, b) => a.nome.localeCompare(b.nome))
+    .map((c) => '<option value="' + c.id + '">' + c.nome + ' — ' + nomeSetor(c.setor) + '</option>').join('');
   const setores = Array.from(new Set(todos.map((r) => r.c.setor).filter(Boolean)));
   const pessoas = Array.from(new Set(todos.map((r) => r.por))).sort((a, b) => a.localeCompare(b));
   const fmtD = (iso) => iso ? iso.split('-').reverse().join('/') : '—';
@@ -8651,7 +8705,7 @@ function renderizarHistoricoFaltas() {
     ? '<tr><td colspan="5"><div class="celula-vazio">Nenhuma falta ou atestado lançado ' + (todos.length ? 'com esses filtros.' : 'nesse mês.') + '</div></td></tr>'
     : lista.map((r) => '<tr>' +
         '<td class="nome-forte">' + fmtD(r.data) + '</td>' +
-        '<td><b>' + r.c.nome + '</b><div class="vl-cod">' + (r.c.setor ? nomeSetor(r.c.setor) : '') + '</div>' +
+        '<td><a href="#" onclick="abrirHistoricoColaborador(\'' + r.colaborador_loja_id + '\'); return false;" style="font-weight:700;">' + r.c.nome + '</a><div class="vl-cod">' + (r.c.setor ? nomeSetor(r.c.setor) : '') + '</div>' +
           (r.observacao ? '<div style="font-size:12px;color:var(--text-secondary);margin-top:4px;">' + r.observacao + '</div>' : '') +
           (r.foto_url ? '<a href="' + r.foto_url + '" target="_blank" class="link-foto">Ver foto</a>' : '') + '</td>' +
         '<td><span class="pill ' + LABEL_TIPO_ESCALA[r.tipo].classe + '">' + LABEL_TIPO_ESCALA[r.tipo].texto + '</span></td>' +
@@ -8671,7 +8725,11 @@ function renderizarHistoricoFaltas() {
       '<div class="box"><div class="rotulo">Atestados no mês</div><div class="valor">' + todos.filter((r) => r.tipo === 'atestado').length + '</div></div>' +
       '<div class="box"><div class="rotulo">Pessoas com falta/atestado</div><div class="valor">' + new Set(todos.map((r) => r.colaborador_loja_id)).size + '</div></div>' +
     '</div>' +
+    (porPessoaHtml ? '<div class="pq-card"><div class="pq-topo"><h3>Por colaborador</h3><span class="pq-nota">Toque para ver o histórico completo da pessoa</span></div><div class="pq-setores">' + porPessoaHtml + '</div></div>' : '') +
     (cards ? '<div class="pq-card"><div class="pq-topo"><h3>Por encarregado</h3><span class="pq-nota">Toque para filtrar</span></div><div class="pq-setores">' + cards + '</div></div>' : '') +
+    '<div class="toolbar">' +
+      '<select class="select-filtro" onchange="if(this.value) abrirHistoricoColaborador(this.value)"><option value="">Ver histórico de um colaborador…</option>' + opcoesPessoa + '</select>' +
+    '</div>' +
     '<div class="toolbar">' +
       '<select class="select-filtro" onchange="estado.hfPor=this.value; renderizarHistoricoFaltas();"><option value="">Todos os encarregados</option>' + pessoas.map((p) => '<option' + (p === estado.hfPor ? ' selected' : '') + '>' + p + '</option>').join('') + '</select>' +
       '<select class="select-filtro" onchange="estado.hfSetor=this.value; renderizarHistoricoFaltas();"><option value="">Todos os setores</option>' + setores.map((s) => '<option value="' + s + '"' + (s === estado.hfSetor ? ' selected' : '') + '>' + nomeSetor(s) + '</option>').join('') + '</select>' +

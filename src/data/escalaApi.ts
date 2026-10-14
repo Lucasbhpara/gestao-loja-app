@@ -181,3 +181,15 @@ export async function buscarFaltasEAtestadosDoMes(ano: number, mes: number): Pro
   if (error) throw error;
   return (data ?? []).map(linhaParaRegistro);
 }
+
+// Histórico completo de UM colaborador: todas as faltas e atestados dele.
+export async function buscarFaltasEAtestadosDoColaborador(colaboradorLojaId: string): Promise<RegistroEscala[]> {
+  const { data, error } = await supabase
+    .from('escala_folgas')
+    .select('*')
+    .eq('colaborador_loja_id', colaboradorLojaId)
+    .in('tipo', ['falta', 'atestado'])
+    .order('data', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(linhaParaRegistro);
+}
