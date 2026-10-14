@@ -25,6 +25,7 @@ import ChecklistHubScreen from './ChecklistHubScreen';
 import VisitaTecnicaScreen from './VisitaTecnicaScreen';
 import GiroProdutosScreen from './GiroProdutosScreen';
 import VendasLojaScreen from './VendasLojaScreen';
+import PesquisaPrecoScreen from './PesquisaPrecoScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
@@ -57,6 +58,7 @@ export default function HomeAdminScreen() {
     | 'vendas'
     | 'giro'
     | 'vendasLoja'
+    | 'pesquisaPreco'
     | 'mapaLoja'
     | 'pontasExtras'
     | 'jornalOfertas'
@@ -158,6 +160,9 @@ export default function HomeAdminScreen() {
   }
   if (tela === 'vendas') {
     return <VendasScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'pesquisaPreco') {
+    return <PesquisaPrecoScreen onVoltar={() => setTela('home')} />;
   }
   if (tela === 'vendasLoja') {
     return <VendasLojaScreen onVoltar={() => setTela('home')} />;
@@ -293,6 +298,7 @@ export default function HomeAdminScreen() {
             // mas o código continua aqui se precisar reativar depois.
             { label: 'Colaboradores', icone: 'users' as const, onPress: () => setTela('escalaFaltas') },
                   { label: 'Precificação', icone: 'tag' as const, onPress: () => setTela('precificacao') },
+            { label: 'Pesquisa de Preço', icone: 'search' as const, onPress: () => setTela('pesquisaPreco') },
             { label: 'Criar tarefa', icone: 'edit-3' as const, onPress: () => setTela('tarefas') },
             { label: 'Perdas e Desperdício', icone: 'trending-down' as const, onPress: () => setTela('perdas') },
             { label: 'Validade', icone: 'calendar' as const, onPress: () => setTela('validade') },
