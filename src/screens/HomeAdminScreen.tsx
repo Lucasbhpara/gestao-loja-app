@@ -31,6 +31,15 @@ import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
 import UsoConsumoScreen from './UsoConsumoScreen';
 import OfertasHubScreen from './OfertasHubScreen';
+import InicioUlva2, { GrupoId } from './InicioUlva2';
+import {
+  podeTestarUlva2,
+  buscarUlva2Liberado,
+  ulva2LiberadoEmCache,
+  definirUlva2Liberado,
+  usarVersaoAntiga,
+  definirUsarVersaoAntiga,
+} from '../data/ulva2Flag';
 
 // Aba de chat com a IA visível só nesse login específico (Lucas), não pros
 // demais administradores. Identificado pela matrícula (e não pelo id),
@@ -71,6 +80,21 @@ export default function HomeAdminScreen() {
     | 'ofertas'
   >('home');
 
+  // ULVA 2.0: ferramentas agrupadas. Até ser liberado (system_config
+  // 'ulva2_liberado'), só quem está em MATRICULAS_TESTE_ULVA2 vê.
+  const [grupoAberto, setGrupoAberto] = useState<GrupoId | null>(null);
+  const [ulva2Liberado, setUlva2Liberado] = useState(false);
+  const [versaoAntiga, setVersaoAntiga] = useState(false);
+  useEffect(() => {
+    let vivo = true;
+    ulva2LiberadoEmCache().then((v) => vivo && setUlva2Liberado(v));
+    buscarUlva2Liberado().then((v) => vivo && setUlva2Liberado(v));
+    usarVersaoAntiga().then((v) => vivo && setVersaoAntiga(v));
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
   // usam uma pilha de navegação, o Android trata o botão físico como "sair
   // do app" em qualquer tela. Interceptamos e fazemos a mesma coisa que o
@@ -82,11 +106,15 @@ export default function HomeAdminScreen() {
         setTela('home');
         return true;
       }
+      if (grupoAberto) {
+        setGrupoAberto(null);
+        return true;
+      }
       return false;
     };
     const assinatura = BackHandler.addEventListener('hardwareBackPress', aoVoltar);
     return () => assinatura.remove();
-  }, [tela]);
+  }, [tela, grupoAberto]);
 
   const [validades, setValidades] = useState<Validade[]>([]);
   const [carregandoValidades, setCarregandoValidades] = useState(true);
@@ -116,6 +144,35 @@ export default function HomeAdminScreen() {
     .sort((a, b) => (a.dataValidade < b.dataValidade ? -1 : 1))
     .slice(0, 5);
   const qtdUrgentes = validades.filter((v) => diasRestantes(v.dataValidade) < 5).length;
+
+  const testandoUlva2 = podeTestarUlva2(usuarioAtual.matricula);
+  const mostrarUlva2 = (ulva2Liberado || testandoUlva2) && !(testandoUlva2 && versaoAntiga);
+
+  function alternarLiberacaoUlva2() {
+    const liberar = !ulva2Liberado;
+    Alert.alert(
+      liberar ? 'Liberar o ULVA 2.0 para todos?' : 'Esconder o ULVA 2.0?',
+      liberar
+        ? 'Todos os administradores passam a ver o Início novo na próxima vez que abrirem o app.'
+        : 'Os outros administradores voltam para o Início antigo. Você continua vendo a prévia.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: liberar ? 'Liberar' : 'Esconder',
+          onPress: () =>
+            definirUlva2Liberado(liberar)
+              .then(() => setUlva2Liberado(liberar))
+              .catch(() => Alert.alert('Não deu certo', 'Verifique a internet e tente de novo.')),
+        },
+      ],
+    );
+  }
+
+  function trocarVersao(antiga: boolean) {
+    setVersaoAntiga(antiga);
+    setGrupoAberto(null);
+    definirUsarVersaoAntiga(antiga);
+  }
 
   if (tela === 'chatIA') {
     return <ChatIAScreen onVoltar={() => setTela('home')} />;
@@ -207,8 +264,34 @@ export default function HomeAdminScreen() {
     return <OfertasHubScreen onVoltar={() => setTela('home')} />;
   }
 
+  if (mostrarUlva2) {
+    return (
+      <InicioUlva2
+        nome={usuarioAtual.nome}
+        usandoNuvem={usandoNuvem}
+        podeVerDono={MATRICULAS_GIRO.includes(String(usuarioAtual.matricula))}
+        podeUsarIA={podeUsarChatIA}
+        qtdVencendo={carregandoValidades ? null : validades.length}
+        qtdUrgentes={qtdUrgentes}
+        grupoAberto={grupoAberto}
+        onAbrirGrupo={setGrupoAberto}
+        onAbrir={(t) => setTela(t)}
+        onSair={confirmarSaida}
+        testando={testandoUlva2}
+        liberado={ulva2Liberado}
+        onVersaoAntiga={testandoUlva2 ? () => trocarVersao(true) : undefined}
+        onAlternarLiberacao={testandoUlva2 ? alternarLiberacaoUlva2 : undefined}
+      />
+    );
+  }
+
   return (
     <ScrollView style={styles.flex} contentContainerStyle={{ paddingBottom: 40 }}>
+      {testandoUlva2 && (
+        <TouchableOpacity style={styles.voltarUlva2} onPress={() => trocarVersao(false)}>
+          <Text style={styles.voltarUlva2Texto}>✨ Ver o ULVA 2.0</Text>
+        </TouchableOpacity>
+      )}
       <View style={styles.header}>
         <View style={styles.topRow}>
           <View>
@@ -402,4 +485,6 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
   },
   chatIASeta: { fontSize: 20, color: colors.gray400 },
+  voltarUlva2: { position: 'absolute', top: 14, right: 16, zIndex: 2, backgroundColor: colors.navy900, borderRadius: radius.full, paddingVertical: 6, paddingHorizontal: 12 },
+  voltarUlva2Texto: { color: colors.white, fontSize: 12, fontWeight: '700' },
 });
