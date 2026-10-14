@@ -903,13 +903,14 @@
 
     <div class="nav-gaveta" data-gaveta="ofertas">
       <button class="nav-gaveta-cabecalho" onclick="alternarGaveta('ofertas')">
-        <span><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg></span><span><span class="nav-gaveta-nome">Ofertas</span><div class="nav-gaveta-desc">Jornal, estoque do jornal e ofertas no WhatsApp</div></span></span>
+        <span><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg></span><span><span class="nav-gaveta-nome">Ofertas</span><div class="nav-gaveta-desc">Jornal, ofertas no WhatsApp e pesquisa de preço</div></span></span>
         <span class="nav-gaveta-seta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span>
       </button>
       <div class="nav-gaveta-itens">
         <button class="nav-item" data-pagina="jornal-ofertas" onclick="irPara('jornal-ofertas')"><span class="dot"></span>Jornal de Ofertas</button>
         <button class="nav-item" data-pagina="estoque-jornal" onclick="irPara('estoque-jornal')"><span class="dot"></span>Estoque do Jornal</button>
         <button class="nav-item" data-pagina="ofertas-whats" onclick="irPara('ofertas-whats')"><span class="dot"></span>Ofertas no WhatsApp</button>
+        <button class="nav-item" data-pagina="pesquisa-preco" onclick="irPara('pesquisa-preco')"><span class="dot"></span>Pesquisa de preço</button>
       </div>
     </div>
 
@@ -1151,7 +1152,7 @@ const GAVETA_POR_PAGINA = {
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
-  pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pontas-extras': 'operacao',
+  pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', 'pontas-extras': 'operacao',
 };
 function alternarMenu(abrir) {
   const shell = document.getElementById('app-shell');
@@ -1212,6 +1213,7 @@ async function irPara(pagina) {
     else if (pagina === 'jornal-ofertas') await paginaJornalOfertas();
     else if (pagina === 'ofertas-whats') await paginaOfertasWhats();
     else if (pagina === 'estoque-jornal') await paginaEstoqueJornal();
+    else if (pagina === 'pesquisa-preco') await paginaPesquisaPreco();
   } catch (e) {
     el.innerHTML = '<div class="celula-vazio">Não consegui carregar essa página: ' + (e.message || '') + '</div>';
   }
@@ -1610,6 +1612,206 @@ async function excluirColaboradorLoja(id, deVez) {
     mostrarToast(c.nome + ' foi excluído' + (deVez ? '.' : ' (histórico de faltas guardado).'), 'sucesso');
     await recarregarTelaColaboradores();
   } catch (e) { mostrarToast('Não consegui excluir: ' + e.message, 'erro'); }
+}
+
+
+// =============================================================================
+// Pesquisa de preço — pesquisas feitas pelo app nos concorrentes (tabelas
+// concorrentes, pesquisas_preco, pesquisa_preco_itens; ver
+// supabase/pesquisa_preco.sql e src/data/pesquisaPrecoApi.ts). O preço da
+// loja é o do Estoque Loja no momento da pesquisa.
+// =============================================================================
+const PP_SITUACAO = {
+  mais_caro: { texto: 'Loja mais cara', classe: 'vermelho' },
+  mais_barato: { texto: 'Loja mais barata', classe: 'verde' },
+  igual: { texto: 'Mesmo preço', classe: '' },
+  sem_produto: { texto: 'Não temos', classe: 'feriado' },
+};
+function ppReais(v) { return v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
+function ppComparar(it) {
+  const loja = it.preco_loja == null ? null : Number(it.preco_loja);
+  const conc = Number(it.preco_concorrente);
+  if (loja == null || loja <= 0) return { situacao: 'sem_produto', dif: null, pct: null };
+  const dif = Math.round((loja - conc) * 100) / 100;
+  const pct = conc > 0 ? Math.round((dif / conc) * 1000) / 10 : null;
+  return { situacao: Math.abs(dif) < 0.005 ? 'igual' : dif > 0 ? 'mais_caro' : 'mais_barato', dif, pct };
+}
+function ppResumo(itens) {
+  const c = itens.map(ppComparar);
+  const n = (s) => c.filter((x) => x.situacao === s).length;
+  const com = itens.filter((it) => it.preco_loja != null && Number(it.preco_loja) > 0);
+  const sl = com.reduce((s, it) => s + Number(it.preco_loja), 0);
+  const sc = com.reduce((s, it) => s + Number(it.preco_concorrente), 0);
+  return { maisCaro: n('mais_caro'), maisBarato: n('mais_barato'), igual: n('igual'), semProduto: n('sem_produto'), cestaLoja: sl, cestaConc: sc, cestaPct: sc > 0 ? Math.round(((sl - sc) / sc) * 1000) / 10 : null };
+}
+function ppDataHora(iso) { return iso ? formatarDataHora(iso) : '—'; }
+
+async function paginaPesquisaPreco() {
+  estado.ppAberta = null;
+  const [{ data: pesq, error }, { data: conc }] = await Promise.all([
+    sb.from('pesquisas_preco').select('*').order('iniciada_em', { ascending: false }).limit(60),
+    sb.from('concorrentes').select('*').order('nome'),
+  ]);
+  if (error) {
+    if (/pesquisas_preco|relation|schema cache/i.test(error.message || '')) {
+      document.getElementById('conteudo-principal').innerHTML = cabecalho('Pesquisa de preço', 'Concorrentes × preço da loja') +
+        '<div class="celula-vazio" style="text-align:left;">Falta criar as tabelas no banco: rode o arquivo <b>supabase/pesquisa_preco.sql</b> no SQL Editor do Supabase.</div>';
+      return;
+    }
+    throw error;
+  }
+  estado.ppPesquisas = pesq || [];
+  estado.ppConcorrentes = conc || [];
+  const ids = estado.ppPesquisas.map((p) => p.id);
+  estado.ppItens = [];
+  for (let i = 0; i < ids.length; i += 50) {
+    const r = await sb.from('pesquisa_preco_itens').select('pesquisa_id, preco_concorrente, preco_loja').in('pesquisa_id', ids.slice(i, i + 50));
+    if (!r.error) estado.ppItens.push(...(r.data || []));
+  }
+  renderizarPesquisaPreco();
+}
+
+function renderizarPesquisaPreco() {
+  const porPesquisa = {};
+  estado.ppItens.forEach((it) => { (porPesquisa[it.pesquisa_id] = porPesquisa[it.pesquisa_id] || []).push(it); });
+  const linhas = estado.ppPesquisas.length === 0
+    ? '<tr><td colspan="7"><div class="celula-vazio">Nenhuma pesquisa ainda. Ela é feita pelo app, no concorrente: menu Pesquisa de Preço › Nova pesquisa.</div></td></tr>'
+    : estado.ppPesquisas.map((p) => {
+        const r = ppResumo(porPesquisa[p.id] || []);
+        return '<tr style="cursor:pointer;" onclick="abrirPesquisaPreco(\'' + p.id + '\')">' +
+          '<td class="nome-forte">' + p.concorrente_nome + '</td>' +
+          '<td style="white-space:nowrap;">' + ppDataHora(p.iniciada_em) + '</td>' +
+          '<td>' + (p.feita_por_nome || '—') + '</td>' +
+          '<td class="vl-num">' + p.total_itens + '</td>' +
+          '<td class="vl-num"><span class="pill vermelho">' + r.maisCaro + '</span></td>' +
+          '<td class="vl-num"><span class="pill verde">' + r.maisBarato + '</span></td>' +
+          '<td class="vl-num">' + (r.cestaPct == null ? '—' : '<span class="vl-var ' + (r.cestaPct > 0 ? 'neg' : r.cestaPct < 0 ? 'pos' : 'neutro') + '">' + (r.cestaPct > 0 ? '+' : '') + r.cestaPct.toFixed(1).replace('.', ',') + '%</span>') + '</td>' +
+        '</tr>';
+      }).join('');
+  const conc = estado.ppConcorrentes.filter((c) => c.ativo !== false);
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Pesquisa de preço', 'Feita pelo app no concorrente — o preço da loja vem do Estoque Loja') +
+    '<div class="resumo-perdas">' +
+      '<div class="box"><div class="rotulo">Pesquisas</div><div class="valor">' + estado.ppPesquisas.length + '</div></div>' +
+      '<div class="box"><div class="rotulo">Concorrentes cadastrados</div><div class="valor">' + conc.length + '</div></div>' +
+    '</div>' +
+    '<div class="tabela-wrap"><table><thead><tr><th>Concorrente</th><th>Data</th><th>Feita por</th><th style="text-align:right;">Itens</th><th style="text-align:right;">Loja mais cara</th><th style="text-align:right;">Loja mais barata</th><th style="text-align:right;">Cesta (loja × conc.)</th></tr></thead><tbody>' + linhas + '</tbody></table></div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Concorrentes</h3><button class="btn-acao secundario" onclick="abrirModalNovoConcorrente()">+ Cadastrar concorrente</button></div>' +
+      (conc.length ? conc.map((c) => '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-top:1px solid var(--border);"><span><b>' + c.nome + '</b>' + (c.cidade ? ' <span style="color:var(--text-muted);font-size:12px;">· ' + c.cidade + '</span>' : '') + '</span><button class="link-remover" onclick="desativarConcorrente(\'' + c.id + '\')">Remover</button></div>').join('') : '<div class="celula-vazio" style="text-align:left;">Nenhum ainda — dá para cadastrar aqui ou direto no app, na hora da pesquisa.</div>') +
+    '</div>';
+}
+
+function abrirModalNovoConcorrente() {
+  abrirModal('Cadastrar concorrente',
+    '<div class="form-linha"><label class="campo-label" for="nc-conc-nome">Nome</label><input class="campo-input" id="nc-conc-nome" style="margin-bottom:0" /></div>' +
+    '<div class="form-linha"><label class="campo-label" for="nc-conc-cidade">Cidade ou bairro (opcional)</label><input class="campo-input" id="nc-conc-cidade" style="margin-bottom:0" /></div>',
+    'Cadastrar', async () => {
+      const nome = document.getElementById('nc-conc-nome').value.trim();
+      const cidade = document.getElementById('nc-conc-cidade').value.trim() || null;
+      if (!nome) { mostrarToast('Preencha o nome.', 'erro'); return; }
+      const { error } = await sb.from('concorrentes').insert({ nome, cidade });
+      if (error) { mostrarToast(/duplicate|unique/i.test(error.message) ? 'Esse concorrente já está cadastrado.' : 'Não consegui cadastrar: ' + error.message, 'erro'); return; }
+      fecharModal(); mostrarToast(nome + ' cadastrado.', 'sucesso'); await paginaPesquisaPreco();
+    });
+}
+async function desativarConcorrente(id) {
+  if (!confirm('Remover esse concorrente da lista? As pesquisas já feitas continuam guardadas.')) return;
+  const { error } = await sb.from('concorrentes').update({ ativo: false }).eq('id', id);
+  if (error) { mostrarToast('Não consegui remover: ' + error.message, 'erro'); return; }
+  await paginaPesquisaPreco();
+}
+
+async function abrirPesquisaPreco(id) {
+  try {
+    const [{ data: cab, error: e1 }, { data: itens, error: e2 }] = await Promise.all([
+      sb.from('pesquisas_preco').select('*').eq('id', id).single(),
+      sb.from('pesquisa_preco_itens').select('*').eq('pesquisa_id', id).order('ordem'),
+    ]);
+    if (e1) throw e1; if (e2) throw e2;
+    const cods = Array.from(new Set((itens || []).map((i) => i.codigo_interno).filter(Boolean)));
+    const setor = {};
+    for (let i = 0; i < cods.length; i += 200) {
+      const r = await sb.from('produtos_classes').select('codigo_produto, classe_2_nome').in('codigo_produto', cods.slice(i, i + 200));
+      (r.data || []).forEach((x) => { setor[x.codigo_produto] = x.classe_2_nome; });
+    }
+    estado.ppAberta = { cab, itens: (itens || []).map((it) => ({ ...it, setor: it.codigo_interno ? setor[it.codigo_interno] || '' : '' })) };
+    estado.ppFiltro = '';
+    renderizarPesquisaAberta();
+  } catch (e) { mostrarToast('Não consegui abrir: ' + e.message, 'erro'); }
+}
+
+function renderizarPesquisaAberta() {
+  const { cab, itens } = estado.ppAberta;
+  const r = ppResumo(itens);
+  const lista = itens.filter((it) => !estado.ppFiltro || ppComparar(it).situacao === estado.ppFiltro)
+    .sort((a, b) => (a.setor || 'ZZ').localeCompare(b.setor || 'ZZ') || a.produto_concorrente.localeCompare(b.produto_concorrente));
+  const chip = (k, txt, n) => '<button class="chip' + (estado.ppFiltro === k ? ' ativo' : '') + '" onclick="estado.ppFiltro=\'' + k + '\'; renderizarPesquisaAberta();">' + txt + (n == null ? '' : ' (' + n + ')') + '</button>';
+  const linhas = lista.length === 0 ? '<tr><td colspan="7"><div class="celula-vazio">Nada aqui.</div></td></tr>' : lista.map((it) => {
+    const c = ppComparar(it);
+    return '<tr>' +
+      '<td><b>' + it.produto_concorrente + '</b><div class="vl-cod">' + (it.setor || '') + (it.codigo_barras ? ' · ' + it.codigo_barras : '') + '</div>' +
+        (it.observacao ? '<div style="font-size:12px;color:var(--text-secondary);margin-top:3px;">' + it.observacao + '</div>' : '') +
+        (it.foto_url ? '<a href="' + it.foto_url + '" target="_blank" class="link-foto">Ver foto</a>' : '') + '</td>' +
+      '<td class="vl-num">' + ppReais(it.preco_concorrente) + '</td>' +
+      '<td>' + (it.produto_loja ? it.produto_loja + (it.similar ? ' <span class="pill feriado">similar</span>' : '') : '<span style="color:var(--text-muted)">—</span>') + '</td>' +
+      '<td class="vl-num">' + ppReais(it.preco_loja) + '</td>' +
+      '<td class="vl-num">' + (c.dif == null ? '—' : (c.dif > 0 ? '+' : '') + ppReais(c.dif).replace('R$ -', '−R$ ')) + '</td>' +
+      '<td class="vl-num">' + (c.pct == null ? '—' : '<span class="vl-var ' + (c.pct > 0 ? 'neg' : c.pct < 0 ? 'pos' : 'neutro') + '">' + (c.pct > 0 ? '+' : '') + c.pct.toFixed(1).replace('.', ',') + '%</span>') + '</td>' +
+      '<td><span class="pill ' + PP_SITUACAO[c.situacao].classe + '">' + PP_SITUACAO[c.situacao].texto + '</span></td>' +
+    '</tr>';
+  }).join('');
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho(cab.concorrente_nome, 'Pesquisa de ' + ppDataHora(cab.iniciada_em) + (cab.feita_por_nome ? ' · ' + cab.feita_por_nome : '')) +
+    '<div class="toolbar">' +
+      '<button class="btn-acao secundario" onclick="irPara(\'pesquisa-preco\')">← Todas as pesquisas</button>' +
+      '<button class="btn-acao" onclick="exportarPesquisaPreco()">Baixar planilha (Excel)</button>' +
+      '<button class="btn-acao secundario" style="color:var(--red);" onclick="excluirPesquisaPreco(\'' + cab.id + '\')">Excluir pesquisa</button>' +
+    '</div>' +
+    '<div class="resumo-perdas">' +
+      '<div class="box"><div class="rotulo">Loja mais cara</div><div class="valor" style="color:var(--red);">' + r.maisCaro + '</div></div>' +
+      '<div class="box"><div class="rotulo">Loja mais barata</div><div class="valor" style="color:var(--green);">' + r.maisBarato + '</div></div>' +
+      '<div class="box"><div class="rotulo">Mesmo preço</div><div class="valor">' + r.igual + '</div></div>' +
+      '<div class="box"><div class="rotulo">Não temos</div><div class="valor">' + r.semProduto + '</div></div>' +
+      '<div class="box"><div class="rotulo">Cesta dos itens que temos</div><div class="valor" style="font-size:15px;">Loja ' + ppReais(r.cestaLoja) + ' × ' + ppReais(r.cestaConc) + (r.cestaPct == null ? '' : ' <span class="vl-var ' + (r.cestaPct > 0 ? 'neg' : 'pos') + '">' + (r.cestaPct > 0 ? '+' : '') + r.cestaPct.toFixed(1).replace('.', ',') + '%</span>') + '</div></div>' +
+    '</div>' +
+    '<div class="chips-wrap">' + chip('', 'Todos', itens.length) + chip('mais_caro', 'Loja mais cara', r.maisCaro) + chip('mais_barato', 'Loja mais barata', r.maisBarato) + chip('igual', 'Mesmo preço', r.igual) + chip('sem_produto', 'Não temos', r.semProduto) + '</div>' +
+    '<div class="tabela-wrap"><table><thead><tr><th>Produto no concorrente</th><th style="text-align:right;">Concorrente</th><th>Produto da loja</th><th style="text-align:right;">Loja</th><th style="text-align:right;">Diferença</th><th style="text-align:right;">%</th><th>Situação</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
+}
+
+function exportarPesquisaPreco() {
+  const { cab, itens } = estado.ppAberta;
+  const r = ppResumo(itens);
+  const data = new Date(cab.iniciada_em).toLocaleDateString('pt-BR');
+  const topo = [['Pesquisa de preço — Supermercados BH · Loja 327'], ['Concorrente', cab.concorrente_nome], ['Data', data], ['Feita por', cab.feita_por_nome || ''], ['Itens pesquisados', itens.length], []];
+  const tit = ['Setor', 'Produto no concorrente', 'Cód. barras', 'Preço concorrente', 'Produto da loja', 'Cód. interno', 'Preço loja', 'Diferença R$ (loja − concorrente)', 'Diferença %', 'Situação', 'Similar', 'Observação'];
+  const linhas = [...itens].sort((a, b) => (a.setor || 'ZZ').localeCompare(b.setor || 'ZZ') || a.produto_concorrente.localeCompare(b.produto_concorrente)).map((it) => {
+    const c = ppComparar(it);
+    return [it.setor || '', it.produto_concorrente, it.codigo_barras || '', Number(it.preco_concorrente), it.produto_loja || '', it.codigo_interno || '', it.preco_loja == null ? '' : Number(it.preco_loja), c.dif == null ? '' : c.dif, c.pct == null ? '' : c.pct / 100, PP_SITUACAO[c.situacao].texto, it.similar ? 'Sim' : 'Não', it.observacao || ''];
+  });
+  const aba = XLSX.utils.aoa_to_sheet([...topo, tit, ...linhas]);
+  aba['!cols'] = [14, 34, 15, 12, 34, 11, 11, 14, 11, 16, 8, 24].map((w) => ({ wch: w }));
+  for (let i = 0; i < linhas.length; i++) {
+    const n = topo.length + 2 + i;
+    ['D', 'G', 'H'].forEach((col) => { if (aba[col + n] && typeof aba[col + n].v === 'number') aba[col + n].z = 'R$ #,##0.00'; });
+    if (aba['I' + n] && typeof aba['I' + n].v === 'number') aba['I' + n].z = '0.0%';
+  }
+  const res = XLSX.utils.aoa_to_sheet([['Resumo da pesquisa'], ['Concorrente', cab.concorrente_nome], ['Data', data], [], ['Loja mais cara', r.maisCaro], ['Loja mais barata', r.maisBarato], ['Mesmo preço', r.igual], ['Não temos o produto', r.semProduto], [], ['Cesta (itens que temos) — loja', Math.round(r.cestaLoja * 100) / 100], ['Cesta (itens que temos) — concorrente', Math.round(r.cestaConc * 100) / 100], ['Diferença da cesta', r.cestaPct == null ? '' : r.cestaPct / 100]]);
+  res['!cols'] = [{ wch: 38 }, { wch: 22 }];
+  ['B10', 'B11'].forEach((c) => { if (res[c]) res[c].z = 'R$ #,##0.00'; });
+  if (res.B12 && typeof res.B12.v === 'number') res.B12.z = '0.0%';
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, res, 'Resumo');
+  XLSX.utils.book_append_sheet(wb, aba, 'Pesquisa');
+  const slug = cab.concorrente_nome.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  XLSX.writeFile(wb, 'pesquisa-preco-' + slug + '-' + data.replace(/\//g, '-') + '.xlsx');
+}
+
+async function excluirPesquisaPreco(id) {
+  if (!confirm('Excluir essa pesquisa? Não dá para desfazer.')) return;
+  const { error } = await sb.from('pesquisas_preco').delete().eq('id', id);
+  if (error) { mostrarToast('Não consegui excluir: ' + error.message, 'erro'); return; }
+  mostrarToast('Pesquisa excluída.', 'sucesso');
+  await irPara('pesquisa-preco');
 }
 
 // =============================================================================
