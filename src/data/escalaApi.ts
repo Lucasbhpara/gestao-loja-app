@@ -17,7 +17,7 @@ import { supabase } from '../lib/supabase';
 // Tabela própria do ULVA: escala_folgas. Não confundir com "planilhas_folga"
 // (só guarda o arquivo enviado pelo portal) nem com nada do ALCATÉIA.
 
-export type TipoEscala = 'folga' | 'ferias_licenca_inss' | 'falta' | 'atestado';
+export type TipoEscala = 'folga' | 'folga_feriado' | 'ferias_licenca_inss' | 'falta' | 'atestado';
 
 export interface RegistroEscala {
   id: string;
@@ -28,6 +28,7 @@ export interface RegistroEscala {
   registradoPorNome: string | null;
   fotoUrl: string | null;
   criadoEm: string;
+  registradoEm: string | null; // quando a falta/atestado foi lançada
 }
 
 function linhaParaRegistro(l: any): RegistroEscala {
@@ -40,6 +41,7 @@ function linhaParaRegistro(l: any): RegistroEscala {
     registradoPorNome: l.registrado_por_nome,
     fotoUrl: l.foto_url,
     criadoEm: l.criado_em,
+    registradoEm: l.registrado_em ?? null,
   };
 }
 
@@ -122,21 +124,24 @@ export async function registrarFaltaOuAtestado(dados: {
   fotoUrl: string | null;
   registradoPorNome: string;
 }): Promise<RegistroEscala> {
-  const { data: linha, error } = await supabase
-    .from('escala_folgas')
-    .upsert(
-      {
-        colaborador_loja_id: dados.colaboradorLojaId,
-        data: dados.data,
-        tipo: dados.tipo,
-        observacao: dados.observacao,
-        foto_url: dados.fotoUrl,
-        registrado_por_nome: dados.registradoPorNome,
-      },
-      { onConflict: 'colaborador_loja_id,data' }
-    )
-    .select()
-    .single();
+  const linhaNova: Record<string, unknown> = {
+    colaborador_loja_id: dados.colaboradorLojaId,
+    data: dados.data,
+    tipo: dados.tipo,
+    observacao: dados.observacao,
+    foto_url: dados.fotoUrl,
+    registrado_por_nome: dados.registradoPorNome,
+    registrado_em: new Date().toISOString(),
+  };
+  const gravar = () =>
+    supabase.from('escala_folgas').upsert(linhaNova, { onConflict: 'colaborador_loja_id,data' }).select().single();
+  let { data: linha, error } = await gravar();
+  // Banco ainda sem a coluna registrado_em (supabase/escala_feriado.sql não
+  // rodado): grava sem ela em vez de falhar.
+  if (error && /registrado_em/.test(error.message ?? '')) {
+    delete linhaNova.registrado_em;
+    ({ data: linha, error } = await gravar());
+  }
   if (error) throw error;
   return linhaParaRegistro(linha);
 }
@@ -162,4 +167,31 @@ export async function enviarFotoAtestado(uriLocal: string): Promise<string> {
   if (error) throw error;
   const { data } = supabase.storage.from('atestado-fotos').getPublicUrl(nomeArquivo);
   return data.publicUrl;
+}
+
+// Histórico de faltas (administradores): todas as faltas e atestados com
+// dia dentro do mês, de qualquer setor, com quem lançou e quando.
+export async function buscarFaltasEAtestadosDoMes(ano: number, mes: number): Promise<RegistroEscala[]> {
+  const { inicio, fim } = limitesDoMes(ano, mes);
+  const { data, error } = await supabase
+    .from('escala_folgas')
+    .select('*')
+    .in('tipo', ['falta', 'atestado'])
+    .gte('data', inicio)
+    .lte('data', fim)
+    .order('data', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(linhaParaRegistro);
+}
+
+// Histórico completo de UM colaborador: todas as faltas e atestados dele.
+export async function buscarFaltasEAtestadosDoColaborador(colaboradorLojaId: string): Promise<RegistroEscala[]> {
+  const { data, error } = await supabase
+    .from('escala_folgas')
+    .select('*')
+    .eq('colaborador_loja_id', colaboradorLojaId)
+    .in('tipo', ['falta', 'atestado'])
+    .order('data', { ascending: false });
+  if (error) throw error;
+  return (data ?? []).map(linhaParaRegistro);
 }
