@@ -879,6 +879,7 @@
         <button class="nav-item" id="nav-giro-produtos" style="display:none" data-pagina="giro-produtos" onclick="irPara('giro-produtos')"><span class="dot"></span>Giro de Produtos</button>
         <button class="nav-item" id="nav-importar-vendas" style="display:none" data-pagina="importar-vendas" onclick="irPara('importar-vendas')"><span class="dot"></span>Importar vendas (Falcon)</button>
         <button class="nav-item" data-pagina="painel-resultados" onclick="irPara('painel-resultados')"><span class="dot"></span>Painel Resultados</button>
+        <button class="nav-item" id="nav-visitas-site" style="display:none" data-pagina="visitas-site" onclick="irPara('visitas-site')"><span class="dot"></span>Visitas do site</button>
         <button class="nav-item" data-pagina="conferencias" onclick="irPara('conferencias')"><span class="dot"></span>Conferência (FLV)</button>
         <button class="nav-item" data-pagina="inventario" onclick="irPara('inventario')"><span class="dot"></span>Inventário</button>
         <button class="nav-item" data-pagina="historico-exclusoes" onclick="irPara('historico-exclusoes')"><span class="dot"></span>Perdas de Validade</button>
@@ -1122,6 +1123,7 @@ async function fazerLogin() {
     document.getElementById('nav-giro-produtos').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-vendas-loja').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-importar-vendas').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
+    document.getElementById('nav-visitas-site').style.display = String(encontrado.matricula) === '7990353' ? '' : 'none';
     irPara('equipe');
   } catch (e) {
     erroBox.innerHTML = '<div class="login-erro">Não consegui conectar: ' + (e.message || 'tenta de novo.') + '</div>';
@@ -1151,7 +1153,7 @@ function iniciais(nome) {
 const GAVETA_POR_PAGINA = {
   equipe: 'colaboradores', escala: 'colaboradores', 'historico-faltas': 'colaboradores',
   avisos: 'avisos', ocorrencias: 'avisos',
-  perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores',
+  perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'visitas-site': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
   pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', 'pontas-extras': 'operacao',
 };
@@ -1215,6 +1217,7 @@ async function irPara(pagina) {
     else if (pagina === 'ofertas-whats') await paginaOfertasWhats();
     else if (pagina === 'estoque-jornal') await paginaEstoqueJornal();
     else if (pagina === 'pesquisa-preco') await paginaPesquisaPreco();
+    else if (pagina === 'visitas-site') await paginaVisitasSite();
   } catch (e) {
     el.innerHTML = '<div class="celula-vazio">Não consegui carregar essa página: ' + (e.message || '') + '</div>';
   }
@@ -1646,6 +1649,110 @@ function ppResumo(itens) {
   return { maisCaro: n('mais_caro'), maisBarato: n('mais_barato'), igual: n('igual'), semProduto: n('sem_produto'), cestaLoja: sl, cestaConc: sc, cestaPct: sc > 0 ? Math.round(((sl - sc) / sc) * 1000) / 10 : null };
 }
 function ppDataHora(iso) { return iso ? formatarDataHora(iso) : '—'; }
+
+// =====================================================================
+// Visitas do site ulva.com.br (tabela site_visitas) — só o Lucas vê.
+// =====================================================================
+const MATRICULA_VISITAS_SITE = '7990353';
+const VS_CORES = { Instagram: '#E1306C', Facebook: '#1877F2', LinkedIn: '#0A66C2', WhatsApp: '#25D366', Google: '#F2A600', YouTube: '#FF0000', Direto: '#5B6577' };
+
+async function paginaVisitasSite() {
+  if (!estado.usuario || String(estado.usuario.matricula) !== MATRICULA_VISITAS_SITE) {
+    document.getElementById('conteudo-principal').innerHTML = cabecalho('Visitas do site', '') + '<div class="celula-vazio">Acesso restrito.</div>';
+    return;
+  }
+  const dias = estado.vsDias || 30;
+  const desde = new Date(); desde.setHours(0, 0, 0, 0); desde.setDate(desde.getDate() - (dias - 1));
+  const linhas = [];
+  for (let de = 0; ; de += 1000) {
+    const { data, error } = await sb.from('site_visitas').select('criado_em,evento,origem,dispositivo,visitante,novo,utm_campaign')
+      .gte('criado_em', desde.toISOString()).order('criado_em', { ascending: false }).range(de, de + 999);
+    if (error) {
+      if (/site_visitas|relation|schema cache/i.test(error.message || '')) {
+        document.getElementById('conteudo-principal').innerHTML = cabecalho('Visitas do site', 'ulva.com.br') +
+          '<div class="celula-vazio" style="text-align:left;">Falta criar a tabela no banco: rode o arquivo <b>supabase/site_visitas.sql</b> no SQL Editor do Supabase.</div>';
+        return;
+      }
+      throw error;
+    }
+    linhas.push(...(data || []));
+    if (!data || data.length < 1000) break;
+  }
+  estado.vsLinhas = linhas;
+  renderizarVisitasSite(dias, desde);
+}
+
+function vsDiaChave(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+
+function renderizarVisitasSite(dias, desde) {
+  const L = estado.vsLinhas;
+  const visitas = L.filter((r) => r.evento === 'visita');
+  const unicos = new Set(visitas.map((r) => r.visitante)).size;
+  const novos = visitas.filter((r) => r.novo).length;
+  const cliquesUlva = L.filter((r) => r.evento === 'clique_portal_ulva').length;
+  const cliquesAlc = L.filter((r) => r.evento === 'clique_portal_alcateia').length;
+  const cliquesContato = L.filter((r) => r.evento === 'clique_contato').length;
+  const celular = visitas.filter((r) => r.dispositivo === 'Celular').length;
+  const pct = (n, t) => (t ? Math.round((n / t) * 100) : 0) + '%';
+
+  // por dia
+  const porDia = {};
+  visitas.forEach((r) => { const k = vsDiaChave(new Date(r.criado_em)); porDia[k] = (porDia[k] || 0) + 1; });
+  const serie = [];
+  for (let i = 0; i < dias; i++) { const d = new Date(desde); d.setDate(d.getDate() + i); serie.push({ d, n: porDia[vsDiaChave(d)] || 0 }); }
+  const max = Math.max(1, ...serie.map((x) => x.n));
+  const barras = serie.map((x) => '<div class="vl-col' + (x.d.getDay() === 0 ? ' dom' : '') + '" title="' + x.d.toLocaleDateString('pt-BR') + ': ' + x.n + ' visita(s)">' +
+    '<div class="vl-barras"><div class="vl-b" style="height:' + (x.n / max * 100) + '%"></div></div>' +
+    '<div class="vl-rot">' + (dias <= 31 || x.d.getDate() % 5 === 1 ? x.d.getDate() : '') + '</div></div>').join('');
+
+  // por origem
+  const porOrigem = {};
+  visitas.forEach((r) => { const o = r.origem || 'Direto'; porOrigem[o] = (porOrigem[o] || 0) + 1; });
+  const origens = Object.entries(porOrigem).sort((a, b) => b[1] - a[1]);
+  const linhasOrigem = origens.length === 0
+    ? '<tr><td colspan="3"><div class="celula-vazio">Nenhuma visita nesse período ainda.</div></td></tr>'
+    : origens.map(([o, n]) => '<tr><td class="nome-forte"><span style="display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:8px;background:' + (VS_CORES[o] || '#2F7BFF') + '"></span>' + giroEsc(o) + '</td>' +
+        '<td class="vl-num">' + n + '</td><td class="vl-num">' + pct(n, visitas.length) + '</td></tr>').join('');
+
+  const ultimas = visitas.slice(0, 15).map((r) => {
+    const d = new Date(r.criado_em);
+    return '<tr><td style="white-space:nowrap;">' + d.toLocaleDateString('pt-BR') + ' ' + String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0') + '</td>' +
+      '<td>' + giroEsc(r.origem || 'Direto') + (r.utm_campaign ? ' · ' + giroEsc(r.utm_campaign) : '') + '</td><td>' + giroEsc(r.dispositivo || '—') + '</td><td>' + (r.novo ? 'Primeira vez' : 'Voltou') + '</td></tr>';
+  }).join('') || '<tr><td colspan="4"><div class="celula-vazio">Nenhuma visita ainda.</div></td></tr>';
+
+  const chip = (n, rot) => '<button class="chip' + (dias === n ? ' ativo' : '') + '" onclick="estado.vsDias=' + n + ';irPara(\'visitas-site\')">' + rot + '</button>';
+  const link = (src) => 'https://ulva.com.br/?utm_source=' + src;
+
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Visitas do site', 'Quem entrou no ulva.com.br e de onde veio — sem nome nem IP de ninguém') +
+    '<div class="chips-wrap" style="margin-bottom:16px;">' + chip(7, 'Últimos 7 dias') + chip(30, 'Últimos 30 dias') + chip(90, 'Últimos 90 dias') + '</div>' +
+    '<div class="resumo-perdas">' +
+      '<div class="box"><div class="rotulo">Visitas</div><div class="valor">' + visitas.length + '</div></div>' +
+      '<div class="box"><div class="rotulo">Pessoas diferentes</div><div class="valor">' + unicos + '</div></div>' +
+      '<div class="box"><div class="rotulo">Primeira vez no site</div><div class="valor">' + novos + '</div></div>' +
+      '<div class="box"><div class="rotulo">Pelo celular</div><div class="valor">' + pct(celular, visitas.length) + '</div></div>' +
+    '</div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Visitas por dia</h3></div>' +
+      '<div class="vl-grafico-wrap"><div class="vl-grafico" style="min-width:' + (dias * 14) + 'px">' + barras + '</div></div></div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:18px;margin-top:18px;">' +
+      '<div class="pq-card"><div class="pq-topo"><h3>De onde vieram</h3></div>' +
+        '<div class="tabela-wrap"><table style="min-width:0;width:100%;"><thead><tr><th>Origem</th><th style="text-align:right;">Visitas</th><th style="text-align:right;">%</th></tr></thead><tbody>' + linhasOrigem + '</tbody></table></div></div>' +
+      '<div class="pq-card"><div class="pq-topo"><h3>O que fizeram no site</h3></div>' +
+        '<div class="tabela-wrap"><table style="min-width:0;width:100%;"><tbody>' +
+          '<tr><td class="nome-forte">Clicaram em "Entrar no Portal ULVA"</td><td class="vl-num">' + cliquesUlva + '</td></tr>' +
+          '<tr><td class="nome-forte">Clicaram em "Entrar no Portal ALCATÉIA"</td><td class="vl-num">' + cliquesAlc + '</td></tr>' +
+          '<tr><td class="nome-forte">Clicaram no e-mail de contato</td><td class="vl-num">' + cliquesContato + '</td></tr>' +
+        '</tbody></table></div></div>' +
+    '</div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Últimas visitas</h3></div>' +
+      '<div class="tabela-wrap"><table><thead><tr><th>Quando</th><th>Origem</th><th>Aparelho</th><th></th></tr></thead><tbody>' + ultimas + '</tbody></table></div></div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Links para usar nos posts</h3></div>' +
+      '<div style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">O Instagram e o WhatsApp nem sempre avisam de onde a pessoa veio. Use estes links e a origem aparece certinha aqui:</div>' +
+      ['instagram', 'facebook', 'linkedin', 'whatsapp'].map((s) => '<div style="display:flex;gap:10px;align-items:center;margin:6px 0;flex-wrap:wrap;"><code style="background:var(--surface-2);padding:6px 10px;border-radius:8px;font-size:12.5px;">' + link(s) + '</code>' +
+        '<button class="btn-acao secundario" onclick="navigator.clipboard.writeText(\'' + link(s) + '\');mostrarToast(\'Link copiado\')">Copiar</button></div>').join('') +
+      '<div style="font-size:12.5px;color:var(--text-muted);margin-top:10px;">Para não contar as suas próprias visitas, abra uma vez <b>ulva.com.br/?nao_contar=1</b> em cada celular e computador seu.</div>' +
+    '</div>';
+}
 
 async function paginaPesquisaPreco() {
   estado.ppAberta = null;
