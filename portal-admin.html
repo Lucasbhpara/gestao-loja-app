@@ -8579,7 +8579,8 @@ function renderRevisaoEscala() {
     .filter((c) => c.ativo !== false)
     .sort((a, b) => a.nome.localeCompare(b.nome))
     .map((c) => '<option value="' + c.id + '"' + (c.id === sel ? ' selected' : '') + '>' + c.nome + ' — ' + nomeSetor(c.setor) + '</option>').join('');
-  const pendentes = imp.linhas.map((l, i) => ({ l, i })).filter(({ l }) => l.status !== 'ok');
+  // Fica visível tudo que precisa de atenção: quem não foi achado e quem caiu na mesma pessoa que outra linha.
+  const pendentes = imp.linhas.map((l, i) => ({ l, i })).filter(({ l }) => l.status !== 'ok' || !l.colaboradorId || r.repetidos.includes(l.colaboradorId));
   const conta = (l) => {
     const v = Object.values(l.marcas);
     return v.filter((t) => t === 'folga').length + ' X · ' + v.filter((t) => t === 'folga_feriado').length + ' F';
@@ -8600,13 +8601,13 @@ function renderRevisaoEscala() {
       '<input class="campo-input" style="width:100px;margin:0;" type="number" value="' + imp.ano + '" onchange="importEscala.ano=Number(this.value)" /></div>' +
     (r.repetidos.length ? '<div class="contagem-revisar">Em vermelho: duas linhas da planilha apontam para a mesma pessoa (' + r.repetidos.map(nomeColab).join(', ') + '). Escolha a pessoa certa em uma delas ou marque "não importar".</div>' : '') +
     (pendentes.length
-      ? '<div class="pq-sub" style="margin-top:12px;">Não achei no cadastro (' + pendentes.length + ')</div>' +
-        '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Escolha quem é, ou deixe "não importar" — quem não está cadastrado no ULVA fica de fora.</div>' +
+      ? '<div class="pq-sub" style="margin-top:12px;">Para conferir (' + pendentes.length + ')</div>' +
+        '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Nomes não achados no cadastro e linhas em vermelho (duas linhas na mesma pessoa). Escolha quem é cada um, ou deixe "não importar".</div>' +
         '<div class="tabela-revisao"><table><tbody>' + pendentes.map(linhaRev).join('') + '</tbody></table></div>'
       : '<div class="faixa-checagem ok"><span>✓ Todos os nomes da planilha foram achados no cadastro</span></div>') +
     '<details style="margin-top:14px;"><summary style="cursor:pointer;font-weight:700;font-size:13px;">Ver como cada nome foi reconhecido (' + r.usadas.length + ')</summary>' +
       '<div class="tabela-revisao" style="margin-top:8px;"><table><tbody>' +
-        imp.linhas.map((l, i) => ({ l, i })).filter(({ l }) => l.status === 'ok').map(linhaRev).join('') +
+        imp.linhas.map((l, i) => ({ l, i })).filter(({ l }) => l.status === 'ok' && l.colaboradorId && !r.repetidos.includes(l.colaboradorId)).map(linhaRev).join('') +
       '</tbody></table></div></details>' +
     '<div style="font-size:12px;color:var(--text-muted);margin-top:14px;">Ao confirmar, as folgas desse mês dessas pessoas são trocadas pelas da planilha. Faltas, atestados e férias já lançados não são mexidos.</div>';
 
