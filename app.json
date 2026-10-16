@@ -14,7 +14,7 @@
       "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon-foreground.png",
-        "backgroundColor": "#46FCDF"
+        "backgroundColor": "#0E1B2C"
       },
       "permissions": [
         "android.permission.CAMERA",
@@ -49,9 +49,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/icon.png",
+          "image": "./assets/splash-icon.png",
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF"
+          "imageWidth": 200,
+          "backgroundColor": "#0E1B2C"
         }
       ],
       [
