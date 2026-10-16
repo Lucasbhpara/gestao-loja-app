@@ -6307,10 +6307,18 @@ async function vdCarregar() {
   const dia = estado.vdDia;
   const ant = vlData(vlSomaDias(vlDia(dia), -7));
   const base = { p_ini: dia, p_fim: dia, p_ini_ant: ant, p_fim_ant: ant };
-  const [setores, produtos] = await Promise.all([
+  const dd = vlDia(dia);
+  const mesIni = vlData(new Date(Date.UTC(dd.getUTCFullYear(), dd.getUTCMonth(), 1)));
+  const ultAnt = new Date(Date.UTC(dd.getUTCFullYear(), dd.getUTCMonth(), 0)).getUTCDate();
+  const antIni = vlData(new Date(Date.UTC(dd.getUTCFullYear(), dd.getUTCMonth() - 1, 1)));
+  const antFim = vlData(new Date(Date.UTC(dd.getUTCFullYear(), dd.getUTCMonth() - 1, Math.min(dd.getUTCDate(), ultAnt))));
+  const [setores, produtos, diasMes, diasMesAnt] = await Promise.all([
     vlRpc('vendas_loja_grupos', Object.assign({ p_nivel: 2 }, base)),
     vlRpc('vendas_loja_grupos', Object.assign({ p_nivel: 6 }, base)),
+    vlRpc('vendas_loja_dias', { p_ini: mesIni, p_fim: dia }),
+    vlRpc('vendas_loja_dias', { p_ini: antIni, p_fim: antFim }),
   ]);
+  const acum = { ini: mesIni, fim: dia, antIni, antFim, total: diasMes.reduce((a, x) => a + Number(x.venda), 0), totalAnt: diasMesAnt.reduce((a, x) => a + Number(x.venda), 0), dias: diasMes.length };
   const vendidos = produtos.filter((p) => Number(p.venda) > 0);
   // preço de venda atual (estoque) para estimar o volume
   const cods = vendidos.map((p) => p.chave);
@@ -6330,7 +6338,7 @@ async function vdCarregar() {
     return { codigo: p.chave, nome: p.nome, setor: vdSetor(setorDe[p.chave]), venda: Number(p.venda), vendaAnt: Number(p.venda_ant), preco: pv, qtd: pv ? Number(p.venda) / pv : null, un };
   });
   estado.vdDados = {
-    dia, ant,
+    dia, ant, acum,
     setores: setores.filter((s) => Number(s.venda) > 0 || Number(s.venda_ant) > 0).map((s) => ({ nome: vdSetor(s.chave), venda: Number(s.venda), vendaAnt: Number(s.venda_ant), itens: Number(s.itens) })),
     topValor: [...lista].sort((a, b) => b.venda - a.venda).slice(0, 10),
     topVolume: lista.filter((x) => x.qtd != null).sort((a, b) => b.qtd - a.qtd).slice(0, 10),
@@ -6391,6 +6399,7 @@ function renderizarVendaDia() {
     '<div id="vd-corpo">' +
     '<div class="stats-grid">' +
       '<div class="stat-card"><div class="rotulo">Venda total do dia</div><div class="valor">' + vlBRL2(total) + '</div><div class="legenda">' + vlVar(vlPct(total, totalAnt)) + ' vs ' + vlFmtDia(d.ant) + ' (' + vlBRL(totalAnt) + ')</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Acumulado do mês (' + vlFmtDia(d.acum.ini) + ' a ' + vlFmtDia(d.acum.fim) + ')</div><div class="valor">' + vlBRL(d.acum.total) + '</div><div class="legenda">' + vlVar(vlPct(d.acum.total, d.acum.totalAnt)) + ' vs ' + vlFmtDia(d.acum.antIni) + ' a ' + vlFmtDia(d.acum.antFim) + ' (' + vlBRL(d.acum.totalAnt) + ') · média ' + vlBRL(d.acum.total / (d.acum.dias || 1)) + '/dia</div></div>' +
       '<div class="stat-card"><div class="rotulo">Produtos vendidos</div><div class="valor">' + d.itens.toLocaleString('pt-BR') + '</div><div class="legenda">itens diferentes com venda</div></div>' +
       '<div class="stat-card"><div class="rotulo">Setor que mais vendeu</div><div class="valor" style="font-size:22px;">' + (setores[0] ? vlEsc(setores[0].nome) : '—') + '</div><div class="legenda">' + (setores[0] ? vlBRL(setores[0].venda) + ' · ' + (setores[0].venda / (total || 1) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '% do dia' : '') + '</div></div>' +
     '</div>' +
@@ -6422,6 +6431,7 @@ function vdExportarPdf() {
     '</style></head><body>' +
     '<div class="topo">' + logo + '<div><h1>Venda do dia — ' + vlFmtDia(d.dia) + '</h1><div class="s">' + vdNomeDia(d.dia) + ' · Loja 327 · gerado em ' + new Date().toLocaleString('pt-BR') + '</div></div></div>' +
     '<div class="cards"><div class="card"><div class="r">Venda total</div><div class="v">' + vlBRL2(total) + '</div><div class="l" style="color:' + corVar(total, totalAnt) + '">' + varTxt(total, totalAnt) + ' vs ' + vlFmtDia(d.ant) + ' (' + vlBRL2(totalAnt) + ')</div></div>' +
+      '<div class="card"><div class="r">Acumulado do mês</div><div class="v">' + vlBRL(d.acum.total) + '</div><div class="l" style="color:' + corVar(d.acum.total, d.acum.totalAnt) + '">' + varTxt(d.acum.total, d.acum.totalAnt) + ' vs ' + vlFmtDia(d.acum.antIni) + '–' + vlFmtDia(d.acum.antFim) + ' · ' + vlFmtDia(d.acum.ini) + '–' + vlFmtDia(d.acum.fim) + '</div></div>' +
       '<div class="card"><div class="r">Produtos vendidos</div><div class="v">' + d.itens.toLocaleString('pt-BR') + '</div><div class="l">itens diferentes</div></div>' +
       '<div class="card"><div class="r">Setor que mais vendeu</div><div class="v" style="font-size:15px">' + (setores[0] ? vlEsc(setores[0].nome) : '—') + '</div><div class="l">' + (setores[0] ? vlBRL2(setores[0].venda) : '') + '</div></div></div>' +
     '<h2>Venda por setor</h2><table><thead><tr><th>Setor</th><th class="n">Venda</th><th class="n">% do dia</th><th class="n">vs ' + vlFmtDia(d.ant) + '</th></tr></thead><tbody>' + linhasSetor + '</tbody></table>' +

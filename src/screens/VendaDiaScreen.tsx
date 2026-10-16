@@ -140,6 +140,21 @@ export default function VendaDiaScreen({ onVoltar }: { onVoltar: () => void }) {
                 </Text>
               </View>
             </View>
+            <View style={styles.card}>
+              <Text style={styles.rotulo}>
+                ACUMULADO DO MÊS ({diaMesCurto(dados.acum.ini)} A {diaMesCurto(dados.acum.fim)})
+              </Text>
+              <Text style={styles.kpi}>{reais(dados.acum.total)}</Text>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6, flexWrap: 'wrap' }}>
+                <Selo pct={variacao(dados.acum.total, dados.acum.totalAnt)} />
+                <Text style={styles.legenda}>
+                  vs {diaMesCurto(dados.acum.antIni)} a {diaMesCurto(dados.acum.antFim)} ({reais(dados.acum.totalAnt, 0)})
+                </Text>
+              </View>
+              <Text style={[styles.legenda, { marginTop: 4 }]}>
+                Média de {reais(dados.acum.total / (dados.acum.dias || 1), 0)} por dia · {dados.acum.dias} dias com venda
+              </Text>
+            </View>
             <View style={{ flexDirection: 'row', gap: 12 }}>
               <View style={[styles.card, { flex: 1 }]}>
                 <Text style={styles.rotulo}>PRODUTOS VENDIDOS</Text>

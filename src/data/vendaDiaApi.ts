@@ -19,6 +19,7 @@ export type DadosVendaDia = {
   setores: SetorDia[];
   topValor: ProdutoDia[];
   topVolume: ProdutoDia[];
+  acum: { ini: string; fim: string; antIni: string; antFim: string; total: number; totalAnt: number; dias: number };
 };
 
 const NOME_SETOR: Record<string, string> = {
@@ -62,6 +63,12 @@ export async function limitesVendas(forcar = false): Promise<{ primeiro: string;
   return limites;
 }
 
+async function diasVenda(ini: string, fim: string): Promise<number[]> {
+  const { data, error } = await supabase.rpc('vendas_loja_dias', { p_ini: ini, p_fim: fim });
+  if (error) throw error;
+  return ((data as any[]) || []).map((x) => Number(x.venda));
+}
+
 async function grupos(dia: string, ant: string, nivel: number) {
   const { data, error } = await supabase.rpc('vendas_loja_grupos', { p_ini: dia, p_fim: dia, p_ini_ant: ant, p_fim_ant: ant, p_nivel: nivel });
   if (error) throw error;
@@ -75,7 +82,13 @@ export async function carregarVendaDia(dia: string | null, forcar = false): Prom
   if (d > lim.ultimo) d = lim.ultimo;
   if (d < lim.primeiro) d = lim.primeiro;
   const ant = somarDiasIso(d, -7);
-  const [setores, produtos] = await Promise.all([grupos(d, ant, 2), grupos(d, ant, 6)]);
+  const [ay, am, ad] = d.split('-').map(Number);
+  const mesIni = new Date(Date.UTC(ay, am - 1, 1)).toISOString().slice(0, 10);
+  const ultAnt = new Date(Date.UTC(ay, am - 1, 0)).getUTCDate();
+  const antIni = new Date(Date.UTC(ay, am - 2, 1)).toISOString().slice(0, 10);
+  const antFim = new Date(Date.UTC(ay, am - 2, Math.min(ad, ultAnt))).toISOString().slice(0, 10);
+  const [setores, produtos, dm, dmA] = await Promise.all([grupos(d, ant, 2), grupos(d, ant, 6), diasVenda(mesIni, d), diasVenda(antIni, antFim)]);
+  const acum = { ini: mesIni, fim: d, antIni, antFim, total: dm.reduce((a, x) => a + x, 0), totalAnt: dmA.reduce((a, x) => a + x, 0), dias: dm.length };
   const vendidos = produtos.filter((p) => p.venda > 0);
   const cods = vendidos.map((p) => p.chave);
   const preco: Record<string, number> = {};
@@ -112,6 +125,7 @@ export async function carregarVendaDia(dia: string | null, forcar = false): Prom
   return {
     dia: d,
     ant,
+    acum,
     primeiro: lim.primeiro,
     ultimo: lim.ultimo,
     total: setores.reduce((a, s) => a + s.venda, 0),
@@ -181,6 +195,7 @@ h2{font-size:12.5px;margin:12px 0 4px}table{width:100%;border-collapse:collapse}
 </style></head><body>
 <div class="topo">${logo}<div><h1>Venda do dia — ${diaMesCurto(d.dia)}</h1><div class="s">${nomeDia(d.dia)} · Loja 327 · gerado em ${new Date().toLocaleString('pt-BR')}</div></div></div>
 <div class="cards"><div class="card"><div class="r">Venda total</div><div class="v">${reais(d.total)}</div><div class="l" style="color:${cor(d.total, d.totalAnt)}">${varTxt(d.total, d.totalAnt)} vs ${diaMesCurto(d.ant)} (${reais(d.totalAnt)})</div></div>
+<div class="card"><div class="r">Acumulado do mês</div><div class="v">${reais(d.acum.total, 0)}</div><div class="l" style="color:${cor(d.acum.total, d.acum.totalAnt)}">${varTxt(d.acum.total, d.acum.totalAnt)} vs ${diaMesCurto(d.acum.antIni)}–${diaMesCurto(d.acum.antFim)} · ${diaMesCurto(d.acum.ini)}–${diaMesCurto(d.acum.fim)}</div></div>
 <div class="card"><div class="r">Produtos vendidos</div><div class="v">${d.itens.toLocaleString('pt-BR')}</div><div class="l">itens diferentes</div></div>
 <div class="card"><div class="r">Setor que mais vendeu</div><div class="v" style="font-size:15px">${s0 ? esc(s0.nome) : '—'}</div><div class="l">${s0 ? reais(s0.venda) : ''}</div></div></div>
 <h2>Venda por setor</h2><table><thead><tr><th>Setor</th><th class="n">Venda</th><th class="n">% do dia</th><th class="n">vs ${diaMesCurto(d.ant)}</th></tr></thead><tbody>${linhasSetor}</tbody></table>
