@@ -874,6 +874,7 @@
         <button class="nav-item" data-pagina="perdas" onclick="irPara('perdas')"><span class="dot"></span>Perdas e Desperdícios</button>
         <button class="nav-item" data-pagina="validade" onclick="irPara('validade')"><span class="dot"></span>Validade</button>
         <button class="nav-item" id="nav-vendas-loja" style="display:none" data-pagina="vendas-loja" onclick="irPara('vendas-loja')"><span class="dot"></span>Vendas da Loja</button>
+        <button class="nav-item" id="nav-venda-dia" style="display:none" data-pagina="venda-dia" onclick="irPara('venda-dia')"><span class="dot"></span>Venda do dia</button>
         <button class="nav-item" data-pagina="vendas" onclick="irPara('vendas')"><span class="dot"></span>Vendas</button>
         <button class="nav-item" data-pagina="vendas-comparativo" onclick="irPara('vendas-comparativo')"><span class="dot"></span>Comparativo de Vendas</button>
         <button class="nav-item" id="nav-giro-produtos" style="display:none" data-pagina="giro-produtos" onclick="irPara('giro-produtos')"><span class="dot"></span>Giro de Produtos</button>
@@ -1124,6 +1125,7 @@ async function fazerLogin() {
     // Giro de Produtos e Importar vendas: Lucas, Rodrigo e Valmir.
     document.getElementById('nav-giro-produtos').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-vendas-loja').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
+    document.getElementById('nav-venda-dia').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-importar-vendas').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-visitas-site').style.display = String(encontrado.matricula) === '7990353' ? '' : 'none';
     irPara('equipe');
@@ -1155,7 +1157,7 @@ function iniciais(nome) {
 const GAVETA_POR_PAGINA = {
   equipe: 'colaboradores', escala: 'colaboradores', 'historico-faltas': 'colaboradores',
   avisos: 'avisos', ocorrencias: 'avisos',
-  perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'visitas-site': 'indicadores',
+  perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'venda-dia': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'visitas-site': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
   pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', chegadas: 'ofertas', 'pontas-extras': 'operacao',
 };
@@ -1210,6 +1212,7 @@ async function irPara(pagina) {
     else if (pagina === 'vendas-comparativo') await paginaVendasComparativo();
     else if (pagina === 'giro-produtos') await paginaGiroProdutos();
     else if (pagina === 'vendas-loja') await paginaVendasLoja();
+    else if (pagina === 'venda-dia') await paginaVendaDia();
     else if (pagina === 'importar-vendas') await paginaImportarVendas();
     else if (pagina === 'painel-resultados') await paginaPainelResultados();
     else if (pagina === 'acessos') await paginaAcessos();
@@ -6256,6 +6259,181 @@ async function vlRpc(nome, args) {
   return data || [];
 }
 
+// =====================================================================
+// Venda do dia — painel de um dia escolhido: venda total, por setor, top 10
+// em valor e top 10 em volume, com exportação em PDF. Usa as vendas que já
+// são importadas pelo "Importar vendas (Falcon)" (vendas_diarias).
+// A planilha do Falcon só traz o VALOR vendido; o volume é estimado
+// dividindo o valor pelo preço de venda atual do produto.
+// =====================================================================
+const VD_SETOR_NOME = {
+  'PERECIVEIS': 'Frios e Laticínios', 'MERCEARIA LIQUIDA': 'Bebidas', 'ACOUGUE/SALGADOS/DEFUMADO': 'Açougue',
+  'BOMBONIERE/MATINAIS': 'Bomboniere e Matinais', 'PERFUMARIA/HIG PESSOAL': 'Higiene e Perfumaria', 'PADARIA FORN/FAB PROPRIA': 'Padaria',
+  'MERCEARIA SALGADA': 'Mercearia Salgada', 'MERCEARIA DOCE': 'Mercearia Doce', 'BAZAR': 'Bazar', 'LIMPEZA': 'Limpeza', 'CEREAIS': 'Cereais',
+  'HORTIFRUTIGRANJEIROS': 'Hortifrúti', 'MARGEM GARANTIDA': 'Hortifrúti (margem garantida)', 'MARGEM GARANTIDA BAZAR': 'Bazar (margem garantida)',
+  'SEM CLASSIFICACAO': 'Sem classificação',
+};
+const VD_CORES = ['#2F7BFF', '#1FA56A', '#8B6CFF', '#F2A600', '#E14337', '#14A3B5', '#E8710A', '#5B6577'];
+function vdSetor(c2) { return VD_SETOR_NOME[c2] || (c2 ? c2.charAt(0) + c2.slice(1).toLowerCase() : 'Sem classificação'); }
+function vdNomeDia(s) { const d = vlDia(s); return ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'][d.getUTCDay()] + ', ' + d.getUTCDate() + ' de ' + ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'][d.getUTCMonth()] + ' de ' + d.getUTCFullYear(); }
+function vdUn(nome) { return /\bKG\b/i.test(nome || '') ? 'kg' : 'un'; }
+function vdQtd(q, un) { return q == null ? '—' : q.toLocaleString('pt-BR', { maximumFractionDigits: un === 'kg' ? 1 : 0 }) + ' ' + un; }
+
+async function paginaVendaDia() {
+  const el = document.getElementById('conteudo-principal');
+  if (!estado.usuario || !MATRICULAS_GIRO.includes(String(estado.usuario.matricula))) {
+    el.innerHTML = cabecalho('Venda do dia', '') + '<div class="celula-vazio">Página ainda não liberada para o seu acesso.</div>';
+    return;
+  }
+  el.innerHTML = cabecalho('Venda do dia', 'Painel de um dia: total, setores e os produtos que mais venderam') + '<div class="carregando">Carregando as vendas…</div>';
+  try {
+    if (!estado.vdUltimo) {
+      const [{ data: u, error }, { data: p }] = await Promise.all([
+        sb.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: false }).limit(1),
+        sb.from('vendas_diarias').select('data_venda').order('data_venda', { ascending: true }).limit(1),
+      ]);
+      if (error) throw error;
+      if (!u || !u.length) { el.innerHTML = cabecalho('Venda do dia', '') + '<div class="celula-vazio">Ainda não há vendas no banco. Suba as vendas pelo “Importar vendas (Falcon)”.</div>'; return; }
+      estado.vdUltimo = u[0].data_venda; estado.vdPrimeiro = p && p.length ? p[0].data_venda : u[0].data_venda;
+    }
+    if (!estado.vdDia) estado.vdDia = estado.vdUltimo;
+    await vdCarregar();
+  } catch (e) {
+    el.innerHTML = cabecalho('Venda do dia', '') + '<div class="celula-vazio">Não consegui carregar: ' + vlEsc(e.message || '') + '</div>';
+  }
+}
+
+async function vdCarregar() {
+  const dia = estado.vdDia;
+  const ant = vlData(vlSomaDias(vlDia(dia), -7));
+  const base = { p_ini: dia, p_fim: dia, p_ini_ant: ant, p_fim_ant: ant };
+  const [setores, produtos] = await Promise.all([
+    vlRpc('vendas_loja_grupos', Object.assign({ p_nivel: 2 }, base)),
+    vlRpc('vendas_loja_grupos', Object.assign({ p_nivel: 6 }, base)),
+  ]);
+  const vendidos = produtos.filter((p) => Number(p.venda) > 0);
+  // preço de venda atual (estoque) para estimar o volume
+  const cods = vendidos.map((p) => p.chave);
+  const preco = {}, setorDe = {};
+  for (let i = 0; i < cods.length; i += 300) {
+    const parte = cods.slice(i, i + 300);
+    const [r1, r2] = await Promise.all([
+      sb.from('estoque_loja_itens').select('codigo_interno,preco_venda').in('codigo_interno', parte),
+      sb.from('produtos_classes').select('codigo_produto,preco_venda,classe_2_nome').in('codigo_produto', parte),
+    ]);
+    (r2.data || []).forEach((x) => { if (Number(x.preco_venda) > 0) preco[x.codigo_produto] = Number(x.preco_venda); setorDe[x.codigo_produto] = x.classe_2_nome; });
+    (r1.data || []).forEach((x) => { if (Number(x.preco_venda) > 0) preco[x.codigo_interno] = Number(x.preco_venda); });
+  }
+  const lista = vendidos.map((p) => {
+    const pv = preco[p.chave] || null;
+    const un = vdUn(p.nome);
+    return { codigo: p.chave, nome: p.nome, setor: vdSetor(setorDe[p.chave]), venda: Number(p.venda), vendaAnt: Number(p.venda_ant), preco: pv, qtd: pv ? Number(p.venda) / pv : null, un };
+  });
+  estado.vdDados = {
+    dia, ant,
+    setores: setores.filter((s) => Number(s.venda) > 0 || Number(s.venda_ant) > 0).map((s) => ({ nome: vdSetor(s.chave), venda: Number(s.venda), vendaAnt: Number(s.venda_ant), itens: Number(s.itens) })),
+    topValor: [...lista].sort((a, b) => b.venda - a.venda).slice(0, 10),
+    topVolume: lista.filter((x) => x.qtd != null).sort((a, b) => b.qtd - a.qtd).slice(0, 10),
+    itens: lista.length,
+    semPreco: lista.filter((x) => x.qtd == null).length,
+  };
+  renderizarVendaDia();
+}
+
+function vdMudarDia(v) {
+  if (!v) return;
+  if (v > estado.vdUltimo) v = estado.vdUltimo;
+  if (estado.vdPrimeiro && v < estado.vdPrimeiro) v = estado.vdPrimeiro;
+  estado.vdDia = v;
+  const corpo = document.getElementById('vd-corpo');
+  if (corpo) corpo.style.opacity = '.45';
+  vdCarregar().catch((e) => { mostrarToast('Não consegui carregar: ' + (e.message || ''), 'erro'); if (corpo) corpo.style.opacity = '1'; });
+}
+function vdPasso(n) { vdMudarDia(vlData(vlSomaDias(vlDia(estado.vdDia), n))); }
+
+function vdResumo() {
+  const d = estado.vdDados;
+  const total = d.setores.reduce((a, s) => a + s.venda, 0);
+  const totalAnt = d.setores.reduce((a, s) => a + s.vendaAnt, 0);
+  const setores = [...d.setores].filter((s) => s.venda > 0).sort((a, b) => b.venda - a.venda);
+  return { total, totalAnt, setores };
+}
+
+function renderizarVendaDia() {
+  const d = estado.vdDados;
+  const { total, totalAnt, setores } = vdResumo();
+  const max = setores.length ? setores[0].venda : 1;
+  const barras = setores.map((s, i) => {
+    const pct = total ? (s.venda / total) * 100 : 0;
+    return '<div style="display:grid;grid-template-columns:minmax(120px,190px) 1fr auto;gap:12px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">' +
+      '<div style="font-weight:700;font-size:13px;">' + vlEsc(s.nome) + '</div>' +
+      '<div style="height:12px;background:var(--surface-2);border-radius:6px;overflow:hidden;"><div style="height:100%;width:' + (s.venda / max * 100) + '%;background:' + VD_CORES[i % VD_CORES.length] + ';border-radius:6px;"></div></div>' +
+      '<div style="text-align:right;font-variant-numeric:tabular-nums;font-size:13px;white-space:nowrap;"><b>' + vlBRL(s.venda) + '</b> <span style="color:var(--text-muted);">' + pct.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%</span> ' + vlVar(vlPct(s.venda, s.vendaAnt)) + '</div></div>';
+  }).join('');
+  const tabela = (lista, tipo) => '<div class="tabela-wrap"><table style="min-width:0;width:100%;"><thead><tr><th style="width:28px;">#</th><th>Produto</th><th style="text-align:right;">' + (tipo === 'valor' ? 'Venda' : 'Volume (aprox.)') + '</th><th style="text-align:right;">' + (tipo === 'valor' ? 'Volume (aprox.)' : 'Venda') + '</th></tr></thead><tbody>' +
+    lista.map((p, i) => '<tr><td style="color:var(--text-muted);font-weight:700;">' + (i + 1) + '</td><td class="nome-forte">' + vlEsc(p.nome) + '<div style="font-size:11px;color:var(--text-muted);font-weight:500;">' + vlEsc(p.setor) + ' · cód. ' + vlEsc(p.codigo) + '</div></td>' +
+      (tipo === 'valor'
+        ? '<td class="vl-num"><b>' + vlBRL2(p.venda) + '</b></td><td class="vl-num">' + vdQtd(p.qtd, p.un) + '</td>'
+        : '<td class="vl-num"><b>' + vdQtd(p.qtd, p.un) + '</b></td><td class="vl-num">' + vlBRL2(p.venda) + '</td>') + '</tr>').join('') +
+    (lista.length ? '' : '<tr><td colspan="4"><div class="celula-vazio">Sem vendas nesse dia.</div></td></tr>') + '</tbody></table></div>';
+
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Venda do dia', 'Painel de um dia: total, setores e os produtos que mais venderam') +
+    '<div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center;">' +
+      '<div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">' +
+        '<button class="chip" onclick="vdPasso(-1)"' + (d.dia <= estado.vdPrimeiro ? ' disabled' : '') + '>‹</button>' +
+        '<input type="date" class="campo-input" style="margin:0;width:auto;" value="' + d.dia + '" min="' + estado.vdPrimeiro + '" max="' + estado.vdUltimo + '" onchange="vdMudarDia(this.value)">' +
+        '<button class="chip" onclick="vdPasso(1)"' + (d.dia >= estado.vdUltimo ? ' disabled' : '') + '>›</button>' +
+        '<b style="font-size:14px;">' + vdNomeDia(d.dia) + '</b>' +
+      '</div>' +
+      '<button class="btn-acao" onclick="vdExportarPdf()">⬇ Exportar PDF</button>' +
+    '</div>' +
+    '<div id="vd-corpo">' +
+    '<div class="stats-grid">' +
+      '<div class="stat-card"><div class="rotulo">Venda total do dia</div><div class="valor">' + vlBRL2(total) + '</div><div class="legenda">' + vlVar(vlPct(total, totalAnt)) + ' vs ' + vlFmtDia(d.ant) + ' (' + vlBRL(totalAnt) + ')</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Produtos vendidos</div><div class="valor">' + d.itens.toLocaleString('pt-BR') + '</div><div class="legenda">itens diferentes com venda</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Setor que mais vendeu</div><div class="valor" style="font-size:22px;">' + (setores[0] ? vlEsc(setores[0].nome) : '—') + '</div><div class="legenda">' + (setores[0] ? vlBRL(setores[0].venda) + ' · ' + (setores[0].venda / (total || 1) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '% do dia' : '') + '</div></div>' +
+    '</div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Venda por setor</h3><span style="font-size:12px;color:var(--text-muted);">variação vs mesmo dia da semana passada</span></div>' + (barras || '<div class="celula-vazio">Sem vendas nesse dia.</div>') + '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(420px,1fr));gap:18px;margin-top:18px;">' +
+      '<div class="pq-card"><div class="pq-topo"><h3>Top 10 em valor</h3></div>' + tabela(d.topValor, 'valor') + '</div>' +
+      '<div class="pq-card"><div class="pq-topo"><h3>Top 10 em volume</h3></div>' + tabela(d.topVolume, 'volume') + '</div>' +
+    '</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-top:10px;">Volume aproximado: a planilha do Falcon traz só o valor vendido, então as unidades (ou kg) são calculadas dividindo o valor pelo preço de venda atual.' + (d.semPreco ? ' ' + d.semPreco + ' produto(s) sem preço ficaram fora do ranking de volume.' : '') + '</div>' +
+    '</div>';
+}
+
+function vdExportarPdf() {
+  const d = estado.vdDados;
+  if (!d) return;
+  const { total, totalAnt, setores } = vdResumo();
+  const varTxt = (a, b) => { const p = vlPct(a, b); return p == null || !isFinite(p) ? '—' : (p > 0 ? '+' : '') + p.toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%'; };
+  const corVar = (a, b) => { const p = vlPct(a, b); return p == null ? '#5B6577' : p >= 0 ? '#1E8E5A' : '#C0392B'; };
+  const linhasSetor = setores.map((s) => '<tr><td>' + vlEsc(s.nome) + '</td><td class="n">' + vlBRL2(s.venda) + '</td><td class="n">' + (s.venda / (total || 1) * 100).toLocaleString('pt-BR', { maximumFractionDigits: 1 }) + '%</td><td class="n" style="color:' + corVar(s.venda, s.vendaAnt) + '">' + varTxt(s.venda, s.vendaAnt) + '</td></tr>').join('');
+  const top = (lista, tipo) => lista.map((p, i) => '<tr><td class="pos">' + (i + 1) + '</td><td>' + vlEsc(p.nome) + '<div class="sub">' + vlEsc(p.setor) + '</div></td>' +
+    (tipo === 'valor' ? '<td class="n"><b>' + vlBRL2(p.venda) + '</b></td><td class="n">' + vdQtd(p.qtd, p.un) + '</td>' : '<td class="n"><b>' + vdQtd(p.qtd, p.un) + '</b></td><td class="n">' + vlBRL2(p.venda) + '</td>') + '</tr>').join('');
+  const logo = '<svg width="34" height="34" viewBox="0 0 160 160"><rect width="160" height="160" rx="36" fill="#0E1B2C"/><path d="M42 36 V84 A38 38 0 0 0 118 84 V36" fill="none" stroke="#F4F5F7" stroke-width="20" stroke-linecap="round"/><circle cx="80" cy="74" r="15" fill="#2F7BFF"/></svg>';
+  const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Venda do dia ' + vlFmtDia(d.dia) + '</title><style>' +
+    '@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#0E1B2C;margin:0;font-size:10px}' +
+    '.topo{display:flex;align-items:center;gap:12px;border-bottom:3px solid #0E1B2C;padding-bottom:10px;margin-bottom:14px}.topo h1{font-size:20px;margin:0}.topo .s{color:#5B6577;font-size:12px;margin-top:2px}' +
+    '.cards{display:flex;gap:10px;margin-bottom:14px}.card{flex:1;border:1px solid #D5DBE5;border-radius:10px;padding:10px 12px}.card .r{font-size:10.5px;color:#5B6577;text-transform:uppercase;letter-spacing:.04em;font-weight:700}.card .v{font-size:20px;font-weight:800;margin-top:4px}.card .l{font-size:10.5px;color:#5B6577;margin-top:2px}' +
+    'h2{font-size:12.5px;margin:12px 0 4px}table{width:100%;border-collapse:collapse}th{text-align:left;font-size:9px;text-transform:uppercase;color:#5B6577;border-bottom:1.5px solid #0E1B2C;padding:4px 5px}td{padding:3px 5px;border-bottom:1px solid #E4E8EF;vertical-align:top}tr{page-break-inside:avoid}.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.pos{color:#5B6577;font-weight:700;width:22px}.sub{font-size:8.5px;color:#5B6577}' +
+    '.duas{display:flex;gap:14px}.duas>div{flex:1}.rod{margin-top:14px;font-size:9.5px;color:#5B6577;border-top:1px solid #D5DBE5;padding-top:6px}' +
+    '</style></head><body>' +
+    '<div class="topo">' + logo + '<div><h1>Venda do dia — ' + vlFmtDia(d.dia) + '</h1><div class="s">' + vdNomeDia(d.dia) + ' · Loja 327 · gerado em ' + new Date().toLocaleString('pt-BR') + '</div></div></div>' +
+    '<div class="cards"><div class="card"><div class="r">Venda total</div><div class="v">' + vlBRL2(total) + '</div><div class="l" style="color:' + corVar(total, totalAnt) + '">' + varTxt(total, totalAnt) + ' vs ' + vlFmtDia(d.ant) + ' (' + vlBRL2(totalAnt) + ')</div></div>' +
+      '<div class="card"><div class="r">Produtos vendidos</div><div class="v">' + d.itens.toLocaleString('pt-BR') + '</div><div class="l">itens diferentes</div></div>' +
+      '<div class="card"><div class="r">Setor que mais vendeu</div><div class="v" style="font-size:15px">' + (setores[0] ? vlEsc(setores[0].nome) : '—') + '</div><div class="l">' + (setores[0] ? vlBRL2(setores[0].venda) : '') + '</div></div></div>' +
+    '<h2>Venda por setor</h2><table><thead><tr><th>Setor</th><th class="n">Venda</th><th class="n">% do dia</th><th class="n">vs ' + vlFmtDia(d.ant) + '</th></tr></thead><tbody>' + linhasSetor + '</tbody></table>' +
+    '<div class="duas"><div><h2>Top 10 em valor</h2><table><thead><tr><th></th><th>Produto</th><th class="n">Venda</th><th class="n">Volume*</th></tr></thead><tbody>' + top(d.topValor, 'valor') + '</tbody></table></div>' +
+      '<div><h2>Top 10 em volume*</h2><table><thead><tr><th></th><th>Produto</th><th class="n">Volume*</th><th class="n">Venda</th></tr></thead><tbody>' + top(d.topVolume, 'volume') + '</tbody></table></div></div>' +
+    '<div class="rod">* Volume aproximado: valor vendido ÷ preço de venda atual (a planilha do Falcon traz só o valor). Variação comparada com o mesmo dia da semana anterior. ULVA · A loja inteira na palma da mão.</div>' +
+    '<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>';
+  const w = window.open('', '_blank');
+  if (!w) { mostrarToast('O navegador bloqueou a janela do PDF. Libere pop-ups para este site e tente de novo.', 'erro'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
 async function paginaVendasLoja() {
   const el = document.getElementById('conteudo-principal');
   if (!estado.usuario || !MATRICULAS_GIRO.includes(String(estado.usuario.matricula))) {
@@ -6322,6 +6500,7 @@ function renderizarVendasLoja() {
 
   const periodos = '<div class="chips-wrap vl-periodos">' + VL_PERIODOS.map(([k, t]) =>
     '<button class="chip' + (f.tipo === k ? ' ativo' : '') + '" onclick="vlMudarPeriodo(\'' + k + '\')">' + t + '</button>').join('') +
+    '<button class="btn-acao secundario" onclick="irPara(\'venda-dia\')">📅 Venda do dia</button>' +
     '<button class="btn-acao secundario vl-atualizar" onclick="vlAtualizar()">↻ Atualizar</button></div>';
 
   const cards = '<div class="stats-grid">' +
