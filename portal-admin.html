@@ -873,6 +873,7 @@
       <div class="nav-gaveta-itens">
         <button class="nav-item" data-pagina="perdas" onclick="irPara('perdas')"><span class="dot"></span>Perdas e Desperdícios</button>
         <button class="nav-item" data-pagina="validade" onclick="irPara('validade')"><span class="dot"></span>Validade</button>
+        <button class="nav-item" data-pagina="olho-validade" onclick="irPara('olho-validade')"><span class="dot"></span>De olho na validade</button>
         <button class="nav-item" id="nav-vendas-loja" style="display:none" data-pagina="vendas-loja" onclick="irPara('vendas-loja')"><span class="dot"></span>Vendas da Loja</button>
         <button class="nav-item" id="nav-venda-dia" style="display:none" data-pagina="venda-dia" onclick="irPara('venda-dia')"><span class="dot"></span>Venda do dia</button>
         <button class="nav-item" data-pagina="vendas" onclick="irPara('vendas')"><span class="dot"></span>Vendas</button>
@@ -997,6 +998,7 @@ const FERRAMENTAS_APP = [
   { chave: 'usoConsumo', nome: 'Uso e Consumo' },
   { chave: 'ofertas', nome: 'Ofertas (WhatsApp e Estoque do Jornal)' },
   { chave: 'chegadas', nome: 'Chegou hoje (mercadoria do CD)' },
+  { chave: 'olhoValidade', nome: 'De olho na validade' },
 ];
 
 // Os setores atendidos pelo Checklist de Setor (avaliação diária de
@@ -1223,6 +1225,7 @@ async function irPara(pagina) {
     else if (pagina === 'estoque-jornal') await paginaEstoqueJornal();
     else if (pagina === 'pesquisa-preco') await paginaPesquisaPreco();
     else if (pagina === 'chegadas') await paginaChegadas();
+    else if (pagina === 'olho-validade') await paginaOlhoValidade();
     else if (pagina === 'visitas-site') await paginaVisitasSite();
   } catch (e) {
     el.innerHTML = '<div class="celula-vazio">Não consegui carregar essa página: ' + (e.message || '') + '</div>';
@@ -2028,6 +2031,150 @@ async function excluirChegada(id) {
   if (error) { mostrarToast('Não consegui excluir: ' + error.message, 'erro'); return; }
   mostrarToast('Nota excluída.');
   irPara('chegadas');
+}
+
+// ============================================================================
+// DE OLHO NA VALIDADE — painel das ocorrências registradas no app
+// (cliente encontrou produto vencido). Copiado do Prevenção SBH.
+// ============================================================================
+const OV_PERIODOS = [{ dias: 30, texto: 'Últimos 30 dias' }, { dias: 90, texto: 'Últimos 3 meses' }, { dias: 180, texto: 'Últimos 6 meses' }, { dias: 365, texto: 'Último ano' }];
+const OV_PAPEIS = { registrou: 'Quem registrou', gerente: 'Gerente da loja', responsavel_setor: 'Responsável do setor' };
+const ovBRL = (n) => n == null || isNaN(n) ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const ovNum = (n) => Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+const ovPct = (a, b) => b ? Math.round((a / b) * 100) + '%' : '—';
+const ovData = (iso) => iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';
+
+async function paginaOlhoValidade() {
+  if (!estado.ovDias) estado.ovDias = 90;
+  estado.ovSetor = estado.ovSetor || '';
+  const el = document.getElementById('conteudo-principal');
+  el.innerHTML = cabecalho('De olho na validade', 'Produtos vencidos encontrados por clientes · registrados no app') + '<div class="celula-vazio">Carregando as ocorrências…</div>';
+  const desde = new Date(Date.now() - estado.ovDias * 86400000).toISOString();
+  const { data, error } = await sb.from('olho_validade').select('*').gte('criado_em', desde).order('criado_em', { ascending: false }).limit(2000);
+  if (error) {
+    el.innerHTML = cabecalho('De olho na validade', 'Produtos vencidos encontrados por clientes') +
+      '<div class="celula-vazio">' + (/olho_validade/.test(error.message) ? 'A tabela ainda não existe. Rode o arquivo <b>supabase/olho_validade.sql</b> no SQL Editor do Supabase.' : giroEsc(error.message)) + '</div>';
+    return;
+  }
+  estado.ovLista = (data || []).map((o) => ({ ...o, valor_retirado: Number(o.valor_retirado || 0), qtd_encontrada: Number(o.qtd_encontrada || 0), valor_unitario: o.valor_unitario == null ? null : Number(o.valor_unitario), cupom_total: o.cupom_total == null ? null : Number(o.cupom_total) }));
+  renderizarOlhoValidade();
+}
+
+function ovFiltrada() {
+  return (estado.ovLista || []).filter((o) => !estado.ovSetor || o.setor === estado.ovSetor);
+}
+
+function renderizarOlhoValidade() {
+  const todas = estado.ovLista || [];
+  const lista = ovFiltrada();
+  const total = lista.length;
+  const valor = lista.reduce((a, o) => a + o.valor_retirado, 0);
+  const unidades = lista.reduce((a, o) => a + o.qtd_encontrada, 0);
+  const blitz = lista.filter((o) => o.estava_na_blitz).length;
+  const retirado = lista.filter((o) => o.restante_retirado).length;
+  const setores = Array.from(new Set(todas.map((o) => o.setor))).sort();
+
+  // por mês
+  const meses = {};
+  lista.forEach((o) => { const k = o.criado_em.slice(0, 7); (meses[k] = meses[k] || { valor: 0, n: 0 }); meses[k].valor += o.valor_retirado; meses[k].n++; });
+  const chavesMes = Object.keys(meses).sort();
+  const maxMes = Math.max(1, ...chavesMes.map((k) => meses[k].valor));
+  const nomeMes = (k) => { const [a, m] = k.split('-'); return ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][Number(m) - 1] + '/' + a.slice(2); };
+  const graficoMes = chavesMes.length ? '<div style="display:flex;align-items:flex-end;gap:10px;height:170px;padding-top:10px;">' + chavesMes.map((k) =>
+    '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;">' +
+      '<div style="font-size:11px;font-weight:700;white-space:nowrap;">' + ovBRL(meses[k].valor) + '</div>' +
+      '<div title="' + meses[k].n + ' ocorrência(s)" style="width:100%;max-width:56px;height:' + Math.max(4, meses[k].valor / maxMes * 110) + 'px;background:#2F7BFF;border-radius:6px 6px 2px 2px;"></div>' +
+      '<div style="font-size:11px;color:var(--text-muted);">' + nomeMes(k) + '</div></div>').join('') + '</div>' : '<div class="celula-vazio">Sem ocorrências no período.</div>';
+
+  // ranking de setores e produtos
+  const ranking = (chave) => {
+    const m = {};
+    lista.forEach((o) => { const k = o[chave]; (m[k] = m[k] || { nome: k, valor: 0, n: 0 }); m[k].valor += o.valor_retirado; m[k].n++; });
+    return Object.values(m).sort((a, b) => b.valor - a.valor || b.n - a.n);
+  };
+  const barras = (itens, cor) => {
+    if (!itens.length) return '<div class="celula-vazio">Sem ocorrências no período.</div>';
+    const max = Math.max(1, itens[0].valor);
+    return itens.slice(0, 10).map((s) =>
+      '<div style="display:grid;grid-template-columns:minmax(110px,200px) 1fr auto;gap:12px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">' +
+        '<div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + giroEsc(s.nome) + '">' + giroEsc(s.nome) + '</div>' +
+        '<div style="height:12px;background:var(--surface-2);border-radius:6px;overflow:hidden;"><div style="height:100%;width:' + (s.valor / max * 100) + '%;background:' + cor + ';border-radius:6px;"></div></div>' +
+        '<div style="text-align:right;font-size:13px;white-space:nowrap;"><b>' + ovBRL(s.valor) + '</b> <span style="color:var(--text-muted);">' + s.n + 'x</span></div></div>').join('');
+  };
+
+  const linhas = lista.map((o, i) =>
+    '<tr style="cursor:pointer;" onclick="ovAbrir(\'' + o.id + '\')">' +
+      '<td>' + ovData(o.criado_em) + '</td>' +
+      '<td class="nome-forte">' + giroEsc(o.produto_descricao) + (o.produto_codigo ? '<div style="font-size:11px;color:var(--text-muted);font-weight:500;">cód. ' + giroEsc(o.produto_codigo) + '</div>' : '') + '</td>' +
+      '<td>' + giroEsc(o.setor) + '</td>' +
+      '<td style="text-align:right;">' + ovNum(o.qtd_encontrada) + '</td>' +
+      '<td style="text-align:right;"><b>' + ovBRL(o.valor_retirado) + '</b></td>' +
+      '<td>' + (o.estava_na_blitz ? '<span style="color:#C0392B;font-weight:700;">Sim</span>' : 'Não') + '</td>' +
+      '<td>' + (o.restante_retirado ? 'Sim' : '<span style="color:#C0392B;font-weight:700;">Não</span>') + '</td>' +
+      '<td>' + giroEsc(o.registrado_por_nome || '—') + '</td></tr>').join('');
+
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('De olho na validade', 'Produtos vencidos encontrados por clientes · registrados no app') +
+    '<div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center;">' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+        '<select class="campo-input" style="margin:0;width:auto;" onchange="estado.ovDias=Number(this.value);paginaOlhoValidade()">' + OV_PERIODOS.map((p) => '<option value="' + p.dias + '"' + (p.dias === estado.ovDias ? ' selected' : '') + '>' + p.texto + '</option>').join('') + '</select>' +
+        '<select class="campo-input" style="margin:0;width:auto;" onchange="estado.ovSetor=this.value;renderizarOlhoValidade()"><option value="">Todos os setores</option>' + setores.map((s) => '<option' + (s === estado.ovSetor ? ' selected' : '') + '>' + giroEsc(s) + '</option>').join('') + '</select>' +
+      '</div>' +
+      '<button class="btn-acao" onclick="ovExportar()"' + (total ? '' : ' disabled') + '>⬇ Exportar planilha</button>' +
+    '</div>' +
+    '<div class="stats-grid">' +
+      '<div class="stat-card"><div class="rotulo">Ocorrências</div><div class="valor">' + total + '</div><div class="legenda">clientes que acharam produto vencido</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Valor retirado</div><div class="valor">' + ovBRL(valor) + '</div><div class="legenda">' + (total ? 'média ' + ovBRL(valor / total) + ' por ocorrência' : '') + '</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Unidades retiradas</div><div class="valor">' + ovNum(unidades) + '</div><div class="legenda">encontradas na área de venda</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Estavam na blitz</div><div class="valor" style="color:' + (blitz ? '#C0392B' : 'inherit') + ';">' + ovPct(blitz, total) + '</div><div class="legenda">' + blitz + ' de ' + total + ' · restante retirado em ' + ovPct(retirado, total) + '</div></div>' +
+    '</div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Valor retirado por mês</h3></div>' + graficoMes + '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:18px;margin-top:18px;">' +
+      '<div class="pq-card"><div class="pq-topo"><h3>Por setor</h3></div>' + barras(ranking('setor'), '#0E1B2C') + '</div>' +
+      '<div class="pq-card"><div class="pq-topo"><h3>Produtos que mais aparecem</h3></div>' + barras(ranking('produto_descricao'), '#E14337') + '</div>' +
+    '</div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Ocorrências</h3><span style="font-size:12px;color:var(--text-muted);">clique numa linha para ver cupom, fotos e assinaturas</span></div>' +
+      '<div class="tabela-wrap"><table style="min-width:0;width:100%;"><thead><tr><th>Data</th><th>Produto</th><th>Setor</th><th style="text-align:right;">Qtd.</th><th style="text-align:right;">Valor</th><th>Blitz</th><th>Retirado</th><th>Registrou</th></tr></thead><tbody>' +
+      (linhas || '<tr><td colspan="8"><div class="celula-vazio">Nenhuma ocorrência no período.</div></td></tr>') + '</tbody></table></div></div>';
+}
+
+function ovSvgAssinatura(a) {
+  return '<svg viewBox="0 0 ' + a.largura + ' ' + a.altura + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:80px;background:#fff;border:1px solid var(--border);border-radius:10px;">' +
+    '<path d="' + giroEsc(a.tracos) + '" stroke="#121B4A" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+function ovAbrir(id) {
+  const o = (estado.ovLista || []).find((x) => x.id === id);
+  if (!o) return;
+  const linha = (r, v) => '<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;"><span style="color:var(--text-muted);">' + r + '</span><b style="text-align:right;">' + v + '</b></div>';
+  const corpo =
+    linha('Data', new Date(o.criado_em).toLocaleString('pt-BR')) +
+    linha('Setor', giroEsc(o.setor)) +
+    linha('Validade do produto', o.data_validade ? o.data_validade.split('-').reverse().join('/') : '—') +
+    linha('Valor unitário', ovBRL(o.valor_unitario)) +
+    linha('Quantidade encontrada', ovNum(o.qtd_encontrada)) +
+    linha('Valor retirado', ovBRL(o.valor_retirado)) +
+    linha('Restante retirado da área de venda', o.restante_retirado ? 'Sim' : 'Não') +
+    linha('Estava na blitz de validade', o.estava_na_blitz ? 'Sim' : 'Não') +
+    linha('Cupom', o.cupom_numero ? 'nº ' + giroEsc(o.cupom_numero) + (o.cupom_serie ? ' · série ' + giroEsc(o.cupom_serie) : '') + (o.cupom_total != null ? ' · ' + ovBRL(o.cupom_total) : '') : 'Sem cupom') +
+    (o.cupom_chave ? '<div style="font-size:11px;color:var(--text-muted);word-break:break-all;margin-top:4px;">Chave: ' + giroEsc(o.cupom_chave) + (o.cupom_url ? ' · <a href="' + giroEsc(o.cupom_url) + '" target="_blank" rel="noopener">abrir na Fazenda</a>' : '') + '</div>' : '') +
+    linha('Registrado por', giroEsc(o.registrado_por_nome || '—')) +
+    (o.observacao ? '<div style="font-size:13px;margin-top:8px;"><b>Obs.:</b> ' + giroEsc(o.observacao) + '</div>' : '') +
+    ((o.fotos || []).length ? '<div style="font-weight:800;margin:14px 0 6px;">Fotos</div><div style="display:flex;gap:8px;flex-wrap:wrap;">' + o.fotos.map((f) => '<a href="' + giroEsc(f) + '" target="_blank" rel="noopener"><img src="' + giroEsc(f) + '" style="width:110px;height:110px;object-fit:cover;border-radius:10px;"></a>').join('') + '</div>' : '') +
+    '<div style="font-weight:800;margin:14px 0 6px;">Assinaturas</div><div style="display:grid;gap:10px;">' +
+    (o.assinaturas || []).map((a) => '<div><div style="font-size:13px;"><b>' + giroEsc(a.nome) + '</b> <span style="color:var(--text-muted);">· ' + (OV_PAPEIS[a.papel] || a.papel) + '</span></div>' + ovSvgAssinatura(a) + '</div>').join('') + '</div>';
+  abrirModal(giroEsc(o.produto_descricao), '<div style="max-height:65vh;overflow:auto;padding-right:4px;">' + corpo + '</div>', 'Fechar', fecharModal);
+}
+
+function ovExportar() {
+  const lista = ovFiltrada();
+  if (!lista.length || typeof XLSX === 'undefined') return;
+  const nome = (a, p) => ((a || []).find((x) => x.papel === p) || {}).nome || '';
+  const linhas = [['Data', 'Produto', 'Código', 'Setor', 'Validade', 'Valor unitário', 'Restante retirado', 'Qtd. encontrada', 'Valor retirado', 'Estava na blitz', 'Cupom nº', 'Chave do cupom', 'Total do cupom', 'Registrado por', 'Gerente', 'Responsável do setor', 'Observação']].concat(
+    lista.map((o) => [ovData(o.criado_em), o.produto_descricao, o.produto_codigo || '', o.setor, o.data_validade ? o.data_validade.split('-').reverse().join('/') : '', o.valor_unitario, o.restante_retirado ? 'Sim' : 'Não', o.qtd_encontrada, o.valor_retirado, o.estava_na_blitz ? 'Sim' : 'Não', o.cupom_numero || '', o.cupom_chave || '', o.cupom_total, o.registrado_por_nome || '', nome(o.assinaturas, 'gerente'), nome(o.assinaturas, 'responsavel_setor'), o.observacao || '']));
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), 'Ocorrências');
+  XLSX.writeFile(wb, 'de-olho-na-validade_' + new Date().toISOString().slice(0, 10) + '.xlsx');
 }
 
 async function paginaPesquisaPreco() {

@@ -32,6 +32,7 @@ import PrecificacaoScreen from './PrecificacaoScreen';
 import UsoConsumoScreen from './UsoConsumoScreen';
 import OfertasHubScreen from './OfertasHubScreen';
 import ChegadasScreen from './ChegadasScreen';
+import OlhoValidadeScreen from './OlhoValidadeScreen';
 import VendaDiaScreen from './VendaDiaScreen';
 import InicioUlva2, { GrupoId } from './InicioUlva2';
 import {
@@ -81,6 +82,7 @@ export default function HomeAdminScreen() {
     | 'usoConsumo'
     | 'ofertas'
     | 'chegadas'
+    | 'olhoValidade'
     | 'vendaDia'
   >('home');
 
@@ -270,6 +272,9 @@ export default function HomeAdminScreen() {
   if (tela === 'chegadas') {
     return <ChegadasScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'olhoValidade') {
+    return <OlhoValidadeScreen onVoltar={() => setTela('home')} />;
+  }
   if (tela === 'vendaDia') {
     return <VendaDiaScreen onVoltar={() => setTela('home')} />;
   }
@@ -396,6 +401,7 @@ export default function HomeAdminScreen() {
             { label: 'Criar tarefa', icone: 'edit-3' as const, onPress: () => setTela('tarefas') },
             { label: 'Perdas e Desperdício', icone: 'trending-down' as const, onPress: () => setTela('perdas') },
             { label: 'Validade', icone: 'calendar' as const, onPress: () => setTela('validade') },
+            { label: 'De olho na validade', icone: 'eye' as const, onPress: () => setTela('olhoValidade') },
             { label: 'Inventário', icone: 'package' as const, onPress: () => setTela('inventario') },
             { label: 'Estoque Loja', icone: 'archive' as const, onPress: () => setTela('estoqueLoja') },
             { label: 'Uso e Consumo', icone: 'box' as const, onPress: () => setTela('usoConsumo') },
