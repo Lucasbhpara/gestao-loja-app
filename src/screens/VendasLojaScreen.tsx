@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
 import CabecalhoTela from '../components/CabecalhoTela';
+import VendaDiaScreen from './VendaDiaScreen';
 import {
   PERIODOS,
   NIVEIS,
@@ -76,6 +77,7 @@ export default function VendasLojaScreen({ onVoltar }: { onVoltar: () => void })
   const [erro, setErro] = useState<string | null>(null);
   const [diaTocado, setDiaTocado] = useState<number | null>(null);
   const [ranking, setRanking] = useState<'top' | 'altas' | 'quedas'>('top');
+  const [verDia, setVerDia] = useState(false);
 
   const carregar = useCallback(
     async (forcar = false) => {
@@ -132,6 +134,8 @@ export default function VendasLojaScreen({ onVoltar }: { onVoltar: () => void })
   const noCaminho = caminho.length > 0;
   const nivelNome = dados ? NIVEIS[dados.nivel - 2] : 'Setor';
 
+  if (verDia) return <VendaDiaScreen onVoltar={() => setVerDia(false)} />;
+
   return (
     <View style={styles.flex}>
       <CabecalhoTela
@@ -146,6 +150,14 @@ export default function VendasLojaScreen({ onVoltar }: { onVoltar: () => void })
         contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}
         refreshControl={<RefreshControl refreshing={atualizando} onRefresh={() => { setAtualizando(true); carregar(true); }} />}
       >
+        <TouchableOpacity style={styles.botaoDia} onPress={() => setVerDia(true)} activeOpacity={0.85}>
+          <Feather name="calendar" size={18} color={colors.white} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.botaoDiaTitulo}>Venda do dia</Text>
+            <Text style={styles.botaoDiaSub}>Total, setores, top 10 e PDF de um dia</Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.white} />
+        </TouchableOpacity>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: spacing.sm, paddingBottom: spacing.md }}>
           {PERIODOS.map((p) => (
             <TouchableOpacity key={p.tipo} style={[styles.chip, tipo === p.tipo && styles.chipAtivo]} onPress={() => setTipo(p.tipo)}>
@@ -408,4 +420,7 @@ const styles = StyleSheet.create({
   rankValor: { fontSize: 13, fontWeight: '800', color: colors.gray900, marginTop: 4 },
   rankSub: { fontSize: 11.5, fontWeight: '600', color: colors.gray400 },
   nota: { fontSize: 11.5, color: colors.gray400, marginTop: spacing.sm, lineHeight: 16 },
+  botaoDia: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: '#2F7BFF', borderRadius: 16, padding: 14, marginBottom: spacing.md },
+  botaoDiaTitulo: { color: colors.white, fontWeight: '800', fontSize: 15 },
+  botaoDiaSub: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 2 },
 });

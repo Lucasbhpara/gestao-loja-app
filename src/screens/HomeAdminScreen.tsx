@@ -32,6 +32,7 @@ import PrecificacaoScreen from './PrecificacaoScreen';
 import UsoConsumoScreen from './UsoConsumoScreen';
 import OfertasHubScreen from './OfertasHubScreen';
 import ChegadasScreen from './ChegadasScreen';
+import VendaDiaScreen from './VendaDiaScreen';
 import InicioUlva2, { GrupoId } from './InicioUlva2';
 import {
   podeTestarUlva2,
@@ -80,6 +81,7 @@ export default function HomeAdminScreen() {
     | 'usoConsumo'
     | 'ofertas'
     | 'chegadas'
+    | 'vendaDia'
   >('home');
 
   // ULVA 2.0: ferramentas agrupadas. Até ser liberado (system_config
@@ -268,6 +270,9 @@ export default function HomeAdminScreen() {
   if (tela === 'chegadas') {
     return <ChegadasScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'vendaDia') {
+    return <VendaDiaScreen onVoltar={() => setTela('home')} />;
+  }
 
   if (mostrarUlva2) {
     return (
@@ -400,6 +405,7 @@ export default function HomeAdminScreen() {
             { label: 'Pedidos', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') },
             { label: 'Painel Resultados', icone: 'bar-chart-2' as const, onPress: () => setTela('painelResultados') },
             { label: 'Vendas da Loja', icone: 'pie-chart' as const, onPress: () => setTela('vendasLoja'), somenteDono: true },
+            { label: 'Venda do dia', icone: 'calendar' as const, onPress: () => setTela('vendaDia'), somenteDono: true },
             { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },
             // Produtos sem venda / parados, por setor → subcategoria.
             // Por enquanto só Lucas e Rodrigo (MATRICULAS_GIRO) — pra liberar
