@@ -306,6 +306,120 @@ export function opcoesDoNivel(lista: ProdutoGiro[], nivel: NivelGiro, dias: numb
   return [...mapa.entries()].map(([valor, qtd]) => ({ valor, qtd })).sort((a, b) => b.qtd - a.qtd);
 }
 
+// --- Chegou parado: entrou no estoque nos últimos dias e ainda não vendeu -------
+//
+// Fonte: estoque_entradas (supabase/estoque_entradas.sql). A cada importação do
+// Estoque Loja o banco anota quem APARECEU no estoque (estava zerado ou não
+// existia) e quem foi REPOSTO (a quantidade aumentou). Aqui cruzamos com as
+// vendas: entra na lista quem ainda tem estoque e não vendeu desde que chegou.
+
+export type TipoEntrada = 'apareceu' | 'reposicao';
+
+export interface EntradaEstoque {
+  codigo: string | null;
+  produto: string;
+  data: string; // yyyy-mm-dd (data da planilha do estoque)
+  tipo: TipoEntrada;
+  qtdAntes: number;
+  qtdDepois: number;
+}
+
+export interface ChegouParado {
+  codigo: string;
+  nome: string;
+  setor: string;
+  subcategoria: string;
+  chegouEm: string;
+  tipo: TipoEntrada;
+  qtdChegou: number;
+  estoque: number;
+  custoEstoque: number;
+  ultimaVenda: string | null; // antes da chegada (ou null = nunca vendeu no período)
+  diasDesdeChegada: number;
+  vendasAtualizadas: boolean; // as vendas carregadas já cobrem o dia da chegada?
+  produto: ProdutoGiro | null;
+}
+
+export const DIAS_CHEGOU = 7;
+
+function hojeISO(): string {
+  const d = new Date();
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
+}
+
+function menosDias(iso: string, dias: number): string {
+  const d = new Date(iso + 'T12:00:00');
+  d.setDate(d.getDate() - dias);
+  return d.toISOString().slice(0, 10);
+}
+
+export async function carregarEntradasEstoque(dias = DIAS_CHEGOU): Promise<EntradaEstoque[]> {
+  const desde = menosDias(hojeISO(), dias);
+  const { data, error } = await supabase
+    .from('estoque_entradas')
+    .select('codigo_interno,produto,data,tipo,qtd_antes,qtd_depois')
+    .gte('data', desde)
+    .order('data', { ascending: false })
+    .limit(5000);
+  if (error) {
+    if (/estoque_entradas|does not exist|schema cache/i.test(error.message))
+      throw new Error('Falta criar o registro de entradas: rode o arquivo supabase/estoque_entradas.sql no Supabase (SQL Editor).');
+    throw new Error(error.message);
+  }
+  return ((data ?? []) as any[]).map((e) => ({
+    codigo: e.codigo_interno ? String(e.codigo_interno).trim() : null,
+    produto: e.produto ?? '',
+    data: e.data,
+    tipo: e.tipo,
+    qtdAntes: Number(e.qtd_antes ?? 0),
+    qtdDepois: Number(e.qtd_depois ?? 0),
+  }));
+}
+
+// produtosVisiveis: a lista já filtrada pelo Giro (setor, ocultos, busca...).
+export function chegouParado(
+  base: BaseGiro,
+  produtosVisiveis: ProdutoGiro[],
+  entradas: EntradaEstoque[],
+  incluirReposicao: boolean
+): ChegouParado[] {
+  const visiveis = new Map(produtosVisiveis.map((p) => [p.codigo, p]));
+  const hoje = hojeISO();
+  // última entrada de cada produto (do tipo escolhido)
+  const ultima = new Map<string, EntradaEstoque>();
+  for (const e of entradas) {
+    if (!e.codigo) continue;
+    if (!incluirReposicao && e.tipo !== 'apareceu') continue;
+    const atual = ultima.get(e.codigo);
+    if (!atual || e.data > atual.data) ultima.set(e.codigo, e);
+  }
+  const lista: ChegouParado[] = [];
+  for (const [codigo, e] of ultima) {
+    const p = visiveis.get(codigo);
+    if (!p) continue; // fora do filtro, oculto ou sem cadastro no Giro
+    if (!(p.estoque > 0)) continue; // já saiu todo
+    if (p.ultimaVenda && p.ultimaVenda >= e.data) continue; // vendeu depois que chegou
+    lista.push({
+      codigo,
+      nome: p.nome,
+      setor: p.setor,
+      subcategoria: p.subcategoria,
+      chegouEm: e.data,
+      tipo: e.tipo,
+      qtdChegou: Math.max(0, e.qtdDepois - e.qtdAntes),
+      estoque: p.estoque,
+      custoEstoque: p.custoEstoque,
+      ultimaVenda: p.ultimaVenda,
+      diasDesdeChegada: Math.max(0, diasEntre(e.data, hoje)),
+      vendasAtualizadas: !!base.periodoFim && base.periodoFim >= e.data,
+      produto: p,
+    });
+  }
+  // chegou há mais tempo primeiro; empate → maior estoque parado
+  return lista.sort((a, b) => b.diasDesdeChegada - a.diasDesdeChegada || b.custoEstoque - a.custoEstoque);
+}
+
 // --- Ocultos (por aparelho) ----------------------------------------------------
 
 const CHAVE_OCULTOS = 'giro_ocultos_v1';

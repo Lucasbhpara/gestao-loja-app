@@ -6876,7 +6876,7 @@ async function paginaGiroProdutos() {
   el.innerHTML = cabecalho('Giro de Produtos', 'Produtos sem venda ou parados, do maior estoque para o menor') +
     '<div class="carregando">Carregando quase 10 mil produtos…</div>';
   try {
-    await Promise.all([giroCarregarBase(false), giroCarregarAjustes()]);
+    await Promise.all([giroCarregarBase(false), giroCarregarAjustes(), giroCarregarEntradas()]);
   } catch (e) {
     el.innerHTML = cabecalho('Giro de Produtos', '') + '<div class="celula-vazio">Não consegui carregar o giro: ' + giroEsc(e.message || '') + '</div>';
     return;
@@ -6897,7 +6897,8 @@ function renderizarGiro() {
     '<input class="input-busca" id="giro-busca" style="max-width:320px;" placeholder="Buscar produto ou código" value="' + giroEsc(f.busca) + '" oninput="giroBuscar(this.value)">' +
     '<button class="btn-acao' + (f.painel ? '' : ' secundario') + '" onclick="estado.giroFiltro.painel=!estado.giroFiltro.painel;renderizarGiro()">⚲ Filtro' + (qtdFiltros ? ' (' + qtdFiltros + ')' : '') + '</button>' +
     (qtdFiltros || f.busca ? '<button class="btn-acao secundario" style="color:var(--red);" onclick="giroLimpar()">✕ Limpar filtro</button>' : '') +
-    '<button class="btn-acao' + (f.verAjustes ? '' : ' secundario') + '" onclick="estado.giroFiltro.verAjustes=!estado.giroFiltro.verAjustes;renderizarGiro()">📝 Ajustes' + ((estado.giroAjustes || []).length ? ' (' + estado.giroAjustes.length + ')' : '') + '</button>' +
+    '<button class="btn-acao' + (f.verAjustes ? '' : ' secundario') + '" onclick="estado.giroFiltro.verAjustes=!estado.giroFiltro.verAjustes;estado.giroFiltro.verChegou=false;renderizarGiro()">📝 Ajustes' + ((estado.giroAjustes || []).length ? ' (' + estado.giroAjustes.length + ')' : '') + '</button>' +
+    '<button class="btn-acao' + (f.verChegou ? '' : ' secundario') + '" onclick="estado.giroFiltro.verChegou=!estado.giroFiltro.verChegou;estado.giroFiltro.verAjustes=false;renderizarGiro()">🚚 Chegou parado' + (giroChegouParado().length ? ' (' + giroChegouParado().length + ')' : '') + '</button>' +
     '<button class="btn-acao secundario" title="Inverter ordem do estoque" onclick="giroInverter()">Estoque ' + (f.crescente ? '↑ menor → maior' : '↓ maior → menor') + '</button>' +
     '<span style="margin-left:auto;display:flex;gap:8px;">' +
       '<button class="btn-acao secundario" onclick="giroAtualizar()">↻ Atualizar</button>' +
@@ -6981,7 +6982,7 @@ function renderizarGiro() {
   const qtdPaiFilho = base.produtos.filter((p) => p.ajustePaiFilho).length;
   const avisoPaiFilho = '<div class="item-card" style="margin-bottom:14px;padding:10px 14px;font-size:12.5px;border-color:var(--accent,#5B7BFF);">🔗 <b>Correção pai/filho aplicada:</b> ' + GIRO_PAI_FILHO.length + ' pares (' + qtdPaiFilho + ' produtos com estoque ajustado). Os pais herdam a venda dos filhos e o estoque é transferido para zerar o negativo dos filhos.</div>';
   document.getElementById('conteudo-principal').innerHTML =
-    cabecalho('Giro de Produtos', periodo) + avisoPaiFilho + barra + (f.verAjustes ? htmlAjustesGiro() : ativos + painel + resumo + tabela);
+    cabecalho('Giro de Produtos', periodo) + avisoPaiFilho + barra + (f.verAjustes ? htmlAjustesGiro() : f.verChegou ? ativos + painel + htmlChegouParado() : ativos + painel + resumo + tabela);
 
   const busca = document.getElementById('giro-busca');
   if (busca && estado.giroFocoBusca) { busca.focus(); busca.setSelectionRange(busca.value.length, busca.value.length); estado.giroFocoBusca = false; }
@@ -7012,7 +7013,7 @@ function giroAlternarOculto(codigo) {
   renderizarGiro();
 }
 async function giroAtualizar() {
-  try { await giroCarregarBase(true); renderizarGiro(); mostrarToast('Giro atualizado.', 'sucesso'); }
+  try { await Promise.all([giroCarregarBase(true), giroCarregarEntradas()]); renderizarGiro(); mostrarToast('Giro atualizado.', 'sucesso'); }
   catch (e) { mostrarToast('Não consegui atualizar: ' + e.message, 'erro'); }
 }
 function giroExportar() {
@@ -7117,6 +7118,82 @@ async function giroRemoverAjuste(id) {
   await giroCarregarAjustes();
   renderizarGiro();
 }
+// ---------- Chegou parado: entrou no estoque nos últimos 7 dias e não vendeu ----------
+// Fonte: estoque_entradas (supabase/estoque_entradas.sql) — a cada importação do
+// Estoque Loja o banco anota quem apareceu no estoque (estava zerado) e quem foi
+// reposto. Entra na lista quem ainda tem estoque e não vendeu desde que chegou.
+const GIRO_DIAS_CHEGOU = 7;
+async function giroCarregarEntradas() {
+  try {
+    const d = new Date(); d.setDate(d.getDate() - GIRO_DIAS_CHEGOU);
+    const desde = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+    const { data, error } = await sb.from('estoque_entradas').select('codigo_interno,produto,data,tipo,qtd_antes,qtd_depois').gte('data', desde).order('data', { ascending: false }).limit(5000);
+    if (error) throw error;
+    estado.giroEntradas = data || [];
+    estado.giroEntradasErro = null;
+  } catch (e) {
+    estado.giroEntradas = [];
+    estado.giroEntradasErro = /estoque_entradas|does not exist|schema cache/i.test(e.message || '') ? 'Falta criar o registro de entradas: rode o arquivo supabase/estoque_entradas.sql no Supabase (SQL Editor).' : (e.message || 'Erro ao carregar as entradas.');
+  }
+}
+function giroChegouParado() {
+  const f = estado.giroFiltro, base = estado.giroBase;
+  if (!base || !estado.giroEntradas) return [];
+  const busca = (f.busca || '').trim().toUpperCase();
+  const visiveis = new Map(estado.giroBase.produtos.filter((p) => {
+    if (!f.mostrarOcultos && (p.ocultoPorSetor || estado.giroOcultos.has(p.codigo))) return false;
+    for (let i = 0; i < f.caminho.length; i++) if (p[GIRO_NIVEIS[i]] !== f.caminho[i]) return false;
+    if (busca && !p.nome.toUpperCase().includes(busca) && !p.codigo.includes(busca)) return false;
+    return p.estoque > 0;
+  }).map((p) => [p.codigo, p]));
+  const ultima = new Map();
+  estado.giroEntradas.forEach((e) => {
+    const cod = String(e.codigo_interno || '').trim();
+    if (!cod || (!f.chegouReposicao && e.tipo !== 'apareceu')) return;
+    const a = ultima.get(cod);
+    if (!a || e.data > a.data) ultima.set(cod, e);
+  });
+  const d = new Date();
+  const hoje = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  const lista = [];
+  ultima.forEach((e, cod) => {
+    const p = visiveis.get(cod);
+    if (!p) return;
+    if (p.ultimaVenda && p.ultimaVenda >= e.data) return;
+    lista.push({ p, e, dias: Math.max(0, giroDiasEntre(e.data, hoje)), qtdChegou: Math.max(0, Number(e.qtd_depois) - Number(e.qtd_antes)), vendasOk: !!base.periodoFim && base.periodoFim >= e.data });
+  });
+  return lista.sort((a, b) => b.dias - a.dias || b.p.custoEstoque - a.p.custoEstoque);
+}
+function htmlChegouParado() {
+  const f = estado.giroFiltro, base = estado.giroBase;
+  if (estado.giroEntradasErro) return '<div class="celula-vazio">' + giroEsc(estado.giroEntradasErro) + '</div>';
+  const lista = giroChegouParado();
+  const custo = lista.reduce((t, x) => t + x.p.custoEstoque, 0);
+  const op = (v, txt) => '<button class="btn-acao' + (!!f.chegouReposicao === v ? '' : ' secundario') + '" style="padding:6px 12px;font-size:12.5px;" onclick="estado.giroFiltro.chegouReposicao=' + v + ';renderizarGiro()">' + txt + '</button>';
+  const linhas = lista.slice(0, f.limite).map((x) =>
+    '<tr><td><span class="pill ' + (x.e.tipo === 'apareceu' ? 'admin' : '') + '">' + (x.e.tipo === 'apareceu' ? 'Novo no estoque' : 'Reposição') + '</span></td>' +
+    '<td><div class="nome-forte">' + giroEsc(x.p.nome) + '</div><div style="font-size:11.5px;color:var(--text-muted);">' + giroEsc(x.p.codigo) + ' · ' + giroEsc(giroNome(x.p.setor)) + ' › ' + giroEsc(giroNome(x.p.subcategoria)) + '</div>' +
+      (!x.vendasOk ? '<div style="font-size:11px;color:var(--orange);font-weight:700;margin-top:2px;">⏳ vendas desde a chegada ainda não importadas</div>' : '') + '</td>' +
+    '<td style="text-align:right;">' + giroData(x.e.data) + '</td>' +
+    '<td style="text-align:right;font-weight:800;color:' + (x.dias >= 3 ? 'var(--red)' : 'var(--orange)') + ';">' + x.dias + (x.dias === 1 ? ' dia' : ' dias') + '</td>' +
+    '<td style="text-align:right;">' + x.qtdChegou.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '</td>' +
+    '<td style="text-align:right;font-weight:800;">' + x.p.estoque.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + '</td>' +
+    '<td style="text-align:right;">' + giroData(x.p.ultimaVenda) + '</td>' +
+    '<td style="text-align:right;font-weight:700;">' + giroReais(x.p.custoEstoque) + '</td></tr>').join('');
+  const vazio = (estado.giroEntradas || []).length === 0
+    ? 'Ainda não há entradas registradas. O registro começa na próxima vez que o estoque for importado (Estoque Loja → Atualizar estoque).'
+    : 'Tudo que chegou nos últimos ' + GIRO_DIAS_CHEGOU + ' dias já vendeu pelo menos uma vez. 🎉';
+  return '<div style="display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-bottom:12px;">' + op(false, 'Só os que estavam zerados') + op(true, 'Inclui reposição') +
+      '<span style="font-size:12.5px;color:var(--text-muted);">Entraram no estoque nos últimos ' + GIRO_DIAS_CHEGOU + ' dias e não venderam desde que chegaram · vendas até ' + giroData(base.periodoFim) + ' · estoque de ' + giroData(base.estoqueData) + '</span></div>' +
+    '<div class="resumo-perdas">' +
+      '<div class="box"><div class="rotulo">Chegaram e não venderam</div><div class="valor" style="color:var(--red);">' + lista.length.toLocaleString('pt-BR') + '</div></div>' +
+      '<div class="box"><div class="rotulo">Em estoque (custo)</div><div class="valor">' + giroReais(custo) + '</div></div>' +
+    '</div>' +
+    '<div class="tabela-wrap"><table><thead><tr><th>Entrada</th><th>Produto</th><th style="text-align:right;">Chegou</th><th style="text-align:right;">Sem venda há</th><th style="text-align:right;">Qtd. que entrou</th><th style="text-align:right;">Estoque</th><th style="text-align:right;">Última venda</th><th style="text-align:right;">Custo</th></tr></thead><tbody>' +
+    (linhas || '<tr><td colspan="8"><div class="celula-vazio">' + vazio + '</div></td></tr>') + '</tbody></table></div>' +
+    (lista.length > f.limite ? '<div style="text-align:center;margin-top:12px;"><button class="btn-acao secundario" onclick="estado.giroFiltro.limite+=200;renderizarGiro()">Mostrar mais (' + (lista.length - f.limite).toLocaleString('pt-BR') + ' restantes)</button></div>' : '');
+}
+
 function htmlAjustesGiro() {
   if (estado.giroAjustesErro) return '<div class="celula-vazio" style="color:var(--red);">' + giroEsc(estado.giroAjustesErro) + '</div>';
   const lista = estado.giroAjustes || [];

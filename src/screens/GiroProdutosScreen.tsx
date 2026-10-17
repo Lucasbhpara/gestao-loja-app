@@ -28,6 +28,11 @@ import {
 } from '../data/ajustesEstoqueApi';
 import {
   BaseGiro,
+  ChegouParado,
+  DIAS_CHEGOU,
+  EntradaEstoque,
+  carregarEntradasEstoque,
+  chegouParado,
   FAIXAS,
   FAIXA_MAIS_30,
   rotuloFaixa,
@@ -74,7 +79,10 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
 
   // --- Ajuste de estoque ------------------------------------------------------
   const { usuarioAtual } = useAuth();
-  const [aba, setAba] = useState<'produtos' | 'ajustes'>('produtos');
+  const [aba, setAba] = useState<'produtos' | 'chegou' | 'ajustes'>('produtos');
+  const [entradas, setEntradas] = useState<EntradaEstoque[] | null>(null);
+  const [erroEntradas, setErroEntradas] = useState<string | null>(null);
+  const [incluirReposicao, setIncluirReposicao] = useState(false);
   const [ajustes, setAjustes] = useState<AjusteEstoque[]>([]);
   const [erroAjustes, setErroAjustes] = useState<string | null>(null);
   const [editando, setEditando] = useState<ProdutoGiro | null>(null);
@@ -200,6 +208,9 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
       const [b, o] = await Promise.all([carregarBaseGiro(forcar), lerOcultos()]);
       setBase(b);
       setOcultos(o);
+      carregarEntradasEstoque()
+        .then((e) => { setEntradas(e); setErroEntradas(null); })
+        .catch((e: any) => setErroEntradas(e?.message ?? 'Não consegui carregar as entradas do estoque.'));
     } catch (e: any) {
       setErro(e?.message ?? 'Não consegui carregar o giro.');
     } finally {
@@ -255,6 +266,13 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
     [base, caminho, soComEstoque, dias, mostrarOcultos, ocultos]
   );
   const resumo = useMemo(() => resumir(doEscopo, dias), [doEscopo, dias]);
+  // Chegou parado: mesmo filtro de setor/ocultos/busca, sempre só com estoque
+  const chegados = useMemo<ChegouParado[]>(() => {
+    if (!base || !entradas) return [];
+    const visiveis = filtrar(base.produtos, { caminho, soComEstoque: true, dias, mostrarOcultos, ocultos, busca });
+    return chegouParado(base, visiveis, entradas, incluirReposicao);
+  }, [base, entradas, caminho, dias, mostrarOcultos, ocultos, busca, incluirReposicao]);
+  const custoChegados = useMemo(() => chegados.reduce((t, c) => t + c.custoEstoque, 0), [chegados]);
   const produtos = useMemo(() => {
     const termo = busca.trim().toUpperCase();
     const lista = termo ? doEscopo.filter((p) => p.nome.toUpperCase().includes(termo) || p.codigo.includes(termo)) : doEscopo;
@@ -329,6 +347,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
           {(
             [
               { k: 'produtos', rotulo: 'Produtos', icone: 'list' },
+              { k: 'chegou', rotulo: `Chegou parado${chegados.length ? ` (${chegados.length})` : ''}`, icone: 'truck' },
               { k: 'ajustes', rotulo: `Ajustes${ajustes.length ? ` (${ajustes.length})` : ''}`, icone: 'edit-3' },
             ] as const
           ).map((a) => (
@@ -346,7 +365,103 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
         keyboardShouldPersistTaps="handled"
         refreshControl={<RefreshControl refreshing={atualizando} onRefresh={() => { setAtualizando(true); carregar(true); }} />}
       >
-        {aba === 'ajustes' ? (
+        {aba === 'chegou' ? (
+          <>
+            <Text style={styles.ajuda}>
+              Produtos que entraram no estoque nos últimos {DIAS_CHEGOU} dias e ainda não venderam desde que chegaram.
+            </Text>
+            <View style={[styles.abasHero, { backgroundColor: colors.gray100, marginTop: spacing.sm }]}>
+              {(
+                [
+                  { v: false, rotulo: 'Só os que estavam zerados' },
+                  { v: true, rotulo: 'Inclui reposição' },
+                ] as const
+              ).map((o) => (
+                <TouchableOpacity key={String(o.v)} style={[styles.abaHero, incluirReposicao === o.v && styles.abaHeroAtiva]} onPress={() => setIncluirReposicao(o.v)}>
+                  <Text style={[styles.abaHeroTexto, { color: colors.navy700 }, incluirReposicao === o.v && styles.abaHeroTextoAtivo]}>{o.rotulo}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {erroEntradas ? (
+              <View style={[styles.erroBox, { marginTop: spacing.md }]}>
+                <Text style={styles.erroTexto}>{erroEntradas}</Text>
+              </View>
+            ) : carregando || !entradas ? (
+              <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.xl }} />
+            ) : (
+              <>
+                <View style={[styles.statsCard, { marginTop: spacing.md }]}>
+                  <View style={styles.stat}>
+                    <Text style={[styles.statValor, { color: colors.red500 }]}>{chegados.length.toLocaleString('pt-BR')}</Text>
+                    <Text style={styles.statRotulo}>chegaram e não venderam</Text>
+                  </View>
+                  <View style={styles.statDivisor} />
+                  <View style={styles.stat}>
+                    <Text style={[styles.statValor, { fontSize: 17 }]} numberOfLines={1} adjustsFontSizeToFit>
+                      {formatarReaisCurto(custoChegados)}
+                    </Text>
+                    <Text style={styles.statRotulo}>em estoque (custo)</Text>
+                  </View>
+                </View>
+                <Text style={[styles.ajuda, { marginTop: spacing.sm }]}>
+                  Vendas carregadas até {formatarDataCurta(base?.periodoFim ?? null)} · estoque de {formatarDataCurta(base?.estoqueData ?? null)}
+                </Text>
+                {chegados.length === 0 ? (
+                  <View style={styles.vazioAjustes}>
+                    <Feather name="truck" size={26} color={colors.gray400} />
+                    <Text style={[styles.ajuda, { textAlign: 'center' }]}>
+                      {entradas.length === 0
+                        ? 'Ainda não há entradas registradas. O registro começa na próxima vez que o estoque for importado no Portal (Estoque Loja → Atualizar estoque).'
+                        : 'Tudo que chegou nos últimos dias já vendeu pelo menos uma vez. 🎉'}
+                    </Text>
+                  </View>
+                ) : (
+                  chegados.slice(0, limite).map((c) => (
+                    <View key={c.codigo} style={styles.prodCard}>
+                      <View style={styles.prodTopo}>
+                        <Text style={styles.prodNome}>{c.nome}</Text>
+                        <View style={[styles.pill, { backgroundColor: c.tipo === 'apareceu' ? '#E3ECFF' : '#EEF1F6' }]}>
+                          <Text style={[styles.pillTexto, { color: colors.navy700 }]}>{c.tipo === 'apareceu' ? 'Novo no estoque' : 'Reposição'}</Text>
+                        </View>
+                      </View>
+                      <Text style={styles.prodMeta} numberOfLines={1}>
+                        {c.codigo} · {nomeBonito(c.setor)} › {nomeBonito(c.subcategoria)} · última venda: {c.ultimaVenda ? formatarDataCurta(c.ultimaVenda) : 'nenhuma'}
+                      </Text>
+                      <View style={styles.prodNumeros}>
+                        <View style={styles.prodNum}>
+                          <Text style={styles.prodNumRotulo}>Chegou</Text>
+                          <Text style={[styles.prodNumValor, { fontSize: 15 }]}>{formatarDataCurta(c.chegouEm)}</Text>
+                        </View>
+                        <View style={styles.prodNum}>
+                          <Text style={styles.prodNumRotulo}>Sem venda há</Text>
+                          <Text style={[styles.prodNumValor, { fontSize: 15, color: c.diasDesdeChegada >= 3 ? colors.red500 : '#B4650E' }]}>
+                            {c.diasDesdeChegada} {c.diasDesdeChegada === 1 ? 'dia' : 'dias'}
+                          </Text>
+                        </View>
+                        <View style={styles.prodNum}>
+                          <Text style={styles.prodNumRotulo}>Estoque</Text>
+                          <Text style={[styles.prodNumValor, { fontSize: 15 }]}>{formatarEstoque(c.estoque)}</Text>
+                        </View>
+                        <View style={styles.prodNum}>
+                          <Text style={styles.prodNumRotulo}>Custo</Text>
+                          <Text style={styles.prodNumValor}>{formatarReais(c.custoEstoque)}</Text>
+                        </View>
+                      </View>
+                      {!c.vendasAtualizadas ? (
+                        <Text style={styles.ajustePendente}>⏳ As vendas desde a chegada ainda não foram importadas — confira de novo depois da próxima importação.</Text>
+                      ) : null}
+                    </View>
+                  ))
+                )}
+                {chegados.length > limite && (
+                  <TouchableOpacity style={styles.maisBotao} onPress={() => setLimite((l) => l + POR_PAGINA)}>
+                    <Text style={styles.maisTexto}>Mostrar mais ({(chegados.length - limite).toLocaleString('pt-BR')} restantes)</Text>
+                  </TouchableOpacity>
+                )}
+              </>
+            )}
+          </>
+        ) : aba === 'ajustes' ? (
           <>
             {erroAjustes ? (
               <View style={styles.erroBox}>
