@@ -880,6 +880,7 @@
         <button class="nav-item" id="nav-giro-produtos" style="display:none" data-pagina="giro-produtos" onclick="irPara('giro-produtos')"><span class="dot"></span>Giro de Produtos</button>
         <button class="nav-item" id="nav-importar-vendas" style="display:none" data-pagina="importar-vendas" onclick="irPara('importar-vendas')"><span class="dot"></span>Importar vendas (Falcon)</button>
         <button class="nav-item" data-pagina="painel-resultados" onclick="irPara('painel-resultados')"><span class="dot"></span>Painel Resultados</button>
+        <button class="nav-item" data-pagina="resultados-inventario" onclick="irPara('resultados-inventario')"><span class="dot"></span>Resultados de inventário</button>
         <button class="nav-item" id="nav-visitas-site" style="display:none" data-pagina="visitas-site" onclick="irPara('visitas-site')"><span class="dot"></span>Visitas do site</button>
         <button class="nav-item" data-pagina="conferencias" onclick="irPara('conferencias')"><span class="dot"></span>Conferência (FLV)</button>
         <button class="nav-item" data-pagina="inventario" onclick="irPara('inventario')"><span class="dot"></span>Inventário</button>
@@ -1157,7 +1158,7 @@ function iniciais(nome) {
 const GAVETA_POR_PAGINA = {
   equipe: 'colaboradores', escala: 'colaboradores', 'historico-faltas': 'colaboradores',
   avisos: 'avisos', ocorrencias: 'avisos',
-  perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'venda-dia': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'visitas-site': 'indicadores',
+  perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'venda-dia': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'resultados-inventario': 'indicadores', 'visitas-site': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
   pedidos: 'operacao', 'estoque-loja': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', chegadas: 'ofertas', 'pontas-extras': 'operacao',
 };
@@ -1215,6 +1216,7 @@ async function irPara(pagina) {
     else if (pagina === 'venda-dia') await paginaVendaDia();
     else if (pagina === 'importar-vendas') await paginaImportarVendas();
     else if (pagina === 'painel-resultados') await paginaPainelResultados();
+    else if (pagina === 'resultados-inventario') await paginaResultadosInventario();
     else if (pagina === 'acessos') await paginaAcessos();
     else if (pagina === 'mapa-loja') await paginaMapaLoja();
     else if (pagina === 'pontas-extras') await paginaPontasExtras();
@@ -7206,6 +7208,397 @@ function renderizarListaEstoqueCritico(linhas) {
   el.innerHTML =
     '<div class="contagem-revisar" style="margin-bottom:10px;">' + contagemTexto + '</div>' +
     '<div class="tabela-wrap"><table><thead><tr><th>Produto</th><th>Estoque Atual</th><th>Venda Média</th><th>Dias Restantes</th></tr></thead><tbody>' + linhasTabela + '</tbody></table></div>';
+}
+
+// =============================================================================
+// Resultados de inventário — resumo do resultado final por setor
+// -----------------------------------------------------------------------------
+// Lê o PDF "Resultado de Inventário" (o mesmo que a regional manda) direto no
+// navegador com pdf.js, confere a soma dos produtos contra o "Total Geral"
+// do próprio PDF e grava só o resumo em inventario_resultados (ver
+// supabase/inventario_resultados.sql). Daqui dá para compartilhar o resultado
+// no WhatsApp ou em PDF de 1 página. Os administradores recebem notificação
+// no celular a cada resultado novo (trigger no banco).
+// =============================================================================
+const RI_FIM = ['QUEBRA', 'SOBRA', 'IMPARCIAL'];
+const riBRL = (n) => n == null || isNaN(n) ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const riPct = (n) => n == null || isNaN(n) ? '—' : Number(n).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+const riDia = (iso) => iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '—';
+const riDiaCurto = (iso) => riDia(iso).slice(0, 5);
+const riNumBR = (t) => Number(String(t).replace(/R\$/g, '').replace(/%/g, '').replace(/\./g, '').replace(',', '.'));
+const riEhNum = (t) => /^-?(R\$)?-?[\d.]+,\d+%?$/.test(t);
+const riNomeSetor = (t) => {
+  const s = String(t || '').trim().toUpperCase();
+  if (/A[CÇ]OUGUE/.test(s)) return 'Açougue';
+  if (/HORTI|FLV|FRUT/.test(s)) return 'FLV';
+  if (/PADARIA/.test(s)) return 'Padaria';
+  if (/FRIOS|LATIC/.test(s)) return 'Frios';
+  return s.charAt(0) + s.slice(1).toLowerCase();
+};
+// dentro da meta? (perda em % menor ou igual à meta)
+const riDentro = (real, meta) => meta == null || real == null ? null : Number(real) <= Number(meta);
+
+// ---------- leitura do PDF ----------
+async function riLerPdf(file) {
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  const r = { setor: null, loja: null, nome_loja: null, supervisor: null, periodo_inicio: null, periodo_fim: null, produtos: [], total: null, indicadores: [] };
+  for (let n = 1; n <= pdf.numPages; n++) {
+    const page = await pdf.getPage(n);
+    const tc = await page.getTextContent();
+    // palavras com posição (quebra cada item do pdf.js em tokens)
+    const palavras = [];
+    tc.items.forEach((it) => {
+      const s = String(it.str || '');
+      if (!s.trim()) return;
+      const x0 = it.transform[4], y = it.transform[5], larg = it.width || s.length * 4;
+      let pos = 0;
+      s.split(/(\s+)/).forEach((pedaco) => {
+        if (pedaco && !/^\s+$/.test(pedaco)) palavras.push({ t: pedaco, x: x0 + (pos / Math.max(1, s.length)) * larg, y });
+        pos += pedaco.length;
+      });
+    });
+    // linhas por Y parecido
+    const grupos = [];
+    palavras.forEach((p) => {
+      let g = grupos.find((g) => Math.abs(g.y - p.y) <= 1.5);
+      if (!g) { g = { y: p.y, ps: [] }; grupos.push(g); }
+      g.ps.push(p);
+    });
+    grupos.sort((a, b) => b.y - a.y);
+    grupos.forEach((g) => {
+      g.ps.sort((a, b) => a.x - b.x);
+      // junta "R$"/"-R$" com o número seguinte
+      const j = [];
+      for (let i = 0; i < g.ps.length; i++) {
+        const p = Object.assign({}, g.ps[i]);
+        if ((p.t === 'R$' || p.t === '-R$') && g.ps[i + 1]) { p.t = (p.t[0] === '-' ? '-' : '') + g.ps[i + 1].t; i++; }
+        j.push(p);
+      }
+      g.ps = j;
+      g.toks = j.map((p) => p.t);
+    });
+
+    // cabeçalho
+    grupos.forEach((g) => {
+      const t = g.toks, txt = t.join(' ');
+      const mt = txt.match(/INVENT[ÁA]RIO MENSAL DE (.+)$/i);
+      if (mt && !r.setor) r.setor = riNomeSetor(mt[1]);
+      if (t.includes('Supervisor')) {
+        r.supervisor = t.slice(t.indexOf('Supervisor') + 1).join(' ');
+        if (t.includes('Loja')) { r.loja = t[t.indexOf('Loja') + 1]; r.nome_loja = t[t.indexOf('Loja') + 2]; }
+      }
+      if (t[0] === 'PERÍODO' || t[0] === 'PERIODO') {
+        const ds = t.filter((x) => /^\d{2}\/\d{2}\/\d{4}$/.test(x)).map((d) => d.split('/').reverse().join('-'));
+        if (ds.length >= 2) { r.periodo_inicio = ds[0]; r.periodo_fim = ds[1]; }
+      }
+      if (t[0] === 'Total' && t[1] === 'Geral') {
+        const v = t.slice(2).filter(riEhNum).map(riNumBR);
+        r.total = riCampos(v, t[t.length - 1]);
+      }
+      if (t[0] === '%' && t.length >= 4 && /%$/.test(t[t.length - 1]) && /%$/.test(t[t.length - 2])) {
+        r.indicadores.push({ nome: t.slice(1, -2).join(' '), meta: riNumBR(t[t.length - 2]), realizado: riNumBR(t[t.length - 1]) });
+      }
+    });
+
+    // linhas de produto: começa com o código, termina com QUEBRA/SOBRA/IMPARCIAL
+    const dados = grupos.filter((g) => g.ps.length > 5 && /^\d+$/.test(g.toks[0]) && g.ps[0].x < 60 && RI_FIM.includes(g.toks[g.toks.length - 1]));
+    if (!dados.length) continue;
+    const yCab = Math.min(...grupos.filter((g) => g.toks.some((x) => x === '(QUANT.)' || x === '(QUANT)' || x === '(R$)')).map((g) => g.y), Infinity);
+    // o que vem do "Total Geral" para baixo (quadro de indicadores) não é descrição de produto
+    const yTotal = Math.max(...grupos.filter((g) => g.toks[0] === 'Total' && g.toks[1] === 'Geral').map((g) => g.y), -Infinity);
+    const prods = dados.map((g) => {
+      const v = g.toks.slice(1).filter(riEhNum).map(riNumBR);
+      const p = riCampos(v, g.toks[g.toks.length - 1]);
+      p.codigo = g.toks[0]; p._y = g.y; p._desc = [];
+      return p;
+    });
+    // descrição (pode vir em linhas acima/abaixo): cada palavra da coluna vai para a linha de produto mais próxima
+    grupos.forEach((g) => {
+      if (g.y >= yCab || g.y <= yTotal + 0.5) return;
+      g.ps.forEach((p) => {
+        if (p.x <= 38 || p.x >= 165 || riEhNum(p.t) || RI_FIM.includes(p.t)) return;
+        if (/^\d+$/.test(p.t) && p.x < 60) return;
+        if (['Total', 'Geral', 'Indicador', 'Meta', 'Realizado', '%'].includes(p.t)) return;
+        let alvo = prods[0];
+        prods.forEach((q) => { if (Math.abs(q._y - g.y) < Math.abs(alvo._y - g.y)) alvo = q; });
+        alvo._desc.push({ t: p.t, y: g.y, x: p.x });
+      });
+    });
+    prods.forEach((p) => {
+      p.produto = p._desc.sort((a, b) => (b.y - a.y) || (a.x - b.x)).map((d) => d.t).join(' ');
+      delete p._desc; delete p._y;
+      r.produtos.push(p);
+    });
+  }
+  return r;
+}
+
+// Mapeia os números pelo FIM da linha (o começo muda de setor para setor:
+// o açougue tem TROCA, o FLV tem CONSUMO INTERNO etc.).
+function riCampos(v, resultado) {
+  const d = (k) => v.length >= k ? v[v.length - k] : null;
+  return {
+    estoqueInicial: v[0], entradas: v[1], vendas: v[2],
+    saldo: d(10), estoqueFinal: d(9),
+    perdaNaoIdentificadaValor: d(7), perdaIdentificadaValor: d(5),
+    perdaTotalValor: d(3), vendaValor: d(2), pctPerda: d(1),
+    resultado,
+  };
+}
+
+// Resumo que vai para o banco (+ checagem contra o Total Geral)
+function riResumo(r) {
+  const P = r.produtos, T = r.total || {};
+  const soma = (k) => Math.round(P.reduce((a, p) => a + (p[k] || 0), 0) * 100) / 100;
+  const confere = !!r.total && Math.abs(soma('perdaTotalValor') - T.perdaTotalValor) < 0.5 && Math.abs(soma('vendaValor') - T.vendaValor) < 1;
+  const ind = {};
+  r.indicadores.forEach((i) => { const k = i.nome.toLowerCase(); ind[/n[ãa]o/.test(k) ? 'nao' : /total/.test(k) ? 'total' : 'ident'] = i; });
+  const q = P.filter((p) => p.perdaTotalValor > 0), s = P.filter((p) => p.perdaTotalValor < 0);
+  const top = (L, desc) => L.slice().sort((a, b) => desc ? b.perdaTotalValor - a.perdaTotalValor : a.perdaTotalValor - b.perdaTotalValor).slice(0, 5)
+    .map((p) => ({ codigo: p.codigo, produto: p.produto, valor: p.perdaTotalValor, pct: p.pctPerda }));
+  const reg = {
+    setor: r.setor, loja: r.loja, nome_loja: r.nome_loja, supervisor: r.supervisor,
+    periodo_inicio: r.periodo_inicio, periodo_fim: r.periodo_fim,
+    venda: T.vendaValor, perda_total: T.perdaTotalValor,
+    perda_total_pct: ind.total ? ind.total.realizado : T.pctPerda,
+    perda_identificada: T.perdaIdentificadaValor, perda_identificada_pct: ind.ident ? ind.ident.realizado : null,
+    perda_nao_identificada: T.perdaNaoIdentificadaValor, perda_nao_identificada_pct: ind.nao ? ind.nao.realizado : null,
+    meta_total_pct: ind.total ? ind.total.meta : null, meta_identificada_pct: ind.ident ? ind.ident.meta : null, meta_nao_identificada_pct: ind.nao ? ind.nao.meta : null,
+    quebra_bruta: Math.round(q.reduce((a, p) => a + p.perdaTotalValor, 0) * 100) / 100,
+    sobra_bruta: Math.round(s.reduce((a, p) => a + p.perdaTotalValor, 0) * 100) / 100,
+    n_produtos: P.length, n_quebra: q.length, n_sobra: s.length,
+    n_com_quebra_lancada: P.filter((p) => Math.abs(p.perdaIdentificadaValor || 0) > 0.004).length,
+    destaques: {
+      maiores_quebras: top(q, true), maiores_sobras: top(s, false),
+      vendeu_sem_estoque: P.filter((p) => p.saldo != null && p.saldo < 0).map((p) => ({ codigo: p.codigo, produto: p.produto, vendas: p.vendas, saldo: p.saldo })),
+    },
+  };
+  const faltas = [];
+  if (!r.setor) faltas.push('setor (título "INVENTÁRIO MENSAL DE …")');
+  if (!r.periodo_inicio) faltas.push('período');
+  if (!r.total) faltas.push('linha "Total Geral"');
+  if (!P.length) faltas.push('produtos');
+  return { reg, confere, faltas, somaPerda: soma('perdaTotalValor'), somaVenda: soma('vendaValor') };
+}
+
+// ---------- página ----------
+async function paginaResultadosInventario() {
+  const el = document.getElementById('conteudo-principal');
+  el.innerHTML = cabecalho('Resultados de inventário', 'Resultado final de cada inventário · importe o PDF e compartilhe') + '<div class="celula-vazio">Carregando…</div>';
+  const { data, error } = await sb.from('inventario_resultados').select('*').order('periodo_fim', { ascending: false }).limit(300);
+  if (error) {
+    el.innerHTML = cabecalho('Resultados de inventário', 'Resultado final de cada inventário') +
+      '<div class="celula-vazio">' + (/inventario_resultados/.test(error.message) ? 'A tabela ainda não existe. Rode o arquivo <b>supabase/inventario_resultados.sql</b> no SQL Editor do Supabase.' : giroEsc(error.message)) + '</div>';
+    return;
+  }
+  estado.riLista = (data || []).map(riNormaliza);
+  estado.riSetor = estado.riSetor || '';
+  renderizarResultadosInventario();
+}
+
+function riNormaliza(x) {
+  const n = (v) => v == null ? null : Number(v);
+  return Object.assign({}, x, {
+    venda: n(x.venda), perda_total: n(x.perda_total), perda_total_pct: n(x.perda_total_pct),
+    perda_identificada: n(x.perda_identificada), perda_identificada_pct: n(x.perda_identificada_pct),
+    perda_nao_identificada: n(x.perda_nao_identificada), perda_nao_identificada_pct: n(x.perda_nao_identificada_pct),
+    meta_total_pct: n(x.meta_total_pct), meta_identificada_pct: n(x.meta_identificada_pct), meta_nao_identificada_pct: n(x.meta_nao_identificada_pct),
+    quebra_bruta: n(x.quebra_bruta), sobra_bruta: n(x.sobra_bruta),
+    destaques: x.destaques || {},
+  });
+}
+
+// resultado anterior do mesmo setor
+function riAnterior(r) {
+  return (estado.riLista || []).filter((x) => x.setor === r.setor && x.periodo_fim < r.periodo_fim).sort((a, b) => b.periodo_fim.localeCompare(a.periodo_fim))[0] || null;
+}
+// quebra e sobra grandes que se anulam no total
+function riCompensacao(r) {
+  const q = r.quebra_bruta || 0, s = Math.abs(r.sobra_bruta || 0);
+  return q > 1000 && s >= 0.5 * q;
+}
+const riCurto = (nome) => String(nome || '').replace(/^CARNE (BOV|SUINA)\.\s*/, '').replace(/[\s.](RESF|CONG|KG|IN NATURA)\b[\s\S]*$/, '').trim() || nome;
+
+function renderizarResultadosInventario() {
+  const todas = estado.riLista || [];
+  const setores = Array.from(new Set(todas.map((x) => x.setor))).sort();
+  const ultimos = setores.map((s) => todas.filter((x) => x.setor === s).sort((a, b) => b.periodo_fim.localeCompare(a.periodo_fim))[0]);
+  const hist = todas.filter((x) => !estado.riSetor || x.setor === estado.riSetor).sort((a, b) => b.periodo_fim.localeCompare(a.periodo_fim) || a.setor.localeCompare(b.setor));
+
+  const cards = ultimos.map((r) => {
+    const ant = riAnterior(r);
+    const ok = riDentro(r.perda_total_pct, r.meta_total_pct);
+    const cor = ok == null ? 'inherit' : ok ? 'var(--green)' : 'var(--red)';
+    const mini = (rot, real, meta, valor) => {
+      const okm = riDentro(real, meta);
+      return '<div style="flex:1;min-width:130px;background:var(--surface-2);border-radius:12px;padding:9px 11px;">' +
+        '<div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;letter-spacing:.03em;">' + rot + '</div>' +
+        '<div style="font-size:17px;font-weight:800;color:' + (okm == null ? 'inherit' : okm ? 'var(--green)' : 'var(--red)') + ';">' + riPct(real) + '</div>' +
+        '<div style="font-size:11.5px;color:var(--text-muted);">meta ' + riPct(meta) + ' · ' + riBRL(valor) + '</div></div>';
+    };
+    const lista = (L, cor) => (L || []).slice(0, 3).map((p) => '<div style="display:flex;justify-content:space-between;gap:10px;font-size:12.5px;padding:3px 0;"><span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + giroEsc(p.produto) + '">' + giroEsc(p.produto) + '</span><b style="color:' + cor + ';white-space:nowrap;">' + riBRL(p.valor) + '</b></div>').join('') || '<div style="font-size:12.5px;color:var(--text-muted);">—</div>';
+    const semEst = (r.destaques.vendeu_sem_estoque || []).length;
+    return '<div class="pq-card" style="display:flex;flex-direction:column;gap:12px;">' +
+      '<div style="display:flex;justify-content:space-between;gap:10px;align-items:flex-start;flex-wrap:wrap;">' +
+        '<div><div style="font-size:18px;font-weight:800;">' + giroEsc(r.setor) + '</div><div style="font-size:12.5px;color:var(--text-muted);">' + riDia(r.periodo_inicio) + ' a ' + riDia(r.periodo_fim) + (r.supervisor ? ' · Supervisor ' + giroEsc(r.supervisor) : '') + '</div></div>' +
+        '<div style="text-align:right;"><div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;">Perda total</div><div style="font-size:34px;font-weight:800;line-height:1;color:' + cor + ';">' + riPct(r.perda_total_pct) + '</div>' +
+          '<div style="font-size:12px;color:var(--text-muted);">meta ' + riPct(r.meta_total_pct) + (ok == null ? '' : ok ? ' · ✅ dentro' : ' · ❌ acima') + '</div></div>' +
+      '</div>' +
+      '<div style="font-size:13px;">' + riBRL(r.perda_total) + ' de perda em ' + riBRL(r.venda) + ' de venda' +
+        (ant ? ' · <span style="color:var(--text-muted);">anterior: ' + riPct(ant.perda_total_pct) + ' (' + riDiaCurto(ant.periodo_inicio) + '–' + riDiaCurto(ant.periodo_fim) + ')</span> ' +
+          '<b style="color:' + (r.perda_total_pct <= ant.perda_total_pct ? 'var(--green)' : 'var(--red)') + ';">' + (r.perda_total_pct <= ant.perda_total_pct ? '▼ ' : '▲ ') + riPct(Math.abs(r.perda_total_pct - ant.perda_total_pct)).replace('%', ' p.p.') + '</b>' : '') + '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;">' + mini('Identificada (quebra)', r.perda_identificada_pct, r.meta_identificada_pct, r.perda_identificada) + mini('Não identificada', r.perda_nao_identificada_pct, r.meta_nao_identificada_pct, r.perda_nao_identificada) + '</div>' +
+      (riCompensacao(r) ? '<div style="background:var(--red-bg);color:var(--red);border-radius:12px;padding:9px 12px;font-size:12.5px;"><b>Atenção:</b> ' + riBRL(r.quebra_bruta) + ' de quebra em ' + r.n_quebra + ' produtos estão sendo compensados por ' + riBRL(Math.abs(r.sobra_bruta)) + ' de sobra em ' + r.n_sobra + ' — o total esconde troca de código. Confira as maiores quebras e sobras.</div>' : '') +
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;">' +
+        '<div style="min-width:0;"><div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Maiores quebras</div>' + lista(r.destaques.maiores_quebras, 'var(--red)') + '</div>' +
+        '<div style="min-width:0;"><div style="font-size:11px;color:var(--text-muted);font-weight:700;text-transform:uppercase;margin-bottom:3px;">Maiores sobras</div>' + lista(r.destaques.maiores_sobras, '#B7791F') + '</div>' +
+      '</div>' +
+      '<div style="font-size:12px;color:var(--text-muted);">' + r.n_produtos + ' produtos com divergência · quebra lançada em ' + (r.n_com_quebra_lancada ?? '—') + (semEst ? ' · ' + semEst + ' com saldo negativo (vendeu mais do que tinha)' : '') + '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:2px;">' +
+        '<button class="btn-acao" onclick="riWhatsApp(\'' + r.id + '\')">💬 WhatsApp</button>' +
+        '<button class="btn-acao secundario" onclick="riCopiar(\'' + r.id + '\')">📋 Copiar texto</button>' +
+        '<button class="btn-acao secundario" onclick="riPdf(\'' + r.id + '\')">📄 PDF</button>' +
+      '</div></div>';
+  }).join('');
+
+  const linhas = hist.map((r) => {
+    const ok = riDentro(r.perda_total_pct, r.meta_total_pct);
+    return '<tr><td class="nome-forte">' + giroEsc(r.setor) + '</td><td>' + riDia(r.periodo_inicio) + ' a ' + riDia(r.periodo_fim) + '</td>' +
+      '<td style="text-align:right;">' + riBRL(r.venda) + '</td><td style="text-align:right;">' + riBRL(r.perda_total) + '</td>' +
+      '<td style="text-align:right;font-weight:800;color:' + (ok == null ? 'inherit' : ok ? 'var(--green)' : 'var(--red)') + ';">' + riPct(r.perda_total_pct) + '</td>' +
+      '<td style="text-align:right;">' + riPct(r.meta_total_pct) + '</td>' +
+      '<td style="text-align:right;">' + riPct(r.perda_identificada_pct) + '</td><td style="text-align:right;">' + riPct(r.perda_nao_identificada_pct) + '</td>' +
+      '<td>' + (riCompensacao(r) ? '<span style="color:var(--red);font-weight:700;">compensação</span>' : '') + '</td>' +
+      '<td style="white-space:nowrap;"><button class="btn-acao secundario" style="padding:5px 10px;font-size:12px;" onclick="riWhatsApp(\'' + r.id + '\')">💬</button> <button class="btn-acao secundario" style="padding:5px 10px;font-size:12px;" onclick="riPdf(\'' + r.id + '\')">📄</button></td></tr>';
+  }).join('');
+
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('Resultados de inventário', 'Resultado final de cada inventário · importe o PDF e compartilhe') +
+    '<div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center;">' +
+      '<div style="font-size:13px;color:var(--text-muted);max-width:640px;">Importe o PDF "Resultado de Inventário" que a regional manda. O Portal confere a soma dos produtos com o Total Geral, guarda o resumo e avisa os administradores no celular.</div>' +
+      '<button class="btn-acao" onclick="document.getElementById(\'ri-arquivo\').click()">⬆ Importar resultado (PDF)</button>' +
+      '<input type="file" id="ri-arquivo" accept="application/pdf" style="display:none" onchange="riImportar(this)" />' +
+    '</div>' +
+    (cards ? '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,460px),1fr));gap:18px;">' + cards + '</div>' : '<div class="celula-vazio">Nenhum resultado ainda. Importe o primeiro PDF.</div>') +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Histórico</h3>' +
+      '<select class="campo-input" style="margin:0;width:auto;" onchange="estado.riSetor=this.value;renderizarResultadosInventario()"><option value="">Todos os setores</option>' + setores.map((s) => '<option' + (s === estado.riSetor ? ' selected' : '') + '>' + giroEsc(s) + '</option>').join('') + '</select></div>' +
+      '<div class="tabela-wrap"><table style="min-width:0;width:100%;"><thead><tr><th>Setor</th><th>Período</th><th style="text-align:right;">Venda</th><th style="text-align:right;">Perda total</th><th style="text-align:right;">%</th><th style="text-align:right;">Meta</th><th style="text-align:right;">Identif.</th><th style="text-align:right;">Não identif.</th><th></th><th></th></tr></thead><tbody>' +
+      (linhas || '<tr><td colspan="10"><div class="celula-vazio">Sem resultados.</div></td></tr>') + '</tbody></table></div></div>';
+}
+
+// ---------- importar ----------
+async function riImportar(input) {
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  if (!window.pdfjsLib) { mostrarToast('O leitor de PDF não carregou. Recarregue a página e tente de novo.', 'erro'); return; }
+  mostrarToast('Lendo o PDF…');
+  let lido;
+  try { lido = await riLerPdf(file); } catch (e) { mostrarToast('Não consegui ler esse PDF: ' + e.message, 'erro'); return; }
+  const { reg, confere, faltas, somaPerda, somaVenda } = riResumo(lido);
+  reg.arquivo_nome = file.name;
+  reg.importado_por = estado.usuario ? estado.usuario.nome : null;
+  estado.riPendente = reg;
+  const existe = (estado.riLista || []).find((x) => x.setor === reg.setor && x.periodo_inicio === reg.periodo_inicio && x.periodo_fim === reg.periodo_fim);
+  const linha = (a, b) => '<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;"><span style="color:var(--text-muted);">' + a + '</span><b style="text-align:right;">' + b + '</b></div>';
+  const corpo = faltas.length
+    ? '<div class="faixa-checagem erro">Não encontrei no PDF: ' + faltas.join(', ') + '. Confira se é o relatório "Resultado de Inventário".</div>'
+    : '<div class="faixa-checagem ' + (confere ? 'ok' : 'erro') + '">' + (confere
+        ? '✓ Conferido: a soma dos ' + reg.n_produtos + ' produtos bate com o Total Geral do PDF'
+        : '✗ A soma dos produtos (' + riBRL(somaPerda) + ' de perda · ' + riBRL(somaVenda) + ' de venda) não bate com o Total Geral (' + riBRL(reg.perda_total) + ' · ' + riBRL(reg.venda) + '). Confira o arquivo antes de salvar.') + '</div>' +
+      (existe ? '<div class="faixa-checagem erro" style="margin-top:-6px;">Já existe um resultado de ' + giroEsc(reg.setor) + ' para esse período — salvar vai substituir.</div>' : '') +
+      linha('Setor', giroEsc(reg.setor)) + linha('Período', riDia(reg.periodo_inicio) + ' a ' + riDia(reg.periodo_fim)) +
+      linha('Loja', giroEsc((reg.loja || '') + ' ' + (reg.nome_loja || ''))) + linha('Supervisor', giroEsc(reg.supervisor || '—')) +
+      linha('Venda', riBRL(reg.venda)) + linha('Perda total', riBRL(reg.perda_total) + ' · <span style="color:' + (riDentro(reg.perda_total_pct, reg.meta_total_pct) ? 'var(--green)' : 'var(--red)') + ';">' + riPct(reg.perda_total_pct) + '</span> (meta ' + riPct(reg.meta_total_pct) + ')') +
+      linha('Perda identificada', riBRL(reg.perda_identificada) + ' · ' + riPct(reg.perda_identificada_pct) + ' (meta ' + riPct(reg.meta_identificada_pct) + ')') +
+      linha('Perda não identificada', riBRL(reg.perda_nao_identificada) + ' · ' + riPct(reg.perda_nao_identificada_pct) + ' (meta ' + riPct(reg.meta_nao_identificada_pct) + ')') +
+      linha('Quebra × sobra', riBRL(reg.quebra_bruta) + ' em ' + reg.n_quebra + ' × ' + riBRL(reg.sobra_bruta) + ' em ' + reg.n_sobra) +
+      linha('Maior quebra', giroEsc(((reg.destaques.maiores_quebras || [])[0] || {}).produto || '—')) +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:10px;">Ao salvar, os administradores recebem uma notificação no celular.</div>';
+  abrirModal('Importar resultado de inventário', '<div style="max-height:65vh;overflow:auto;padding-right:4px;">' + corpo + '</div>', faltas.length ? 'Fechar' : 'Salvar resultado', faltas.length ? fecharModal : riSalvar);
+}
+
+async function riSalvar() {
+  const reg = estado.riPendente;
+  if (!reg) return;
+  const btn = document.getElementById('modal-btn-salvar');
+  if (btn) { btn.disabled = true; btn.textContent = 'Salvando…'; }
+  const { error } = await sb.from('inventario_resultados').upsert(reg, { onConflict: 'setor,periodo_inicio,periodo_fim' });
+  if (error) {
+    if (btn) { btn.disabled = false; btn.textContent = 'Salvar resultado'; }
+    mostrarToast('Não foi possível salvar: ' + error.message, 'erro');
+    return;
+  }
+  estado.riPendente = null;
+  fecharModal();
+  mostrarToast('Resultado de ' + reg.setor + ' salvo. Os administradores foram avisados.', 'sucesso');
+  paginaResultadosInventario();
+}
+
+// ---------- compartilhar ----------
+function riTexto(r) {
+  const ant = riAnterior(r);
+  const ok = riDentro(r.perda_total_pct, r.meta_total_pct);
+  const it = (L) => (L || []).slice(0, 3).map((p) => riCurto(p.produto) + ' ' + riBRL(p.valor)).join(' · ');
+  const linhas = [
+    '📊 *Inventário ' + r.setor + ' — Loja ' + (r.loja || '') + (r.nome_loja ? ' ' + r.nome_loja : '') + '*',
+    'Período: ' + riDia(r.periodo_inicio) + ' a ' + riDia(r.periodo_fim),
+    '',
+    '*Resultado final: ' + riPct(r.perda_total_pct) + ' de perda* ' + (ok == null ? '' : ok ? '✅' : '❌') + (r.meta_total_pct != null ? ' (meta ' + riPct(r.meta_total_pct) + ')' : ''),
+    '• Perda total: ' + riBRL(r.perda_total),
+    '• Venda: ' + riBRL(r.venda),
+    '• Perda identificada (quebra lançada): ' + riPct(r.perda_identificada_pct) + (r.meta_identificada_pct != null ? ' (meta ' + riPct(r.meta_identificada_pct) + ')' : ''),
+    '• Perda não identificada: ' + riPct(r.perda_nao_identificada_pct) + (r.meta_nao_identificada_pct != null ? ' (meta ' + riPct(r.meta_nao_identificada_pct) + ')' : ''),
+  ];
+  if (ant) linhas.push('', 'Inventário anterior (' + riDiaCurto(ant.periodo_inicio) + '–' + riDiaCurto(ant.periodo_fim) + '): ' + riPct(ant.perda_total_pct) + ' → agora ' + riPct(r.perda_total_pct));
+  if (riCompensacao(r)) linhas.push('', '⚠️ ' + riBRL(r.quebra_bruta) + ' de quebra em ' + r.n_quebra + ' produtos compensados por ' + riBRL(Math.abs(r.sobra_bruta)) + ' de sobra em ' + r.n_sobra + ' — conferir troca de código.');
+  if ((r.destaques.maiores_quebras || []).length) linhas.push('', '🔻 Maiores quebras: ' + it(r.destaques.maiores_quebras));
+  if ((r.destaques.maiores_sobras || []).length) linhas.push('🔺 Maiores sobras: ' + it(r.destaques.maiores_sobras));
+  return linhas.join('\n');
+}
+function riAchar(id) { return (estado.riLista || []).find((x) => x.id === id); }
+function riWhatsApp(id) {
+  const r = riAchar(id); if (!r) return;
+  window.open('https://wa.me/?text=' + encodeURIComponent(riTexto(r)), '_blank', 'noopener');
+}
+async function riCopiar(id) {
+  const r = riAchar(id); if (!r) return;
+  try { await navigator.clipboard.writeText(riTexto(r)); mostrarToast('Texto copiado. É só colar no WhatsApp ou no e-mail.', 'sucesso'); }
+  catch (e) { abrirModal('Copiar texto', '<textarea class="campo-input" style="width:100%;height:280px;font-family:inherit;" onclick="this.select()">' + giroEsc(riTexto(r)) + '</textarea>', 'Fechar', fecharModal); }
+}
+function riPdf(id) {
+  const r = riAchar(id); if (!r) return;
+  const ant = riAnterior(r);
+  const ok = riDentro(r.perda_total_pct, r.meta_total_pct);
+  const e = giroEsc;
+  const cor = (okk) => okk == null ? '#0E1B2C' : okk ? '#1E8E5A' : '#C0392B';
+  const card = (rot, real, meta, valor) => '<div class="c"><div class="r">' + rot + '</div><div class="v" style="color:' + cor(riDentro(real, meta)) + '">' + riPct(real) + '</div><div class="l">meta ' + riPct(meta) + ' · ' + riBRL(valor) + '</div></div>';
+  const tab = (L, corv) => '<table>' + (L || []).map((p, i) => '<tr><td class="pos">' + (i + 1) + '</td><td>' + e(p.produto) + '</td><td class="n" style="color:' + corv + '"><b>' + riBRL(p.valor) + '</b></td></tr>').join('') + '</table>';
+  const logo = '<svg width="34" height="34" viewBox="0 0 160 160"><rect width="160" height="160" rx="36" fill="#0E1B2C"/><path d="M42 36 V84 A38 38 0 0 0 118 84 V36" fill="none" stroke="#F4F5F7" stroke-width="20" stroke-linecap="round"/><circle cx="80" cy="74" r="15" fill="#2F7BFF"/></svg>';
+  const sem = (r.destaques.vendeu_sem_estoque || []).slice().sort((a, b) => a.saldo - b.saldo).slice(0, 5);
+  const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Inventário ' + e(r.setor) + ' ' + riDia(r.periodo_inicio) + ' a ' + riDia(r.periodo_fim) + '</title><style>' +
+    '@page{size:A4;margin:12mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#0E1B2C;margin:0;font-size:11px}' +
+    '.topo{display:flex;align-items:center;gap:12px;border-bottom:3px solid #0E1B2C;padding-bottom:10px;margin-bottom:16px}.topo h1{font-size:20px;margin:0}.topo .s{color:#5B6577;font-size:12px;margin-top:2px}' +
+    '.hero{display:flex;justify-content:space-between;align-items:center;border:1px solid #D5DBE5;border-radius:12px;padding:16px 18px;margin-bottom:12px}.hero .big{font-size:44px;font-weight:800;line-height:1}.hero .r{font-size:10.5px;color:#5B6577;text-transform:uppercase;letter-spacing:.05em;font-weight:700}' +
+    '.cards{display:flex;gap:10px;margin-bottom:12px}.c{flex:1;border:1px solid #D5DBE5;border-radius:10px;padding:10px 12px}.c .r{font-size:9.5px;color:#5B6577;text-transform:uppercase;font-weight:700;letter-spacing:.04em}.c .v{font-size:20px;font-weight:800;margin-top:3px}.c .l{font-size:10px;color:#5B6577;margin-top:2px}' +
+    '.alerta{background:#FDECEA;color:#B42318;border-radius:10px;padding:10px 12px;margin-bottom:12px;font-size:11.5px}' +
+    'h2{font-size:12.5px;margin:12px 0 4px}.duas{display:flex;gap:16px}.duas>div{flex:1}table{width:100%;border-collapse:collapse}td{padding:4px 5px;border-bottom:1px solid #E4E8EF}.n{text-align:right;white-space:nowrap}.pos{color:#5B6577;width:16px;font-weight:700}' +
+    '.rod{margin-top:16px;font-size:9.5px;color:#5B6577;border-top:1px solid #D5DBE5;padding-top:6px}' +
+    '</style></head><body>' +
+    '<div class="topo">' + logo + '<div><h1>Resultado do inventário — ' + e(r.setor) + '</h1><div class="s">Loja ' + e(r.loja || '') + ' ' + e(r.nome_loja || '') + ' · ' + riDia(r.periodo_inicio) + ' a ' + riDia(r.periodo_fim) + (r.supervisor ? ' · Supervisor ' + e(r.supervisor) : '') + '</div></div></div>' +
+    '<div class="hero"><div><div class="r">Resultado final · perda total</div><div class="big" style="color:' + cor(ok) + '">' + riPct(r.perda_total_pct) + '</div><div style="margin-top:4px;color:#5B6577;">meta ' + riPct(r.meta_total_pct) + (ok == null ? '' : ok ? ' · dentro da meta' : ' · acima da meta') + '</div></div>' +
+      '<div style="text-align:right;font-size:12px;line-height:1.7;"><div>Perda total <b>' + riBRL(r.perda_total) + '</b></div><div>Venda <b>' + riBRL(r.venda) + '</b></div>' + (ant ? '<div>Anterior (' + riDiaCurto(ant.periodo_inicio) + '–' + riDiaCurto(ant.periodo_fim) + '): <b>' + riPct(ant.perda_total_pct) + '</b></div>' : '') + '</div></div>' +
+    '<div class="cards">' + card('Perda identificada (quebra)', r.perda_identificada_pct, r.meta_identificada_pct, r.perda_identificada) + card('Perda não identificada', r.perda_nao_identificada_pct, r.meta_nao_identificada_pct, r.perda_nao_identificada) +
+      '<div class="c"><div class="r">Quebra × sobra</div><div class="v" style="font-size:15px">' + riBRL(r.quebra_bruta) + '</div><div class="l">' + r.n_quebra + ' produtos com quebra × ' + riBRL(r.sobra_bruta) + ' em ' + r.n_sobra + ' com sobra</div></div></div>' +
+    (riCompensacao(r) ? '<div class="alerta"><b>Atenção:</b> a quebra está sendo compensada pela sobra — o resultado final esconde troca de código entre produtos. Confira os pares entre as maiores quebras e as maiores sobras.</div>' : '') +
+    '<div class="duas"><div><h2>Maiores quebras</h2>' + tab(r.destaques.maiores_quebras, '#C0392B') + '</div><div><h2>Maiores sobras</h2>' + tab(r.destaques.maiores_sobras, '#B7791F') + '</div></div>' +
+    (sem.length ? '<h2>Saldo negativo (vendeu mais do que tinha)</h2><table>' + sem.map((p, i) => '<tr><td class="pos">' + (i + 1) + '</td><td>' + e(p.produto) + '</td><td class="n">vendeu ' + Number(p.vendas).toLocaleString('pt-BR') + ' · saldo <b>' + Number(p.saldo).toLocaleString('pt-BR') + '</b></td></tr>').join('') + '</table>' : '') +
+    '<div class="rod">' + r.n_produtos + ' produtos com divergência · quebra lançada em ' + (r.n_com_quebra_lancada ?? '—') + ' · fonte: relatório "Resultado de Inventário" · ULVA · A loja inteira na palma da mão.</div>' +
+    '<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>';
+  const w = window.open('', '_blank');
+  if (!w) { mostrarToast('O navegador bloqueou a janela do PDF. Libere pop-ups para este site e tente de novo.', 'erro'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
 }
 
 // =============================================================================
