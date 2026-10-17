@@ -34,6 +34,7 @@ import OfertasHubScreen from './OfertasHubScreen';
 import ChegadasScreen from './ChegadasScreen';
 import OlhoValidadeScreen from './OlhoValidadeScreen';
 import VendaDiaScreen from './VendaDiaScreen';
+import ResultadosInventarioScreen from './ResultadosInventarioScreen';
 import InicioUlva2, { GrupoId } from './InicioUlva2';
 import {
   podeTestarUlva2,
@@ -84,6 +85,7 @@ export default function HomeAdminScreen() {
     | 'chegadas'
     | 'olhoValidade'
     | 'vendaDia'
+    | 'resultadosInventario'
   >('home');
 
   // ULVA 2.0: ferramentas agrupadas. Até ser liberado (system_config
@@ -275,6 +277,9 @@ export default function HomeAdminScreen() {
   if (tela === 'olhoValidade') {
     return <OlhoValidadeScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'resultadosInventario') {
+    return <ResultadosInventarioScreen onVoltar={() => setTela('home')} />;
+  }
   if (tela === 'vendaDia') {
     return <VendaDiaScreen onVoltar={() => setTela('home')} />;
   }
@@ -410,6 +415,7 @@ export default function HomeAdminScreen() {
             { label: 'Conferência', icone: 'clipboard' as const, onPress: () => setTela('conferencias') },
             { label: 'Pedidos', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') },
             { label: 'Painel Resultados', icone: 'bar-chart-2' as const, onPress: () => setTela('painelResultados') },
+            { label: 'Resultados de inventário', icone: 'award' as const, onPress: () => setTela('resultadosInventario') },
             { label: 'Vendas da Loja', icone: 'pie-chart' as const, onPress: () => setTela('vendasLoja'), somenteDono: true },
             { label: 'Venda do dia', icone: 'calendar' as const, onPress: () => setTela('vendaDia'), somenteDono: true },
             { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },

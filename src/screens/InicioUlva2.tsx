@@ -15,7 +15,7 @@ export type TelaFerramenta =
   | 'ofertas' | 'precificacao' | 'pesquisaPreco' | 'mapaLoja' | 'pontasExtras'
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
-  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'olhoValidade';
+  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'olhoValidade' | 'resultadosInventario';
 
 type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
 export type GrupoId = 'rotina' | 'comercial' | 'resultados' | 'estoque';
@@ -51,6 +51,7 @@ export const GRUPOS_ULVA2: Grupo[] = [
     ferramentas: [
       { nome: 'Perdas e Desperdício', desc: 'Quebra por setor e por produto', icone: 'trending-down', tela: 'perdas' },
       { nome: 'Painel Resultados', desc: 'Indicadores por setor', icone: 'bar-chart-2', tela: 'painelResultados' },
+      { nome: 'Resultados de inventário', desc: 'Resultado final e compartilhar', icone: 'award', tela: 'resultadosInventario' },
       { nome: 'Vendas da Loja', desc: 'Venda por setor e por dia', icone: 'pie-chart', tela: 'vendasLoja', somenteDono: true },
       { nome: 'Venda do dia', desc: 'Total, setores, top 10 e PDF', icone: 'calendar', tela: 'vendaDia', somenteDono: true },
       { nome: 'Vendas', desc: 'Venda por categoria', icone: 'trending-up', tela: 'vendas' },
