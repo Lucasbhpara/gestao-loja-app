@@ -40,6 +40,8 @@ import UsoConsumoScreen from './UsoConsumoScreen';
 import OfertasHubScreen from './OfertasHubScreen';
 import ChegadasScreen from './ChegadasScreen';
 import OlhoValidadeScreen from './OlhoValidadeScreen';
+import InicioUlva2, { Grupo, GrupoId, TelaFerramenta, Ferramenta } from './InicioUlva2';
+import { buscarUlva2Liberado, ulva2LiberadoEmCache } from '../data/ulva2Flag';
 
 const FRASES_DO_DIA = [
   'Pequenas melhorias todos os dias constroem grandes resultados.',
@@ -86,6 +88,19 @@ export default function HomeColaboradorScreen() {
   // Tarefa de checklist aberta na tela de Correção (ver CorrecaoScreen.tsx).
   const [tarefaCorrecao, setTarefaCorrecao] = useState<Tarefa | null>(null);
 
+  // ULVA 2.0: quando liberado (system_config 'ulva2_liberado'), o colaborador
+  // também vê o Início novo, com as ferramentas dele agrupadas.
+  const [ulva2Liberado, setUlva2Liberado] = useState(false);
+  const [grupoAberto, setGrupoAberto] = useState<GrupoId | null>(null);
+  useEffect(() => {
+    let vivo = true;
+    ulva2LiberadoEmCache().then((v) => vivo && setUlva2Liberado(v));
+    buscarUlva2Liberado().then((v) => vivo && setUlva2Liberado(v));
+    return () => {
+      vivo = false;
+    };
+  }, []);
+
   useEffect(() => {
     const aoVoltar = () => {
       if (tarefaCorrecao) {
@@ -96,11 +111,15 @@ export default function HomeColaboradorScreen() {
         setTela('home');
         return true;
       }
+      if (grupoAberto) {
+        setGrupoAberto(null);
+        return true;
+      }
       return false;
     };
     const assinatura = BackHandler.addEventListener('hardwareBackPress', aoVoltar);
     return () => assinatura.remove();
-  }, [tela, tarefaCorrecao]);
+  }, [tela, tarefaCorrecao, grupoAberto]);
 
   const [tarefas, setTarefas] = useState<Tarefa[]>([]);
   const [carregandoTarefas, setCarregandoTarefas] = useState(true);
@@ -110,6 +129,8 @@ export default function HomeColaboradorScreen() {
 
   const [avisosUrgentes, setAvisosUrgentes] = useState<Aviso[]>([]);
   const [validadesProximas, setValidadesProximas] = useState<Validade[]>([]);
+  const [qtdValidadesSetor, setQtdValidadesSetor] = useState<number | null>(null);
+  const [qtdUrgentesSetor, setQtdUrgentesSetor] = useState(0);
   const [carregandoResumo, setCarregandoResumo] = useState(true);
   // "Produtos vencendo" agora é uma gaveta retrátil pra deixar a Home mais
   // limpa — começa fechada, o colaborador abre quando quiser conferir.
@@ -146,6 +167,8 @@ export default function HomeColaboradorScreen() {
       .then(([avisos, validades]) => {
         setAvisosUrgentes(avisos.filter((a) => a.urgente).slice(0, 5));
         setValidadesProximas([...validades].sort((a, b) => (a.dataValidade < b.dataValidade ? -1 : 1)).slice(0, 5));
+        setQtdValidadesSetor(validades.length);
+        setQtdUrgentesSetor(validades.filter((v) => diasRestantes(v.dataValidade) < 5).length);
       })
       .catch(() => {})
       .finally(() => setCarregandoResumo(false));
@@ -329,41 +352,11 @@ export default function HomeColaboradorScreen() {
     }
   }
 
-  return (
-    <ScrollView
-      style={styles.flex}
-      contentContainerStyle={{ paddingBottom: 40 }}
-      refreshControl={
-        <RefreshControl
-          refreshing={atualizandoTarefas}
-          onRefresh={() => {
-            setAtualizandoTarefas(true);
-            carregarTarefas();
-          }}
-        />
-      }
-    >
-      <View style={styles.header}>
-        <View style={styles.topRow}>
-          <View>
-            <Text style={styles.greeting}>{saudacao()}, {usuarioAtual.nome}</Text>
-            <View style={styles.sectorBadge}>
-              <Text style={styles.sectorBadgeText}>Setor: {nomeSetor}</Text>
-            </View>
-          </View>
-          <TouchableOpacity onPress={confirmarSaida} style={styles.avatar}>
-            <Image source={require('../../assets/icon.png')} style={styles.avatarImagem} />
-          </TouchableOpacity>
-        </View>
-
-        <View style={styles.quoteCard}>
-          <Text style={styles.quoteText}>"{frase}"</Text>
-          <Text style={styles.quoteAuthor}>Frase do dia</Text>
-        </View>
-      </View>
-
-      {!carregandoResumo && avisosUrgentes.length > 0 && (
-        <View style={styles.section}>
+  function blocoAvisos(dentroUlva2: boolean) {
+    return (
+      <>
+        {!carregandoResumo && avisosUrgentes.length > 0 && (
+        <View style={dentroUlva2 ? styles.secaoUlva2 : styles.section}>
           <Text style={styles.sectionTitle}>⚠ Avisos urgentes</Text>
           <View style={styles.listCard}>
             {avisosUrgentes.map((a, i) => (
@@ -379,54 +372,15 @@ export default function HomeColaboradorScreen() {
           </View>
         </View>
       )}
+      </>
+    );
+  }
 
-      {!carregandoResumo && validadesProximas.length > 0 && (
-        <View style={styles.section}>
-          <TouchableOpacity
-            style={styles.gavetaCabecalho}
-            onPress={() => setGavetaVencendoAberta((v) => !v)}
-            activeOpacity={0.7}
-          >
-            <View style={styles.gavetaCabecalhoEsquerda}>
-              <Feather name="chevron-right" size={16} color={colors.gray600} style={gavetaVencendoAberta ? styles.gavetaSetaAberta : undefined} />
-              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Produtos vencendo</Text>
-              <View style={[styles.gavetaBadge, validadesProximas.some((v) => diasRestantes(v.dataValidade) < 5) && styles.gavetaBadgeUrgente]}>
-                <Text style={[styles.gavetaBadgeTexto, validadesProximas.some((v) => diasRestantes(v.dataValidade) < 5) && styles.gavetaBadgeTextoUrgente]}>
-                  {validadesProximas.length}
-                </Text>
-              </View>
-            </View>
-            {gavetaVencendoAberta && (
-              <TouchableOpacity onPress={() => setTela('validade')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
-                <Text style={styles.verMaisTexto}>Ver todos ›</Text>
-              </TouchableOpacity>
-            )}
-          </TouchableOpacity>
-
-          {gavetaVencendoAberta && (
-            <View style={[styles.listCard, { marginTop: spacing.md }]}>
-              {validadesProximas.map((v, i) => {
-                const dias = diasRestantes(v.dataValidade);
-                const status = statusPrazo(dias);
-                return (
-                  <View key={v.id} style={[styles.row, i !== validadesProximas.length - 1 && styles.rowBorder]}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.rowTitle}>{dias < 5 ? '⚠ ' : ''}{v.produto}</Text>
-                      <Text style={styles.rowSubtitle}>Vence em {formatarData(v.dataValidade)}</Text>
-                    </View>
-                    <View style={[styles.chipStatus, { backgroundColor: status.fundo }]}>
-                      <Text style={[styles.chipStatusTexto, { color: status.cor }]}>{status.texto}</Text>
-                    </View>
-                  </View>
-                );
-              })}
-            </View>
-          )}
-        </View>
-      )}
-
-      {!somenteValidade && (
-      <View style={styles.section}>
+  function blocoPrioridades(dentroUlva2: boolean) {
+    return (
+      <>
+        {!somenteValidade && (
+      <View style={dentroUlva2 ? styles.secaoUlva2 : styles.section}>
         <Text style={styles.sectionTitle}>Prioridades de hoje</Text>
 
         {carregandoTarefas ? (
@@ -486,6 +440,188 @@ export default function HomeColaboradorScreen() {
         )}
       </View>
       )}
+      </>
+    );
+  }
+
+  // Ferramentas do colaborador no ULVA 2.0, nos mesmos grupos do
+  // administrador (só as que ele já podia usar; as escondidas pelo
+  // administrador na aba Equipe do portal continuam escondidas).
+  const pode = (chave: string) => !bloqueadas.includes(chave);
+  const f = (nome: string, desc: string, icone: Ferramenta['icone'], tela: TelaFerramenta, chave: string | null = tela): Ferramenta[] =>
+    chave && !pode(chave) ? [] : [{ nome, desc, icone, tela }];
+  const gruposColaborador: Grupo[] = [
+    {
+      id: 'rotina', nome: 'Rotina da Loja', desc: 'Checklist, avisos e ocorrências', icone: 'check-circle', cor: '#2F7BFF', fundo: '#E3EDFF',
+      ferramentas: [
+        ...f('Checklist', 'Rotina do dia e avaliação de setor', 'check-square', 'checklist'),
+        ...(somenteValidade ? [] : [
+          ...f('Mural de Avisos', 'Comunicados para a equipe', 'bell', 'avisos'),
+          ...f('Abrir ocorrência', 'Registros do dia a dia da loja', 'alert-triangle', 'ocorrencias', 'ocorrencia'),
+        ]),
+      ],
+    },
+    {
+      id: 'comercial', nome: 'Comercial', desc: 'Ofertas, preços e exposição dos produtos', icone: 'shopping-bag', cor: '#6A4BD6', fundo: '#ECE7FB',
+      ferramentas: [
+        ...(somenteValidade ? [] : [
+          ...f('Ofertas', 'Ofertas da loja', 'tag', 'ofertas'),
+          ...f('Chegou hoje', 'O que veio do CD e estava em falta', 'truck', 'chegadas'),
+          ...f('Precificação', 'Bipar produto e imprimir etiqueta', 'dollar-sign', 'precificacao'),
+        ]),
+        ...f('Mapa da Loja', 'Planta da loja com fotos de cada trecho', 'map', 'mapaLoja'),
+        ...f('Pontas e Pontos Extras', 'O que está em cada ponta', 'layers', 'pontasExtras'),
+      ],
+    },
+    {
+      id: 'resultados', nome: 'Resultados', desc: 'Perdas e desperdício do setor', icone: 'activity', cor: '#178553', fundo: '#DFF3E8',
+      ferramentas: somenteValidade ? [] : f('Perdas e Desperdício', 'Quebra por setor e por produto', 'trending-down', 'perdas'),
+    },
+    {
+      id: 'estoque', nome: 'Estoque', desc: 'Conferência, validade e consumo', icone: 'package', cor: '#0B7F8E', fundo: '#DDF2F4',
+      ferramentas: [
+        ...(!somenteValidade && podeConferir ? f('Conferência', 'Recebimento de mercadoria', 'clipboard', 'conferencias', 'conferencia') : []),
+        ...f('Validade', 'Produtos perto de vencer', 'calendar', 'validade'),
+        ...f('De olho na validade', 'Cliente achou produto vencido', 'eye', 'olhoValidade'),
+        ...(!somenteValidade && ehFlv ? f('Pedidos', 'Pedidos do FLV', 'shopping-cart', 'pedidos') : []),
+        ...(somenteValidade ? [] : f('Uso e Consumo', 'Retirada de material por setor', 'box', 'usoConsumo')),
+      ],
+    },
+  ];
+
+  function abrirFerramenta(t: TelaFerramenta) {
+    const mapa: Partial<Record<TelaFerramenta, typeof tela>> = {
+      ocorrencias: 'ocorrencia',
+      conferencias: 'conferencia',
+      checklist: 'checklist',
+      avisos: 'avisos',
+      ofertas: 'ofertas',
+      chegadas: 'chegadas',
+      precificacao: 'precificacao',
+      mapaLoja: 'mapaLoja',
+      pontasExtras: 'pontasExtras',
+      perdas: 'perdas',
+      validade: 'validade',
+      olhoValidade: 'olhoValidade',
+      pedidos: 'pedidos',
+      usoConsumo: 'usoConsumo',
+      escalaFaltas: 'escalaFaltas',
+      sobre: 'sobre',
+    };
+    const destino = mapa[t];
+    if (destino) setTela(destino);
+  }
+
+  if (ulva2Liberado) {
+    return (
+      <InicioUlva2
+        nome={usuarioAtual.nome}
+        usandoNuvem
+        podeVerDono
+        podeUsarIA={false}
+        qtdVencendo={carregandoResumo ? null : qtdValidadesSetor ?? 0}
+        qtdUrgentes={qtdUrgentesSetor}
+        grupoAberto={grupoAberto}
+        onAbrirGrupo={setGrupoAberto}
+        onAbrir={abrirFerramenta}
+        onSair={confirmarSaida}
+        testando={false}
+        liberado
+        grupos={gruposColaborador}
+        selo={`Setor: ${nomeSetor}`}
+        mostrarSeloDados={false}
+        mostrarColaboradores={!somenteValidade && pode('escalaFaltas')}
+        conteudoExtra={
+          <View style={{ gap: 14 }}>
+            {blocoAvisos(true)}
+            {blocoPrioridades(true)}
+          </View>
+        }
+      />
+    );
+  }
+
+  return (
+    <ScrollView
+      style={styles.flex}
+      contentContainerStyle={{ paddingBottom: 40 }}
+      refreshControl={
+        <RefreshControl
+          refreshing={atualizandoTarefas}
+          onRefresh={() => {
+            setAtualizandoTarefas(true);
+            carregarTarefas();
+          }}
+        />
+      }
+    >
+      <View style={styles.header}>
+        <View style={styles.topRow}>
+          <View>
+            <Text style={styles.greeting}>{saudacao()}, {usuarioAtual.nome}</Text>
+            <View style={styles.sectorBadge}>
+              <Text style={styles.sectorBadgeText}>Setor: {nomeSetor}</Text>
+            </View>
+          </View>
+          <TouchableOpacity onPress={confirmarSaida} style={styles.avatar}>
+            <Image source={require('../../assets/icon.png')} style={styles.avatarImagem} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.quoteCard}>
+          <Text style={styles.quoteText}>"{frase}"</Text>
+          <Text style={styles.quoteAuthor}>Frase do dia</Text>
+        </View>
+      </View>
+
+      {blocoAvisos(false)}
+
+      {!carregandoResumo && validadesProximas.length > 0 && (
+        <View style={styles.section}>
+          <TouchableOpacity
+            style={styles.gavetaCabecalho}
+            onPress={() => setGavetaVencendoAberta((v) => !v)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.gavetaCabecalhoEsquerda}>
+              <Feather name="chevron-right" size={16} color={colors.gray600} style={gavetaVencendoAberta ? styles.gavetaSetaAberta : undefined} />
+              <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>Produtos vencendo</Text>
+              <View style={[styles.gavetaBadge, validadesProximas.some((v) => diasRestantes(v.dataValidade) < 5) && styles.gavetaBadgeUrgente]}>
+                <Text style={[styles.gavetaBadgeTexto, validadesProximas.some((v) => diasRestantes(v.dataValidade) < 5) && styles.gavetaBadgeTextoUrgente]}>
+                  {validadesProximas.length}
+                </Text>
+              </View>
+            </View>
+            {gavetaVencendoAberta && (
+              <TouchableOpacity onPress={() => setTela('validade')} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                <Text style={styles.verMaisTexto}>Ver todos ›</Text>
+              </TouchableOpacity>
+            )}
+          </TouchableOpacity>
+
+          {gavetaVencendoAberta && (
+            <View style={[styles.listCard, { marginTop: spacing.md }]}>
+              {validadesProximas.map((v, i) => {
+                const dias = diasRestantes(v.dataValidade);
+                const status = statusPrazo(dias);
+                return (
+                  <View key={v.id} style={[styles.row, i !== validadesProximas.length - 1 && styles.rowBorder]}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.rowTitle}>{dias < 5 ? '⚠ ' : ''}{v.produto}</Text>
+                      <Text style={styles.rowSubtitle}>Vence em {formatarData(v.dataValidade)}</Text>
+                    </View>
+                    <View style={[styles.chipStatus, { backgroundColor: status.fundo }]}>
+                      <Text style={[styles.chipStatusTexto, { color: status.cor }]}>{status.texto}</Text>
+                    </View>
+                  </View>
+                );
+              })}
+            </View>
+          )}
+        </View>
+      )}
+
+      {blocoPrioridades(false)}
 
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>Acesso rápido</Text>
@@ -561,6 +697,7 @@ const styles = StyleSheet.create({
   quoteText: { color: colors.navy900, fontSize: 13, fontWeight: '600' },
   quoteAuthor: { color: colors.gray400, fontSize: 11, marginTop: 4 },
   section: { paddingHorizontal: spacing.xl, paddingTop: spacing.xl },
+  secaoUlva2: {},
   sectionHeaderRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: spacing.md },
   sectionTitle: { fontSize: 16, fontWeight: '700', color: colors.gray900, marginBottom: spacing.md },
   verMaisTexto: { fontSize: 12.5, fontWeight: '700', color: colors.navy700 },
