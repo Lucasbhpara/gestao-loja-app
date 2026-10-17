@@ -39,6 +39,7 @@ import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import UsoConsumoScreen from './UsoConsumoScreen';
 import OfertasHubScreen from './OfertasHubScreen';
 import ChegadasScreen from './ChegadasScreen';
+import OlhoValidadeScreen from './OlhoValidadeScreen';
 
 const FRASES_DO_DIA = [
   'Pequenas melhorias todos os dias constroem grandes resultados.',
@@ -74,6 +75,7 @@ export default function HomeColaboradorScreen() {
     | 'usoConsumo'
     | 'ofertas'
     | 'chegadas'
+    | 'olhoValidade'
   >('home');
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
@@ -232,6 +234,9 @@ export default function HomeColaboradorScreen() {
   }
   if (tela === 'chegadas') {
     return <ChegadasScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'olhoValidade') {
+    return <OlhoValidadeScreen onVoltar={() => setTela('home')} />;
   }
 
   const nomeSetor = setores.find((s) => s.key === usuarioAtual.setor)?.nome ?? usuarioAtual.setor;
@@ -489,6 +494,7 @@ export default function HomeColaboradorScreen() {
             ? [
                 { label: 'Checklist', icone: 'check-square' as const, chave: 'checklist', onPress: () => setTela('checklist') },
                 { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
+                { label: 'De olho na validade', icone: 'eye' as const, chave: 'olhoValidade', onPress: () => setTela('olhoValidade') },
                 { label: 'Mapa da Loja', icone: 'map' as const, chave: 'mapaLoja', onPress: () => setTela('mapaLoja') },
                 { label: 'Pontas e Pontos Extras', icone: 'layers' as const, chave: 'pontasExtras', onPress: () => setTela('pontasExtras') },
                 // Jornal de Ofertas: tile removido — o balão flutuante já
@@ -506,6 +512,7 @@ export default function HomeColaboradorScreen() {
                 { label: 'Precificação', icone: 'tag' as const, chave: 'precificacao', onPress: () => setTela('precificacao') },
                 { label: 'Perdas e Desperdício', icone: 'trending-down' as const, chave: 'perdas', onPress: () => setTela('perdas') },
                 { label: 'Validade', icone: 'calendar' as const, chave: 'validade', onPress: () => setTela('validade') },
+                { label: 'De olho na validade', icone: 'eye' as const, chave: 'olhoValidade', onPress: () => setTela('olhoValidade') },
                 { label: 'Ofertas', icone: 'tag' as const, chave: 'ofertas', onPress: () => setTela('ofertas') },
                 { label: 'Chegou hoje', icone: 'truck' as const, chave: 'chegadas', onPress: () => setTela('chegadas') },
                 { label: 'Uso e Consumo', icone: 'box' as const, chave: 'usoConsumo', onPress: () => setTela('usoConsumo') },

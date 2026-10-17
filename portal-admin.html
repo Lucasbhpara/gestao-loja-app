@@ -873,6 +873,7 @@
       <div class="nav-gaveta-itens">
         <button class="nav-item" data-pagina="perdas" onclick="irPara('perdas')"><span class="dot"></span>Perdas e Desperdícios</button>
         <button class="nav-item" data-pagina="validade" onclick="irPara('validade')"><span class="dot"></span>Validade</button>
+        <button class="nav-item" data-pagina="olho-validade" onclick="irPara('olho-validade')"><span class="dot"></span>De olho na validade</button>
         <button class="nav-item" id="nav-vendas-loja" style="display:none" data-pagina="vendas-loja" onclick="irPara('vendas-loja')"><span class="dot"></span>Vendas da Loja</button>
         <button class="nav-item" id="nav-venda-dia" style="display:none" data-pagina="venda-dia" onclick="irPara('venda-dia')"><span class="dot"></span>Venda do dia</button>
         <button class="nav-item" data-pagina="vendas" onclick="irPara('vendas')"><span class="dot"></span>Vendas</button>
@@ -998,6 +999,7 @@ const FERRAMENTAS_APP = [
   { chave: 'usoConsumo', nome: 'Uso e Consumo' },
   { chave: 'ofertas', nome: 'Ofertas (WhatsApp e Estoque do Jornal)' },
   { chave: 'chegadas', nome: 'Chegou hoje (mercadoria do CD)' },
+  { chave: 'olhoValidade', nome: 'De olho na validade' },
 ];
 
 // Os setores atendidos pelo Checklist de Setor (avaliação diária de
@@ -1225,6 +1227,7 @@ async function irPara(pagina) {
     else if (pagina === 'estoque-jornal') await paginaEstoqueJornal();
     else if (pagina === 'pesquisa-preco') await paginaPesquisaPreco();
     else if (pagina === 'chegadas') await paginaChegadas();
+    else if (pagina === 'olho-validade') await paginaOlhoValidade();
     else if (pagina === 'visitas-site') await paginaVisitasSite();
   } catch (e) {
     el.innerHTML = '<div class="celula-vazio">Não consegui carregar essa página: ' + (e.message || '') + '</div>';
@@ -2030,6 +2033,288 @@ async function excluirChegada(id) {
   if (error) { mostrarToast('Não consegui excluir: ' + error.message, 'erro'); return; }
   mostrarToast('Nota excluída.');
   irPara('chegadas');
+}
+
+// ============================================================================
+// DE OLHO NA VALIDADE — painel das ocorrências registradas no app
+// (cliente encontrou produto vencido). Copiado do Prevenção SBH.
+// ============================================================================
+const OV_PERIODOS = [{ dias: 30, texto: 'Últimos 30 dias' }, { dias: 90, texto: 'Últimos 3 meses' }, { dias: 180, texto: 'Últimos 6 meses' }, { dias: 365, texto: 'Último ano' }];
+const OV_PAPEIS = { registrou: 'Quem registrou', gerente: 'Gerente da loja', responsavel_setor: 'Responsável do setor' };
+const ovBRL = (n) => n == null || isNaN(n) ? '—' : Number(n).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+const ovNum = (n) => Number(n || 0).toLocaleString('pt-BR', { maximumFractionDigits: 3 });
+const ovPct = (a, b) => b ? Math.round((a / b) * 100) + '%' : '—';
+const ovData = (iso) => iso ? new Date(iso).toLocaleDateString('pt-BR') : '—';
+const ovDia = (iso) => iso ? String(iso).slice(0, 10).split('-').reverse().join('/') : '—';
+// dias entre a validade do produto e o dia em que o cliente achou
+const ovDiasVencido = (validade, criadoEm) => {
+  if (!validade) return null;
+  const v = new Date(String(validade).slice(0, 10) + 'T12:00:00');
+  const c = new Date(new Date(criadoEm).toISOString().slice(0, 10) + 'T12:00:00');
+  return Math.round((c - v) / 86400000);
+};
+
+async function paginaOlhoValidade() {
+  if (!estado.ovDias) estado.ovDias = 90;
+  estado.ovSetor = estado.ovSetor || '';
+  estado.ovCaixa = estado.ovCaixa || '';
+  const el = document.getElementById('conteudo-principal');
+  el.innerHTML = cabecalho('De olho na validade', 'Produtos vencidos encontrados por clientes · registrados no app') + '<div class="celula-vazio">Carregando as ocorrências…</div>';
+  const desde = new Date(Date.now() - estado.ovDias * 86400000).toISOString();
+  const { data, error } = await sb.from('olho_validade').select('*').gte('criado_em', desde).order('criado_em', { ascending: false }).limit(2000);
+  if (error) {
+    el.innerHTML = cabecalho('De olho na validade', 'Produtos vencidos encontrados por clientes') +
+      '<div class="celula-vazio">' + (/olho_validade/.test(error.message) ? 'A tabela ainda não existe. Rode o arquivo <b>supabase/olho_validade.sql</b> no SQL Editor do Supabase.' : giroEsc(error.message)) + '</div>';
+    return;
+  }
+  estado.ovLista = (data || []).map((o) => ({
+    ...o,
+    cupom_total: o.cupom_total == null ? null : Number(o.cupom_total),
+    valor_total: Number(o.valor_total || 0),
+    itens: (Array.isArray(o.itens) ? o.itens : []).map((i) => ({
+      ...i,
+      valor_unitario: i.valor_unitario == null ? null : Number(i.valor_unitario),
+      qtd_encontrada: Number(i.qtd_encontrada || 0),
+      valor_retirado: Number(i.valor_retirado || 0),
+      fotos: Array.isArray(i.fotos) ? i.fotos : [],
+      dias_vencido: ovDiasVencido(i.data_validade, o.criado_em),
+    })),
+    setores: o.setores || [],
+    assinaturas: o.assinaturas || [],
+  }));
+  renderizarOlhoValidade();
+}
+
+// ocorrências do filtro (setor = tem pelo menos um produto do setor)
+function ovFiltrada() {
+  return (estado.ovLista || []).filter((o) =>
+    (!estado.ovSetor || o.itens.some((i) => i.setor === estado.ovSetor)) &&
+    (!estado.ovCaixa || String(o.caixa_numero || '') === estado.ovCaixa));
+}
+// produtos do filtro (cada um com a sua ocorrência)
+function ovItensFiltrados(lista) {
+  const r = [];
+  lista.forEach((o) => o.itens.forEach((i) => { if (!estado.ovSetor || i.setor === estado.ovSetor) r.push({ ...i, o }); }));
+  return r;
+}
+
+function renderizarOlhoValidade() {
+  const todas = estado.ovLista || [];
+  const lista = ovFiltrada();
+  const itens = ovItensFiltrados(lista);
+  const total = lista.length;
+  const nItens = itens.length;
+  const valor = itens.reduce((a, i) => a + i.valor_retirado, 0);
+  const blitz = itens.filter((i) => i.estava_na_blitz).length;
+  const retirado = itens.filter((i) => i.restante_retirado).length;
+  const diasLista = itens.map((i) => i.dias_vencido).filter((d) => d != null && d >= 0);
+  const mediaDias = diasLista.length ? diasLista.reduce((a, d) => a + d, 0) / diasLista.length : null;
+  const setores = Array.from(new Set(todas.flatMap((o) => o.itens.map((i) => i.setor)).filter(Boolean))).sort();
+  const caixas = Array.from(new Set(todas.map((o) => o.caixa_numero).filter(Boolean))).sort((a, b) => Number(a) - Number(b));
+
+  // por mês
+  const meses = {};
+  lista.forEach((o) => {
+    const k = o.criado_em.slice(0, 7);
+    (meses[k] = meses[k] || { valor: 0, n: 0 });
+    meses[k].valor += ovItensFiltrados([o]).reduce((a, i) => a + i.valor_retirado, 0);
+    meses[k].n++;
+  });
+  const chavesMes = Object.keys(meses).sort();
+  const maxMes = Math.max(1, ...chavesMes.map((k) => meses[k].valor));
+  const nomeMes = (k) => { const [a, m] = k.split('-'); return ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'][Number(m) - 1] + '/' + a.slice(2); };
+  const graficoMes = chavesMes.length ? '<div style="display:flex;align-items:flex-end;gap:10px;height:170px;padding-top:10px;">' + chavesMes.map((k) =>
+    '<div style="flex:1;display:flex;flex-direction:column;align-items:center;gap:6px;min-width:0;">' +
+      '<div style="font-size:11px;font-weight:700;white-space:nowrap;">' + ovBRL(meses[k].valor) + '</div>' +
+      '<div title="' + meses[k].n + ' ocorrência(s)" style="width:100%;max-width:56px;height:' + Math.max(4, meses[k].valor / maxMes * 110) + 'px;background:#2F7BFF;border-radius:6px 6px 2px 2px;"></div>' +
+      '<div style="font-size:11px;color:var(--text-muted);">' + nomeMes(k) + ' · ' + meses[k].n + 'x</div></div>').join('') + '</div>' : '<div class="celula-vazio">Sem ocorrências no período.</div>';
+
+  // rankings
+  const ranking = (chaveDe) => {
+    const m = {};
+    itens.forEach((i) => { const k = chaveDe(i); if (!k) return; (m[k] = m[k] || { nome: k, valor: 0, n: 0 }); m[k].valor += i.valor_retirado; m[k].n++; });
+    return Object.values(m).sort((a, b) => b.valor - a.valor || b.n - a.n);
+  };
+  const barras = (lst, cor, vazio) => {
+    if (!lst.length) return '<div class="celula-vazio">' + (vazio || 'Sem ocorrências no período.') + '</div>';
+    const max = Math.max(1, lst[0].valor);
+    return lst.slice(0, 10).map((s) =>
+      '<div style="display:grid;grid-template-columns:minmax(110px,200px) 1fr auto;gap:12px;align-items:center;padding:7px 0;border-bottom:1px solid var(--border);">' +
+        '<div style="font-weight:700;font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + giroEsc(s.nome) + '">' + giroEsc(s.nome) + '</div>' +
+        '<div style="height:12px;background:var(--surface-2);border-radius:6px;overflow:hidden;"><div style="height:100%;width:' + (s.valor / max * 100) + '%;background:' + cor + ';border-radius:6px;"></div></div>' +
+        '<div style="text-align:right;font-size:13px;white-space:nowrap;"><b>' + ovBRL(s.valor) + '</b> <span style="color:var(--text-muted);">' + s.n + 'x</span></div></div>').join('');
+  };
+
+  // "Por que aconteceu?" — as mais recentes
+  const motivos = lista.slice(0, 8).map((o) =>
+    '<div style="padding:9px 0;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;" onclick="ovAbrir(\'' + o.id + '\')">' +
+      '<div style="color:var(--text-muted);font-size:11.5px;margin-bottom:2px;">' + ovData(o.criado_em) + ' · ' + giroEsc((o.itens[0] || {}).descricao || '') + (o.itens.length > 1 ? ' + ' + (o.itens.length - 1) : '') + '</div>' +
+      giroEsc(o.motivo || '—') + '</div>').join('') || '<div class="celula-vazio">Sem ocorrências no período.</div>';
+
+  const sim = (v, ruim) => v ? (ruim ? '<span style="color:#C0392B;font-weight:700;">Sim</span>' : 'Sim') : (ruim ? 'Não' : '<span style="color:#C0392B;font-weight:700;">Não</span>');
+  const linhas = lista.map((o) => {
+    const its = ovItensFiltrados([o]);
+    return '<tr style="cursor:pointer;" onclick="ovAbrir(\'' + o.id + '\')">' +
+      '<td>' + ovData(o.criado_em) + '</td>' +
+      '<td class="nome-forte">' + giroEsc((its[0] || o.itens[0] || {}).descricao || '—') + (o.itens.length > 1 ? '<div style="font-size:11px;color:var(--text-muted);font-weight:500;">+ ' + (o.itens.length - 1) + ' produto(s) no mesmo cupom</div>' : '') + '</td>' +
+      '<td>' + giroEsc(o.setores.join(', ')) + '</td>' +
+      '<td>' + giroEsc(o.caixa_numero || '—') + '</td>' +
+      '<td style="text-align:right;"><b>' + ovBRL(o.valor_total) + '</b></td>' +
+      '<td>' + sim(o.itens.some((i) => i.estava_na_blitz), true) + '</td>' +
+      '<td>' + sim(o.itens.every((i) => i.restante_retirado), false) + '</td>' +
+      '<td>' + giroEsc(o.registrado_por_nome || '—') + '</td></tr>';
+  }).join('');
+
+  const corBlitz = blitz ? '#C0392B' : 'inherit';
+  const corRetirado = nItens && retirado < nItens ? '#C0392B' : 'var(--green)';
+
+  document.getElementById('conteudo-principal').innerHTML =
+    cabecalho('De olho na validade', 'Produtos vencidos encontrados por clientes · registrados no app') +
+    '<div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:10px;align-items:center;">' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+        '<select class="campo-input" style="margin:0;width:auto;" onchange="estado.ovDias=Number(this.value);paginaOlhoValidade()">' + OV_PERIODOS.map((p) => '<option value="' + p.dias + '"' + (p.dias === estado.ovDias ? ' selected' : '') + '>' + p.texto + '</option>').join('') + '</select>' +
+        '<select class="campo-input" style="margin:0;width:auto;" onchange="estado.ovSetor=this.value;renderizarOlhoValidade()"><option value="">Todos os setores</option>' + setores.map((s) => '<option' + (s === estado.ovSetor ? ' selected' : '') + '>' + giroEsc(s) + '</option>').join('') + '</select>' +
+        '<select class="campo-input" style="margin:0;width:auto;" onchange="estado.ovCaixa=this.value;renderizarOlhoValidade()"><option value="">Todos os caixas</option>' + caixas.map((c) => '<option value="' + giroEsc(c) + '"' + (c === estado.ovCaixa ? ' selected' : '') + '>Caixa ' + giroEsc(c) + '</option>').join('') + '</select>' +
+      '</div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;">' +
+        '<button class="btn-acao secundario" onclick="ovExportar()"' + (total ? '' : ' disabled') + '>⬇ Planilha</button>' +
+        '<button class="btn-acao" onclick="ovPdf(ovFiltrada())"' + (total ? '' : ' disabled') + '>📄 Exportar PDF</button>' +
+      '</div>' +
+    '</div>' +
+    '<div class="stats-grid">' +
+      '<div class="stat-card"><div class="rotulo">Ocorrências</div><div class="valor">' + total + '</div><div class="legenda">' + nItens + ' produto(s) vencido(s) achados por clientes</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Valor retirado</div><div class="valor">' + ovBRL(valor) + '</div><div class="legenda">' + (total ? 'média ' + ovBRL(valor / total) + ' por ocorrência' : '') + '</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Estavam na blitz</div><div class="valor" style="color:' + corBlitz + ';">' + ovPct(blitz, nItens) + '</div><div class="legenda">' + blitz + ' de ' + nItens + ' produtos · a blitz não pegou</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Restante retirado</div><div class="valor" style="color:' + corRetirado + ';">' + ovPct(retirado, nItens) + '</div><div class="legenda">meta: 100% · ' + (nItens - retirado) + ' produto(s) ficaram na área de venda</div></div>' +
+      '<div class="stat-card"><div class="rotulo">Vencido há (média)</div><div class="valor">' + (mediaDias == null ? '—' : Math.round(mediaDias) + ' dia' + (Math.round(mediaDias) === 1 ? '' : 's')) + '</div><div class="legenda">da validade até o cliente achar</div></div>' +
+    '</div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Valor retirado por mês</h3></div>' + graficoMes + '</div>' +
+    '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:18px;margin-top:18px;">' +
+      '<div class="pq-card"><div class="pq-topo"><h3>Por setor</h3></div>' + barras(ranking((i) => i.setor), '#0E1B2C') + '</div>' +
+      '<div class="pq-card"><div class="pq-topo"><h3>Produtos que mais aparecem</h3></div>' + barras(ranking((i) => i.descricao), '#E14337') + '</div>' +
+      '<div class="pq-card"><div class="pq-topo"><h3>Por caixa</h3></div>' + barras(ranking((i) => i.o.caixa_numero ? 'Caixa ' + i.o.caixa_numero : null), '#2F7BFF', 'Nenhum caixa informado no período.') + '</div>' +
+      '<div class="pq-card"><div class="pq-topo"><h3>Por que aconteceu?</h3><span style="font-size:12px;color:var(--text-muted);">as mais recentes</span></div>' + motivos + '</div>' +
+    '</div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Ocorrências</h3><span style="font-size:12px;color:var(--text-muted);">clique numa linha para ver cupom, produtos, fotos e assinaturas</span></div>' +
+      '<div class="tabela-wrap"><table style="min-width:0;width:100%;"><thead><tr><th>Data</th><th>Produto</th><th>Setor</th><th>Caixa</th><th style="text-align:right;">Valor</th><th>Na blitz</th><th>Tudo retirado</th><th>Registrou</th></tr></thead><tbody>' +
+      (linhas || '<tr><td colspan="8"><div class="celula-vazio">Nenhuma ocorrência no período.</div></td></tr>') + '</tbody></table></div></div>';
+}
+
+function ovSvgAssinatura(a, altura) {
+  return '<svg viewBox="0 0 ' + a.largura + ' ' + a.altura + '" preserveAspectRatio="xMidYMid meet" style="width:100%;height:' + (altura || 80) + 'px;background:#fff;border:1px solid #D5DBE5;border-radius:10px;">' +
+    '<path d="' + giroEsc(a.tracos) + '" stroke="#121B4A" stroke-width="3" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+
+function ovAbrir(id) {
+  const o = (estado.ovLista || []).find((x) => x.id === id);
+  if (!o) return;
+  const linha = (r, v) => '<div style="display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;"><span style="color:var(--text-muted);">' + r + '</span><b style="text-align:right;">' + v + '</b></div>';
+  const fotos = (lst) => '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:6px;">' + lst.map((f) => '<a href="' + giroEsc(f) + '" target="_blank" rel="noopener"><img src="' + giroEsc(f) + '" style="width:110px;height:110px;object-fit:cover;border-radius:10px;"></a>').join('') + '</div>';
+  const produtos = o.itens.map((i, k) =>
+    '<div style="border:1px solid var(--border);border-radius:12px;padding:10px 12px;margin-top:8px;">' +
+      '<div style="font-weight:800;font-size:13.5px;">' + (k + 1) + '. ' + giroEsc(i.descricao) + (i.codigo ? ' <span style="color:var(--text-muted);font-weight:500;font-size:11.5px;">cód. ' + giroEsc(i.codigo) + '</span>' : '') + '</div>' +
+      linha('Setor', giroEsc(i.setor)) +
+      linha('Validade', ovDia(i.data_validade) + (i.dias_vencido != null && i.dias_vencido >= 0 ? ' <span style="color:#C0392B;">(vencido há ' + i.dias_vencido + ' dia' + (i.dias_vencido === 1 ? '' : 's') + ')</span>' : '')) +
+      linha('Lote', giroEsc(i.lote || '—')) +
+      linha('Valor unitário', ovBRL(i.valor_unitario)) +
+      linha('Quantidade encontrada', ovNum(i.qtd_encontrada)) +
+      linha('Valor retirado', ovBRL(i.valor_retirado)) +
+      linha('Restante retirado da área de venda', i.restante_retirado ? 'Sim' : '<span style="color:#C0392B;">Não</span>') +
+      linha('Estava na blitz de validade', i.estava_na_blitz ? '<span style="color:#C0392B;">Sim</span>' : 'Não') +
+      (i.fotos.length ? fotos(i.fotos) : '') +
+    '</div>').join('');
+  const corpo =
+    linha('Data', new Date(o.criado_em).toLocaleString('pt-BR')) +
+    linha('Cupom', o.cupom_numero ? 'nº ' + giroEsc(o.cupom_numero) + (o.cupom_serie ? ' · série ' + giroEsc(o.cupom_serie) : '') + (o.cupom_total != null ? ' · ' + ovBRL(o.cupom_total) : '') : 'Sem cupom') +
+    (o.cupom_chave ? '<div style="font-size:11px;color:var(--text-muted);word-break:break-all;margin-top:4px;">Chave: ' + giroEsc(o.cupom_chave) + (o.cupom_url ? ' · <a href="' + giroEsc(o.cupom_url) + '" target="_blank" rel="noopener">abrir na Fazenda</a>' : '') + '</div>' : '') +
+    linha('Caixa', giroEsc(o.caixa_numero || '—')) +
+    linha('Valor retirado (total)', ovBRL(o.valor_total)) +
+    linha('Registrado por', giroEsc(o.registrado_por_nome || '—')) +
+    '<div style="font-weight:800;margin:14px 0 4px;">Por que aconteceu?</div><div style="font-size:13px;background:var(--surface-2);border-radius:10px;padding:10px 12px;">' + giroEsc(o.motivo || '—') + '</div>' +
+    '<div style="font-weight:800;margin:14px 0 0;">Produtos (' + o.itens.length + ')</div>' + produtos +
+    '<div style="font-weight:800;margin:14px 0 6px;">Assinaturas</div><div style="display:grid;gap:10px;">' +
+    o.assinaturas.map((a) => '<div><div style="font-size:13px;"><b>' + giroEsc(a.nome) + '</b> <span style="color:var(--text-muted);">· ' + (OV_PAPEIS[a.papel] || a.papel) + '</span></div>' + ovSvgAssinatura(a) + '</div>').join('') + '</div>';
+  const titulo = giroEsc((o.itens[0] || {}).descricao || 'Ocorrência') + (o.itens.length > 1 ? ' + ' + (o.itens.length - 1) : '');
+  abrirModal(titulo, '<div style="max-height:65vh;overflow:auto;padding-right:4px;">' + corpo + '</div>', '📄 PDF desta ocorrência', () => ovPdf([o]));
+}
+
+// PDF com tudo: resumo do período + cada ocorrência (cupom, caixa, produtos,
+// fotos, "Por que aconteceu?" e assinaturas).
+function ovPdf(lista) {
+  if (!lista || !lista.length) return;
+  const itens = ovItensFiltrados(lista);
+  const valor = itens.reduce((a, i) => a + i.valor_retirado, 0);
+  const blitz = itens.filter((i) => i.estava_na_blitz).length;
+  const retirado = itens.filter((i) => i.restante_retirado).length;
+  const uma = lista.length === 1;
+  const periodo = uma ? ovData(lista[0].criado_em) : (OV_PERIODOS.find((p) => p.dias === estado.ovDias) || {}).texto || '';
+  const filtros = [estado.ovSetor && !uma ? 'setor ' + estado.ovSetor : '', estado.ovCaixa && !uma ? 'caixa ' + estado.ovCaixa : ''].filter(Boolean).join(' · ');
+  const e = giroEsc;
+  const img = (f) => '<img src="' + e(f) + '">';
+  const logo = '<svg width="34" height="34" viewBox="0 0 160 160"><rect width="160" height="160" rx="36" fill="#0E1B2C"/><path d="M42 36 V84 A38 38 0 0 0 118 84 V36" fill="none" stroke="#F4F5F7" stroke-width="20" stroke-linecap="round"/><circle cx="80" cy="74" r="15" fill="#2F7BFF"/></svg>';
+
+  const blocos = lista.map((o, n) => {
+    const prods = o.itens.map((i, k) =>
+      '<tr><td class="pos">' + (k + 1) + '</td><td><b>' + e(i.descricao) + '</b>' + (i.codigo ? '<div class="sub">cód. ' + e(i.codigo) + '</div>' : '') + '</td><td>' + e(i.setor) + '</td>' +
+      '<td>' + ovDia(i.data_validade) + (i.dias_vencido != null && i.dias_vencido >= 0 ? '<div class="sub">vencido há ' + i.dias_vencido + 'd</div>' : '') + '</td><td>' + e(i.lote || '—') + '</td>' +
+      '<td class="n">' + ovNum(i.qtd_encontrada) + '</td><td class="n">' + ovBRL(i.valor_unitario) + '</td><td class="n"><b>' + ovBRL(i.valor_retirado) + '</b></td>' +
+      '<td>' + (i.restante_retirado ? 'Sim' : '<span class="ruim">Não</span>') + '</td><td>' + (i.estava_na_blitz ? '<span class="ruim">Sim</span>' : 'Não') + '</td></tr>' +
+      (i.fotos.length ? '<tr class="fotos-linha"><td></td><td colspan="9"><div class="fotos">' + i.fotos.map(img).join('') + '</div></td></tr>' : '')).join('');
+    return '<div class="oc' + (n ? ' quebra' : '') + '">' +
+      '<div class="oc-topo"><div><b>Ocorrência ' + (n + 1) + '</b> · ' + new Date(o.criado_em).toLocaleString('pt-BR') + '</div><div><b>' + ovBRL(o.valor_total) + '</b></div></div>' +
+      '<div class="grade">' +
+        '<div><span>Cupom</span>' + (o.cupom_numero ? 'nº ' + e(o.cupom_numero) + (o.cupom_serie ? ' · série ' + e(o.cupom_serie) : '') + (o.cupom_total != null ? ' · ' + ovBRL(o.cupom_total) : '') : 'Sem cupom') + '</div>' +
+        '<div><span>Caixa</span>' + e(o.caixa_numero || '—') + '</div>' +
+        '<div><span>Registrado por</span>' + e(o.registrado_por_nome || '—') + '</div>' +
+      '</div>' +
+      (o.cupom_chave ? '<div class="sub" style="word-break:break-all;margin-bottom:6px;">Chave do cupom: ' + e(o.cupom_chave) + '</div>' : '') +
+      '<div class="motivo"><span>Por que aconteceu?</span>' + e(o.motivo || '—') + '</div>' +
+      '<table><thead><tr><th></th><th>Produto</th><th>Setor</th><th>Validade</th><th>Lote</th><th class="n">Qtd.</th><th class="n">Unit.</th><th class="n">Retirado</th><th>Tudo retirado</th><th>Na blitz</th></tr></thead><tbody>' + prods + '</tbody></table>' +
+      '<h3>Assinaturas</h3><div class="ass">' + o.assinaturas.map((a) => '<div>' + ovSvgAssinatura(a, 60) + '<b>' + e(a.nome) + '</b><div class="sub">' + (OV_PAPEIS[a.papel] || a.papel) + '</div></div>').join('') + '</div>' +
+    '</div>';
+  }).join('');
+
+  const html = '<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>De olho na validade' + (uma ? ' — ocorrência ' + ovData(lista[0].criado_em) : ' — ' + periodo) + '</title><style>' +
+    '@page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#0E1B2C;margin:0;font-size:10px}' +
+    '.topo{display:flex;align-items:center;gap:12px;border-bottom:3px solid #0E1B2C;padding-bottom:10px;margin-bottom:12px}.topo h1{font-size:19px;margin:0}.topo .s{color:#5B6577;font-size:11.5px;margin-top:2px}' +
+    '.cards{display:flex;gap:8px;margin-bottom:12px}.card{flex:1;border:1px solid #D5DBE5;border-radius:10px;padding:8px 10px}.card .r{font-size:9.5px;color:#5B6577;text-transform:uppercase;letter-spacing:.04em;font-weight:700}.card .v{font-size:17px;font-weight:800;margin-top:3px}.card .l{font-size:9.5px;color:#5B6577;margin-top:2px}' +
+    '.oc{border:1px solid #D5DBE5;border-radius:10px;padding:10px 12px;margin-bottom:12px}.quebra{page-break-before:always}.oc-topo{display:flex;justify-content:space-between;font-size:12px;border-bottom:1.5px solid #0E1B2C;padding-bottom:6px;margin-bottom:8px}' +
+    '.grade{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:6px}.grade span,.motivo span{display:block;font-size:8.5px;color:#5B6577;text-transform:uppercase;font-weight:700;letter-spacing:.04em}' +
+    '.motivo{background:#F3F5F9;border-radius:8px;padding:7px 9px;margin:6px 0 8px;font-size:10.5px}' +
+    'h3{font-size:11px;margin:10px 0 4px}table{width:100%;border-collapse:collapse}th{text-align:left;font-size:8.5px;text-transform:uppercase;color:#5B6577;border-bottom:1.5px solid #0E1B2C;padding:4px 4px}td{padding:4px;border-bottom:1px solid #E4E8EF;vertical-align:top}tr{page-break-inside:avoid}' +
+    '.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}.pos{color:#5B6577;font-weight:700;width:16px}.sub{font-size:8.5px;color:#5B6577}.ruim{color:#C0392B;font-weight:700}' +
+    '.fotos{display:flex;gap:6px;flex-wrap:wrap}.fotos img{width:110px;height:110px;object-fit:cover;border-radius:6px;border:1px solid #D5DBE5}.fotos.grandes img{width:220px;height:auto;max-height:300px;object-fit:contain}' +
+    '.fotos-linha td{border-bottom:1px solid #E4E8EF}.ass{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;page-break-inside:avoid}.ass b{display:block;margin-top:3px}' +
+    '.rod{margin-top:10px;font-size:9px;color:#5B6577;border-top:1px solid #D5DBE5;padding-top:6px}' +
+    '</style></head><body>' +
+    '<div class="topo">' + logo + '<div><h1>De olho na validade' + (uma ? ' — ocorrência' : '') + '</h1><div class="s">Loja 327 · ' + e(periodo) + (filtros ? ' · ' + e(filtros) : '') + ' · gerado em ' + new Date().toLocaleString('pt-BR') + '</div></div></div>' +
+    (uma ? '' : '<div class="cards">' +
+      '<div class="card"><div class="r">Ocorrências</div><div class="v">' + lista.length + '</div><div class="l">' + itens.length + ' produto(s)</div></div>' +
+      '<div class="card"><div class="r">Valor retirado</div><div class="v">' + ovBRL(valor) + '</div></div>' +
+      '<div class="card"><div class="r">Estavam na blitz</div><div class="v">' + ovPct(blitz, itens.length) + '</div><div class="l">' + blitz + ' de ' + itens.length + '</div></div>' +
+      '<div class="card"><div class="r">Restante retirado</div><div class="v">' + ovPct(retirado, itens.length) + '</div><div class="l">meta 100%</div></div>' +
+    '</div>') +
+    blocos +
+    '<div class="rod">ULVA · A loja inteira na palma da mão.</div>' +
+    '<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>';
+  const w = window.open('', '_blank');
+  if (!w) { mostrarToast('O navegador bloqueou a janela do PDF. Libere pop-ups para este site e tente de novo.', 'erro'); return; }
+  w.document.open(); w.document.write(html); w.document.close();
+}
+
+// Planilha: uma linha por produto (com os dados da ocorrência repetidos)
+function ovExportar() {
+  const lista = ovFiltrada();
+  if (!lista.length || typeof XLSX === 'undefined') return;
+  const nome = (a, p) => ((a || []).find((x) => x.papel === p) || {}).nome || '';
+  const linhas = [['Data', 'Cupom nº', 'Chave do cupom', 'Total do cupom', 'Caixa', 'Produto', 'Código', 'Setor', 'Validade', 'Vencido há (dias)', 'Lote', 'Valor unitário', 'Qtd. encontrada', 'Valor retirado', 'Restante retirado', 'Estava na blitz', 'Por que aconteceu?', 'Registrado por', 'Gerente', 'Responsável do setor', 'Fotos do produto']];
+  ovItensFiltrados(lista).forEach((i) => {
+    const o = i.o;
+    linhas.push([ovData(o.criado_em), o.cupom_numero || '', o.cupom_chave || '', o.cupom_total, o.caixa_numero || '', i.descricao, i.codigo || '', i.setor, ovDia(i.data_validade), i.dias_vencido, i.lote || '', i.valor_unitario, i.qtd_encontrada, i.valor_retirado, i.restante_retirado ? 'Sim' : 'Não', i.estava_na_blitz ? 'Sim' : 'Não', o.motivo || '', o.registrado_por_nome || '', nome(o.assinaturas, 'gerente'), nome(o.assinaturas, 'responsavel_setor'), i.fotos.join(' ')]);
+  });
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), 'Ocorrências');
+  XLSX.writeFile(wb, 'de-olho-na-validade_' + new Date().toISOString().slice(0, 10) + '.xlsx');
 }
 
 async function paginaPesquisaPreco() {

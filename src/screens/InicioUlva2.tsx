@@ -15,7 +15,7 @@ export type TelaFerramenta =
   | 'ofertas' | 'precificacao' | 'pesquisaPreco' | 'mapaLoja' | 'pontasExtras'
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
-  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia';
+  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'olhoValidade';
 
 type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
 export type GrupoId = 'rotina' | 'comercial' | 'resultados' | 'estoque';
@@ -63,6 +63,7 @@ export const GRUPOS_ULVA2: Grupo[] = [
     ferramentas: [
       { nome: 'Conferência', desc: 'Recebimento de mercadoria', icone: 'clipboard', tela: 'conferencias' },
       { nome: 'Validade', desc: 'Produtos perto de vencer', icone: 'calendar', tela: 'validade' },
+      { nome: 'De olho na validade', desc: 'Cliente achou produto vencido', icone: 'eye', tela: 'olhoValidade' },
       { nome: 'Inventário', desc: 'Contagem de estoque', icone: 'list', tela: 'inventario' },
       { nome: 'Estoque Loja', desc: 'Saldo e preço de cada produto', icone: 'archive', tela: 'estoqueLoja' },
       { nome: 'Uso e Consumo', desc: 'Retirada de material por setor', icone: 'box', tela: 'usoConsumo' },
