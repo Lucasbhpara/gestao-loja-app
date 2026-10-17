@@ -15,11 +15,12 @@ export type TelaFerramenta =
   | 'ofertas' | 'precificacao' | 'pesquisaPreco' | 'mapaLoja' | 'pontasExtras'
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
-  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'olhoValidade' | 'resultadosInventario';
+  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'olhoValidade' | 'resultadosInventario'
+  | 'pedidos';
 
-type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
+export type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
 export type GrupoId = 'rotina' | 'comercial' | 'resultados' | 'estoque';
-type Grupo = { id: GrupoId; nome: string; desc: string; icone: Icone; cor: string; fundo: string; ferramentas: Ferramenta[] };
+export type Grupo = { id: GrupoId; nome: string; desc: string; icone: Icone; cor: string; fundo: string; ferramentas: Ferramenta[] };
 
 export const GRUPOS_ULVA2: Grupo[] = [
   {
@@ -96,11 +97,18 @@ type Props = {
   liberado: boolean;
   onVersaoAntiga?: () => void;
   onAlternarLiberacao?: () => void;
+  // Usado também no Início do colaborador (não administrador):
+  grupos?: Grupo[]; // padrão: GRUPOS_ULVA2 (administrador)
+  selo?: string; // padrão: "Administrador"
+  mostrarSeloDados?: boolean; // padrão: true
+  mostrarColaboradores?: boolean; // atalho "Colaboradores" (padrão: true)
+  conteudoExtra?: React.ReactNode; // ex.: avisos urgentes e prioridades do setor
 };
 
 export default function InicioUlva2(p: Props) {
   const filtrar = (fs: Ferramenta[]) => fs.filter((f) => !f.somenteDono || p.podeVerDono);
-  const grupo = p.grupoAberto ? GRUPOS_ULVA2.find((g) => g.id === p.grupoAberto) : null;
+  const grupos = (p.grupos ?? GRUPOS_ULVA2).filter((g) => filtrar(g.ferramentas).length > 0);
+  const grupo = p.grupoAberto ? grupos.find((g) => g.id === p.grupoAberto) : null;
 
   if (grupo) {
     const fs = filtrar(grupo.ferramentas);
@@ -156,8 +164,10 @@ export default function InicioUlva2(p: Props) {
         <Text style={s.ola}>Olá, {primeiroNome}</Text>
         <Text style={s.data}>{hojeTexto()} · Loja 327</Text>
         <View style={s.selos}>
-          <Text style={s.seloAdmin}>Administrador</Text>
-          <Text style={[s.seloDados, !p.usandoNuvem && s.seloLocal]}>{p.usandoNuvem ? 'Dados na nuvem' : 'Dados só neste celular'}</Text>
+          <Text style={s.seloAdmin}>{p.selo ?? 'Administrador'}</Text>
+          {p.mostrarSeloDados !== false && (
+            <Text style={[s.seloDados, !p.usandoNuvem && s.seloLocal]}>{p.usandoNuvem ? 'Dados na nuvem' : 'Dados só neste celular'}</Text>
+          )}
         </View>
       </View>
 
@@ -197,9 +207,11 @@ export default function InicioUlva2(p: Props) {
           <Feather name="chevron-right" size={18} color="#8A93A3" />
         </TouchableOpacity>
 
+        {p.conteudoExtra}
+
         <Text style={s.secao}>Ferramentas</Text>
 
-        {GRUPOS_ULVA2.map((g) => {
+        {grupos.map((g) => {
           const fs = filtrar(g.ferramentas);
           return (
             <TouchableOpacity key={g.id} style={s.grupo} onPress={() => p.onAbrirGrupo(g.id)} activeOpacity={0.8}>
@@ -209,7 +221,7 @@ export default function InicioUlva2(p: Props) {
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={s.grupoNome}>{g.nome}</Text>
-                  <Text style={s.grupoQtd}>{fs.length} ferramentas</Text>
+                  <Text style={s.grupoQtd}>{fs.length} {fs.length === 1 ? 'ferramenta' : 'ferramentas'}</Text>
                 </View>
                 <Feather name="chevron-right" size={20} color="#8A93A3" />
               </View>
@@ -222,11 +234,14 @@ export default function InicioUlva2(p: Props) {
           );
         })}
 
+        {(p.mostrarColaboradores !== false || p.podeUsarIA) && (
         <View style={s.atalhos}>
+          {p.mostrarColaboradores !== false && (
           <TouchableOpacity style={s.atalho} onPress={() => p.onAbrir('escalaFaltas')}>
             <Feather name="users" size={18} color="#2F7BFF" />
             <Text style={s.atalhoTxt}>Colaboradores</Text>
           </TouchableOpacity>
+          )}
           {p.podeUsarIA && (
             <TouchableOpacity style={s.atalho} onPress={() => p.onAbrir('chatIA')}>
               <Feather name="message-square" size={18} color="#2F7BFF" />
@@ -234,6 +249,7 @@ export default function InicioUlva2(p: Props) {
             </TouchableOpacity>
           )}
         </View>
+        )}
         <TouchableOpacity style={s.sobre} onPress={() => p.onAbrir('sobre')}>
           <Text style={s.sobreTxt}>Sobre o ULVA</Text>
         </TouchableOpacity>
