@@ -3,7 +3,7 @@ import { supabase } from '../lib/supabase';
 // "De olho na validade" (copiado do Prevenção SBH): cliente encontrou produto
 // vencido e a loja registra a ocorrência — cupom, caixa, um ou mais produtos
 // (validade, lote, foto, retirada da área de venda, blitz), "Por que
-// aconteceu?", folha de cancelamento do caixa e 3 assinaturas. Versão leve:
+// aconteceu?" e 3 assinaturas. Versão leve:
 // sem consulta ao site da Fazenda; os dados do cupom saem só do QR Code.
 
 export type PapelOlho = 'registrou' | 'gerente' | 'responsavel_setor';
@@ -61,8 +61,6 @@ export interface OcorrenciaOlho {
   valor_total: number;
   setores: string[];
   motivo: string;
-  teve_cancelamento: boolean;
-  folha_cancelamento_fotos: string[];
   assinaturas: AssinaturaOlho[];
 }
 
@@ -169,7 +167,7 @@ export async function buscarProdutoPorCodigo(codigo: string): Promise<ProdutoEst
 
 // --------------------------------------------------------------- leitura
 const CAMPOS =
-  'id, criado_em, registrado_por_nome, cupom_chave, cupom_numero, cupom_serie, cupom_emissao, cupom_total, caixa_numero, itens, qtd_itens, valor_total, setores, motivo, teve_cancelamento, folha_cancelamento_fotos, assinaturas';
+  'id, criado_em, registrado_por_nome, cupom_chave, cupom_numero, cupom_serie, cupom_emissao, cupom_total, caixa_numero, itens, qtd_itens, valor_total, setores, motivo, assinaturas';
 
 const num = (v: unknown) => (v == null ? null : Number(v));
 
@@ -207,7 +205,6 @@ export async function listarOcorrenciasOlho(dias = 180): Promise<OcorrenciaOlho[
     qtd_itens: Number(o.qtd_itens ?? 0),
     valor_total: Number(o.valor_total ?? 0),
     setores: o.setores ?? [],
-    folha_cancelamento_fotos: o.folha_cancelamento_fotos ?? [],
     assinaturas: o.assinaturas ?? [],
   }));
 }
@@ -233,8 +230,6 @@ export interface NovaOcorrenciaOlho {
   caixa: string | null;
   itens: ItemOlho[]; // fotos = uris locais
   motivo: string;
-  teveCancelamento: boolean;
-  folhaCancelamento: string[]; // uris locais
   assinaturas: AssinaturaOlho[];
 }
 
@@ -246,8 +241,6 @@ export async function salvarOcorrenciaOlho(o: NovaOcorrenciaOlho): Promise<void>
     for (const f of i.fotos) fotos.push(await enviarFoto(f));
     itens.push({ ...i, descricao: i.descricao.trim(), lote: i.lote?.trim() || null, fotos });
   }
-  const folha: string[] = [];
-  if (o.teveCancelamento) for (const f of o.folhaCancelamento) folha.push(await enviarFoto(f));
 
   const valorTotal = Math.round(itens.reduce((a, i) => a + (i.valor_retirado || 0), 0) * 100) / 100;
   const setores = Array.from(new Set(itens.map((i) => i.setor).filter(Boolean)));
@@ -268,8 +261,6 @@ export async function salvarOcorrenciaOlho(o: NovaOcorrenciaOlho): Promise<void>
     valor_total: valorTotal,
     setores,
     motivo: o.motivo.trim(),
-    teve_cancelamento: o.teveCancelamento,
-    folha_cancelamento_fotos: folha,
     assinaturas: o.assinaturas,
   });
   if (error) throw new Error(error.message);

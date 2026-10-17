@@ -3,8 +3,7 @@
 -- Cliente encontrou produto vencido: a loja registra a ocorrência com os
 -- dados do cupom fiscal (lidos do QR Code), o caixa que passou, os produtos
 -- (vários por cupom: validade, lote, foto, retirada da área de venda e
--- blitz), "Por que aconteceu?", a folha de cancelamento do caixa (quando
--- houver) e as assinaturas de quem registrou, do gerente e do responsável
+-- blitz), "Por que aconteceu?" e as assinaturas de quem registrou, do gerente e do responsável
 -- do setor. Depois de salva, não muda.
 -- A cada ocorrência nova, os administradores recebem uma notificação.
 -- (Copiado do Prevenção SBH e adaptado ao ULVA.)
@@ -37,15 +36,10 @@ create table if not exists public.olho_validade (
   -- "Por que aconteceu?"
   motivo text not null,
 
-  -- cancelamento no caixa
-  teve_cancelamento boolean not null default false,
-  folha_cancelamento_fotos text[] not null default '{}',
-
   assinaturas jsonb not null default '[]',  -- [{papel, nome, tracos, largura, altura, assinada_em}]
 
   constraint olho_validade_tem_item check (jsonb_typeof(itens) = 'array' and jsonb_array_length(itens) >= 1),
   constraint olho_validade_tem_motivo check (length(btrim(motivo)) >= 3),
-  constraint olho_validade_folha check (not teve_cancelamento or cardinality(folha_cancelamento_fotos) >= 1),
   constraint olho_validade_tem_assinaturas check (jsonb_array_length(assinaturas) >= 3)
 );
 create index if not exists olho_validade_criado_em on public.olho_validade (criado_em desc);

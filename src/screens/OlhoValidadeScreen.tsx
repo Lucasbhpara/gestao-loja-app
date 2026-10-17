@@ -44,8 +44,7 @@ import {
 // DE OLHO NA VALIDADE — cliente encontrou produto vencido e a loja registra.
 // Um cupom pode ter vários produtos vencidos: cada um com validade
 // (calendário), lote, foto, retirada da área de venda e blitz. A ocorrência
-// guarda também o caixa que passou, "Por que aconteceu?", a folha de
-// cancelamento do caixa (quando houver) e 3 assinaturas.
+// guarda também o caixa que passou, "Por que aconteceu?" e 3 assinaturas.
 // (Copiado do Prevenção SBH. Versão leve: o QR Code do cupom traz número,
 // série, CNPJ e chave; o produto vem do código de barras + Estoque Loja.)
 // ============================================================================
@@ -538,8 +537,6 @@ function NovaOcorrencia({ onCancelar, onSalva }: { onCancelar: () => void; onSal
   const [editando, setEditando] = useState<number | null>(0);
 
   const [motivo, setMotivo] = useState('');
-  const [cancelamento, setCancelamento] = useState<boolean | null>(null);
-  const [folha, setFolha] = useState<string[]>([]);
 
   const [nomes, setNomes] = useState<Record<PapelOlho, string>>({ registrou: usuarioAtual?.nome ?? '', gerente: '', responsavel_setor: '' });
   const [assinaturas, setAssinaturas] = useState<Partial<Record<PapelOlho, AssinaturaOlho>>>({});
@@ -581,8 +578,6 @@ function NovaOcorrencia({ onCancelar, onSalva }: { onCancelar: () => void; onSal
   if (!itens.length) faltas.push('produto');
   if (editando != null) faltas.push('salvar o produto aberto');
   if (motivo.trim().length < 3) faltas.push('por que aconteceu');
-  if (cancelamento == null) faltas.push('cancelamento no caixa');
-  if (cancelamento && !folha.length) faltas.push('foto da folha de cancelamento');
   const faltamAss = PAPEIS_OLHO.filter((p) => !assinaturas[p.papel] || !nomes[p.papel].trim());
   if (faltamAss.length) faltas.push(`${faltamAss.length} assinatura(s)`);
 
@@ -597,8 +592,6 @@ function NovaOcorrencia({ onCancelar, onSalva }: { onCancelar: () => void; onSal
         caixa,
         itens,
         motivo,
-        teveCancelamento: !!cancelamento,
-        folhaCancelamento: folha,
         assinaturas: PAPEIS_OLHO.map((p) => ({ ...assinaturas[p.papel]!, nome: nomes[p.papel].trim() })),
       });
       Alert.alert('Ocorrência registrada', 'Já aparece no painel do portal e os administradores foram avisados.');
@@ -730,21 +723,8 @@ function NovaOcorrencia({ onCancelar, onSalva }: { onCancelar: () => void; onSal
           />
         </View>
 
-        {/* 4. Cancelamento */}
-        <Text style={st.secao}>4. Cancelamento no caixa</Text>
-        <View style={[st.card, { gap: 10 }]}>
-          <Rotulo texto="Houve cancelamento no caixa?" />
-          <SimNao valor={cancelamento} onChange={setCancelamento} />
-          {cancelamento ? (
-            <>
-              <Rotulo texto="Foto da folha de cancelamento" />
-              <Fotos fotos={folha} onMudar={setFolha} dica="Fotografe a folha de cancelamento assinada para arquivar." />
-            </>
-          ) : null}
-        </View>
-
-        {/* 5. Assinaturas */}
-        <Text style={st.secao}>5. Assinaturas</Text>
+        {/* 4. Assinaturas */}
+        <Text style={st.secao}>4. Assinaturas</Text>
         {PAPEIS_OLHO.map((p) => {
           const a = assinaturas[p.papel];
           const ok = !!a && !!nomes[p.papel].trim();
@@ -827,7 +807,6 @@ function Detalhe({ o, onVoltar }: { o: OcorrenciaOlho; onVoltar: () => void }) {
     ['Caixa', o.caixa_numero ?? '—'],
     ['Produtos', String(o.itens.length)],
     ['Valor retirado', reais(o.valor_total)],
-    ['Cancelamento no caixa', o.teve_cancelamento ? 'Sim' : 'Não'],
     ['Registrado por', `${o.registrado_por_nome ?? '—'} · ${new Date(o.criado_em).toLocaleString('pt-BR')}`],
   ];
   const titulo = o.itens[0]?.descricao ?? 'Ocorrência';
@@ -862,17 +841,6 @@ function Detalhe({ o, onVoltar }: { o: OcorrenciaOlho; onVoltar: () => void }) {
             ) : null}
           </View>
         ))}
-
-        {o.folha_cancelamento_fotos.length ? (
-          <>
-            <Text style={st.secao}>Folha de cancelamento</Text>
-            <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-              {o.folha_cancelamento_fotos.map((f) => (
-                <Image key={f} source={{ uri: f }} style={st.foto} />
-              ))}
-            </View>
-          </>
-        ) : null}
 
         <Text style={st.secao}>Assinaturas</Text>
         {o.assinaturas.map((a) => (

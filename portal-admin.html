@@ -2078,7 +2078,6 @@ async function paginaOlhoValidade() {
       dias_vencido: ovDiasVencido(i.data_validade, o.criado_em),
     })),
     setores: o.setores || [],
-    folha_cancelamento_fotos: o.folha_cancelamento_fotos || [],
     assinaturas: o.assinaturas || [],
   }));
   renderizarOlhoValidade();
@@ -2106,8 +2105,6 @@ function renderizarOlhoValidade() {
   const valor = itens.reduce((a, i) => a + i.valor_retirado, 0);
   const blitz = itens.filter((i) => i.estava_na_blitz).length;
   const retirado = itens.filter((i) => i.restante_retirado).length;
-  const comCancel = lista.filter((o) => o.teve_cancelamento).length;
-  const folhaOk = lista.filter((o) => o.teve_cancelamento && o.folha_cancelamento_fotos.length).length;
   const diasLista = itens.map((i) => i.dias_vencido).filter((d) => d != null && d >= 0);
   const mediaDias = diasLista.length ? diasLista.reduce((a, d) => a + d, 0) / diasLista.length : null;
   const setores = Array.from(new Set(todas.flatMap((o) => o.itens.map((i) => i.setor)).filter(Boolean))).sort();
@@ -2163,7 +2160,6 @@ function renderizarOlhoValidade() {
       '<td style="text-align:right;"><b>' + ovBRL(o.valor_total) + '</b></td>' +
       '<td>' + sim(o.itens.some((i) => i.estava_na_blitz), true) + '</td>' +
       '<td>' + sim(o.itens.every((i) => i.restante_retirado), false) + '</td>' +
-      '<td>' + (o.teve_cancelamento ? (o.folha_cancelamento_fotos.length ? 'Sim · folha ✓' : 'Sim') : 'Não') + '</td>' +
       '<td>' + giroEsc(o.registrado_por_nome || '—') + '</td></tr>';
   }).join('');
 
@@ -2189,7 +2185,6 @@ function renderizarOlhoValidade() {
       '<div class="stat-card"><div class="rotulo">Estavam na blitz</div><div class="valor" style="color:' + corBlitz + ';">' + ovPct(blitz, nItens) + '</div><div class="legenda">' + blitz + ' de ' + nItens + ' produtos · a blitz não pegou</div></div>' +
       '<div class="stat-card"><div class="rotulo">Restante retirado</div><div class="valor" style="color:' + corRetirado + ';">' + ovPct(retirado, nItens) + '</div><div class="legenda">meta: 100% · ' + (nItens - retirado) + ' produto(s) ficaram na área de venda</div></div>' +
       '<div class="stat-card"><div class="rotulo">Vencido há (média)</div><div class="valor">' + (mediaDias == null ? '—' : Math.round(mediaDias) + ' dia' + (Math.round(mediaDias) === 1 ? '' : 's')) + '</div><div class="legenda">da validade até o cliente achar</div></div>' +
-      '<div class="stat-card"><div class="rotulo">Cancelamento no caixa</div><div class="valor">' + comCancel + '</div><div class="legenda">' + (comCancel ? 'folha arquivada em ' + ovPct(folhaOk, comCancel) : 'nenhum no período') + '</div></div>' +
     '</div>' +
     '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Valor retirado por mês</h3></div>' + graficoMes + '</div>' +
     '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(380px,1fr));gap:18px;margin-top:18px;">' +
@@ -2198,9 +2193,9 @@ function renderizarOlhoValidade() {
       '<div class="pq-card"><div class="pq-topo"><h3>Por caixa</h3></div>' + barras(ranking((i) => i.o.caixa_numero ? 'Caixa ' + i.o.caixa_numero : null), '#2F7BFF', 'Nenhum caixa informado no período.') + '</div>' +
       '<div class="pq-card"><div class="pq-topo"><h3>Por que aconteceu?</h3><span style="font-size:12px;color:var(--text-muted);">as mais recentes</span></div>' + motivos + '</div>' +
     '</div>' +
-    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Ocorrências</h3><span style="font-size:12px;color:var(--text-muted);">clique numa linha para ver cupom, produtos, fotos, folha de cancelamento e assinaturas</span></div>' +
-      '<div class="tabela-wrap"><table style="min-width:0;width:100%;"><thead><tr><th>Data</th><th>Produto</th><th>Setor</th><th>Caixa</th><th style="text-align:right;">Valor</th><th>Na blitz</th><th>Tudo retirado</th><th>Cancelamento</th><th>Registrou</th></tr></thead><tbody>' +
-      (linhas || '<tr><td colspan="9"><div class="celula-vazio">Nenhuma ocorrência no período.</div></td></tr>') + '</tbody></table></div></div>';
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Ocorrências</h3><span style="font-size:12px;color:var(--text-muted);">clique numa linha para ver cupom, produtos, fotos e assinaturas</span></div>' +
+      '<div class="tabela-wrap"><table style="min-width:0;width:100%;"><thead><tr><th>Data</th><th>Produto</th><th>Setor</th><th>Caixa</th><th style="text-align:right;">Valor</th><th>Na blitz</th><th>Tudo retirado</th><th>Registrou</th></tr></thead><tbody>' +
+      (linhas || '<tr><td colspan="8"><div class="celula-vazio">Nenhuma ocorrência no período.</div></td></tr>') + '</tbody></table></div></div>';
 }
 
 function ovSvgAssinatura(a, altura) {
@@ -2235,8 +2230,6 @@ function ovAbrir(id) {
     linha('Registrado por', giroEsc(o.registrado_por_nome || '—')) +
     '<div style="font-weight:800;margin:14px 0 4px;">Por que aconteceu?</div><div style="font-size:13px;background:var(--surface-2);border-radius:10px;padding:10px 12px;">' + giroEsc(o.motivo || '—') + '</div>' +
     '<div style="font-weight:800;margin:14px 0 0;">Produtos (' + o.itens.length + ')</div>' + produtos +
-    '<div style="font-weight:800;margin:14px 0 4px;">Cancelamento no caixa: ' + (o.teve_cancelamento ? 'Sim' : 'Não') + '</div>' +
-    (o.folha_cancelamento_fotos.length ? fotos(o.folha_cancelamento_fotos) : '') +
     '<div style="font-weight:800;margin:14px 0 6px;">Assinaturas</div><div style="display:grid;gap:10px;">' +
     o.assinaturas.map((a) => '<div><div style="font-size:13px;"><b>' + giroEsc(a.nome) + '</b> <span style="color:var(--text-muted);">· ' + (OV_PAPEIS[a.papel] || a.papel) + '</span></div>' + ovSvgAssinatura(a) + '</div>').join('') + '</div>';
   const titulo = giroEsc((o.itens[0] || {}).descricao || 'Ocorrência') + (o.itens.length > 1 ? ' + ' + (o.itens.length - 1) : '');
@@ -2244,14 +2237,13 @@ function ovAbrir(id) {
 }
 
 // PDF com tudo: resumo do período + cada ocorrência (cupom, caixa, produtos,
-// fotos, "Por que aconteceu?", folha de cancelamento e assinaturas).
+// fotos, "Por que aconteceu?" e assinaturas).
 function ovPdf(lista) {
   if (!lista || !lista.length) return;
   const itens = ovItensFiltrados(lista);
   const valor = itens.reduce((a, i) => a + i.valor_retirado, 0);
   const blitz = itens.filter((i) => i.estava_na_blitz).length;
   const retirado = itens.filter((i) => i.restante_retirado).length;
-  const comCancel = lista.filter((o) => o.teve_cancelamento).length;
   const uma = lista.length === 1;
   const periodo = uma ? ovData(lista[0].criado_em) : (OV_PERIODOS.find((p) => p.dias === estado.ovDias) || {}).texto || '';
   const filtros = [estado.ovSetor && !uma ? 'setor ' + estado.ovSetor : '', estado.ovCaixa && !uma ? 'caixa ' + estado.ovCaixa : ''].filter(Boolean).join(' · ');
@@ -2272,12 +2264,10 @@ function ovPdf(lista) {
         '<div><span>Cupom</span>' + (o.cupom_numero ? 'nº ' + e(o.cupom_numero) + (o.cupom_serie ? ' · série ' + e(o.cupom_serie) : '') + (o.cupom_total != null ? ' · ' + ovBRL(o.cupom_total) : '') : 'Sem cupom') + '</div>' +
         '<div><span>Caixa</span>' + e(o.caixa_numero || '—') + '</div>' +
         '<div><span>Registrado por</span>' + e(o.registrado_por_nome || '—') + '</div>' +
-        '<div><span>Cancelamento no caixa</span>' + (o.teve_cancelamento ? 'Sim' : 'Não') + '</div>' +
       '</div>' +
       (o.cupom_chave ? '<div class="sub" style="word-break:break-all;margin-bottom:6px;">Chave do cupom: ' + e(o.cupom_chave) + '</div>' : '') +
       '<div class="motivo"><span>Por que aconteceu?</span>' + e(o.motivo || '—') + '</div>' +
       '<table><thead><tr><th></th><th>Produto</th><th>Setor</th><th>Validade</th><th>Lote</th><th class="n">Qtd.</th><th class="n">Unit.</th><th class="n">Retirado</th><th>Tudo retirado</th><th>Na blitz</th></tr></thead><tbody>' + prods + '</tbody></table>' +
-      (o.folha_cancelamento_fotos.length ? '<h3>Folha de cancelamento</h3><div class="fotos grandes">' + o.folha_cancelamento_fotos.map(img).join('') + '</div>' : '') +
       '<h3>Assinaturas</h3><div class="ass">' + o.assinaturas.map((a) => '<div>' + ovSvgAssinatura(a, 60) + '<b>' + e(a.nome) + '</b><div class="sub">' + (OV_PAPEIS[a.papel] || a.papel) + '</div></div>').join('') + '</div>' +
     '</div>';
   }).join('');
@@ -2301,7 +2291,6 @@ function ovPdf(lista) {
       '<div class="card"><div class="r">Valor retirado</div><div class="v">' + ovBRL(valor) + '</div></div>' +
       '<div class="card"><div class="r">Estavam na blitz</div><div class="v">' + ovPct(blitz, itens.length) + '</div><div class="l">' + blitz + ' de ' + itens.length + '</div></div>' +
       '<div class="card"><div class="r">Restante retirado</div><div class="v">' + ovPct(retirado, itens.length) + '</div><div class="l">meta 100%</div></div>' +
-      '<div class="card"><div class="r">Cancelamento no caixa</div><div class="v">' + comCancel + '</div></div>' +
     '</div>') +
     blocos +
     '<div class="rod">ULVA · A loja inteira na palma da mão.</div>' +
@@ -2316,10 +2305,10 @@ function ovExportar() {
   const lista = ovFiltrada();
   if (!lista.length || typeof XLSX === 'undefined') return;
   const nome = (a, p) => ((a || []).find((x) => x.papel === p) || {}).nome || '';
-  const linhas = [['Data', 'Cupom nº', 'Chave do cupom', 'Total do cupom', 'Caixa', 'Produto', 'Código', 'Setor', 'Validade', 'Vencido há (dias)', 'Lote', 'Valor unitário', 'Qtd. encontrada', 'Valor retirado', 'Restante retirado', 'Estava na blitz', 'Por que aconteceu?', 'Cancelamento no caixa', 'Folha de cancelamento', 'Registrado por', 'Gerente', 'Responsável do setor', 'Fotos do produto']];
+  const linhas = [['Data', 'Cupom nº', 'Chave do cupom', 'Total do cupom', 'Caixa', 'Produto', 'Código', 'Setor', 'Validade', 'Vencido há (dias)', 'Lote', 'Valor unitário', 'Qtd. encontrada', 'Valor retirado', 'Restante retirado', 'Estava na blitz', 'Por que aconteceu?', 'Registrado por', 'Gerente', 'Responsável do setor', 'Fotos do produto']];
   ovItensFiltrados(lista).forEach((i) => {
     const o = i.o;
-    linhas.push([ovData(o.criado_em), o.cupom_numero || '', o.cupom_chave || '', o.cupom_total, o.caixa_numero || '', i.descricao, i.codigo || '', i.setor, ovDia(i.data_validade), i.dias_vencido, i.lote || '', i.valor_unitario, i.qtd_encontrada, i.valor_retirado, i.restante_retirado ? 'Sim' : 'Não', i.estava_na_blitz ? 'Sim' : 'Não', o.motivo || '', o.teve_cancelamento ? 'Sim' : 'Não', o.folha_cancelamento_fotos.join(' '), o.registrado_por_nome || '', nome(o.assinaturas, 'gerente'), nome(o.assinaturas, 'responsavel_setor'), i.fotos.join(' ')]);
+    linhas.push([ovData(o.criado_em), o.cupom_numero || '', o.cupom_chave || '', o.cupom_total, o.caixa_numero || '', i.descricao, i.codigo || '', i.setor, ovDia(i.data_validade), i.dias_vencido, i.lote || '', i.valor_unitario, i.qtd_encontrada, i.valor_retirado, i.restante_retirado ? 'Sim' : 'Não', i.estava_na_blitz ? 'Sim' : 'Não', o.motivo || '', o.registrado_por_nome || '', nome(o.assinaturas, 'gerente'), nome(o.assinaturas, 'responsavel_setor'), i.fotos.join(' ')]);
   });
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(linhas), 'Ocorrências');
