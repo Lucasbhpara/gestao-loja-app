@@ -6540,10 +6540,26 @@ function vlPeriodo(tipo, ultimo) {
   return { ini: vlData(ini), fim: vlData(fim), iniA: vlData(iniA), fimA: vlData(fimA), rotulo, rotuloA };
 }
 
+// O Supabase devolve no máximo 1.000 linhas por consulta. Num dia a loja vende
+// mais de 3.000 produtos diferentes, então busca em páginas até vir tudo.
 async function vlRpc(nome, args) {
-  const { data, error } = await sb.rpc(nome, args);
-  if (error) throw error;
-  return data || [];
+  const PAGINA = 1000;
+  const todos = [];
+  const vistos = new Set();
+  for (let de = 0; de < 100000; de += PAGINA) {
+    const { data, error } = await sb.rpc(nome, args).range(de, de + PAGINA - 1);
+    if (error) throw error;
+    const parte = data || [];
+    parte.forEach((x) => {
+      const k = x && x.chave != null ? 'c:' + x.chave : x && x.dia != null ? 'd:' + x.dia : null;
+      if (k == null) { todos.push(x); return; }
+      if (vistos.has(k)) return;
+      vistos.add(k);
+      todos.push(x);
+    });
+    if (parte.length < PAGINA) break;
+  }
+  return todos;
 }
 
 // =====================================================================

@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { rpcTudo } from '../lib/rpcTudo';
 
 // Venda do dia: um dia escolhido — total, por setor e top 10 em valor/volume.
 // Mesmas consultas da "Vendas da Loja" (vendas_loja_grupos). A planilha do
@@ -70,9 +71,8 @@ async function diasVenda(ini: string, fim: string): Promise<number[]> {
 }
 
 async function grupos(dia: string, ant: string, nivel: number) {
-  const { data, error } = await supabase.rpc('vendas_loja_grupos', { p_ini: dia, p_fim: dia, p_ini_ant: ant, p_fim_ant: ant, p_nivel: nivel });
-  if (error) throw error;
-  return ((data as any[]) || []).map((g) => ({ chave: String(g.chave), nome: String(g.nome), venda: Number(g.venda), vendaAnt: Number(g.venda_ant) }));
+  const data = await rpcTudo<any>('vendas_loja_grupos', { p_ini: dia, p_fim: dia, p_ini_ant: ant, p_fim_ant: ant, p_nivel: nivel });
+  return data.map((g) => ({ chave: String(g.chave), nome: String(g.nome), venda: Number(g.venda), vendaAnt: Number(g.venda_ant) }));
 }
 
 export async function carregarVendaDia(dia: string | null, forcar = false): Promise<DadosVendaDia | null> {
