@@ -93,12 +93,18 @@ export async function carregarVendaDia(dia: string | null, forcar = false): Prom
   const cods = vendidos.map((p) => p.chave);
   const preco: Record<string, number> = {};
   const setorDe: Record<string, string> = {};
-  for (let i = 0; i < cods.length; i += 300) {
-    const parte = cods.slice(i, i + 300);
-    const [r1, r2] = await Promise.all([
-      supabase.from('estoque_loja_itens').select('codigo_interno,preco_venda').in('codigo_interno', parte),
-      supabase.from('produtos_classes').select('codigo_produto,preco_venda,classe_2_nome').in('codigo_produto', parte),
-    ]);
+  // preços em blocos de 300 códigos, todos os blocos ao mesmo tempo
+  const blocos: string[][] = [];
+  for (let i = 0; i < cods.length; i += 300) blocos.push(cods.slice(i, i + 300));
+  const respostas = await Promise.all(
+    blocos.map((parte) =>
+      Promise.all([
+        supabase.from('estoque_loja_itens').select('codigo_interno,preco_venda').in('codigo_interno', parte),
+        supabase.from('produtos_classes').select('codigo_produto,preco_venda,classe_2_nome').in('codigo_produto', parte),
+      ]),
+    ),
+  );
+  for (const [r1, r2] of respostas) {
     ((r2.data as any[]) || []).forEach((x) => {
       if (Number(x.preco_venda) > 0) preco[x.codigo_produto] = Number(x.preco_venda);
       setorDe[x.codigo_produto] = x.classe_2_nome;

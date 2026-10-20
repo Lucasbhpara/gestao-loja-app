@@ -6543,21 +6543,30 @@ function vlPeriodo(tipo, ultimo) {
 // O Supabase devolve no máximo 1.000 linhas por consulta. Num dia a loja vende
 // mais de 3.000 produtos diferentes, então busca em páginas até vir tudo.
 async function vlRpc(nome, args) {
-  const PAGINA = 1000;
+  // várias páginas ao mesmo tempo (5 por rodada) para não demorar
+  const PAGINA = 1000, POR_RODADA = 5;
   const todos = [];
   const vistos = new Set();
-  for (let de = 0; de < 100000; de += PAGINA) {
-    const { data, error } = await sb.rpc(nome, args).range(de, de + PAGINA - 1);
-    if (error) throw error;
-    const parte = data || [];
-    parte.forEach((x) => {
-      const k = x && x.chave != null ? 'c:' + x.chave : x && x.dia != null ? 'd:' + x.dia : null;
-      if (k == null) { todos.push(x); return; }
-      if (vistos.has(k)) return;
-      vistos.add(k);
-      todos.push(x);
-    });
-    if (parte.length < PAGINA) break;
+  for (let rodada = 0; rodada < 20; rodada++) {
+    const inicio = rodada * POR_RODADA * PAGINA;
+    const paginas = await Promise.all(Array.from({ length: POR_RODADA }, (_, i) => {
+      const de = inicio + i * PAGINA;
+      return sb.rpc(nome, args).range(de, de + PAGINA - 1);
+    }));
+    let acabou = false;
+    for (const { data, error } of paginas) {
+      if (error) throw error;
+      const parte = data || [];
+      parte.forEach((x) => {
+        const k = x && x.chave != null ? 'c:' + x.chave : x && x.dia != null ? 'd:' + x.dia : null;
+        if (k == null) { todos.push(x); return; }
+        if (vistos.has(k)) return;
+        vistos.add(k);
+        todos.push(x);
+      });
+      if (parte.length < PAGINA) { acabou = true; break; }
+    }
+    if (acabou) break;
   }
   return todos;
 }
@@ -6626,12 +6635,13 @@ async function vdCarregar() {
   // preço de venda atual (estoque) para estimar o volume
   const cods = vendidos.map((p) => p.chave);
   const preco = {}, setorDe = {};
-  for (let i = 0; i < cods.length; i += 300) {
-    const parte = cods.slice(i, i + 300);
-    const [r1, r2] = await Promise.all([
-      sb.from('estoque_loja_itens').select('codigo_interno,preco_venda').in('codigo_interno', parte),
-      sb.from('produtos_classes').select('codigo_produto,preco_venda,classe_2_nome').in('codigo_produto', parte),
-    ]);
+  const blocos = [];
+  for (let i = 0; i < cods.length; i += 300) blocos.push(cods.slice(i, i + 300));
+  const respostas = await Promise.all(blocos.map((parte) => Promise.all([
+    sb.from('estoque_loja_itens').select('codigo_interno,preco_venda').in('codigo_interno', parte),
+    sb.from('produtos_classes').select('codigo_produto,preco_venda,classe_2_nome').in('codigo_produto', parte),
+  ])));
+  for (const [r1, r2] of respostas) {
     (r2.data || []).forEach((x) => { if (Number(x.preco_venda) > 0) preco[x.codigo_produto] = Number(x.preco_venda); setorDe[x.codigo_produto] = x.classe_2_nome; });
     (r1.data || []).forEach((x) => { if (Number(x.preco_venda) > 0) preco[x.codigo_interno] = Number(x.preco_venda); });
   }
