@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { rpcTudo } from '../lib/rpcTudo';
 
 // Vendas da Loja — mesma fonte da aba do Portal Admin. Lê só o que já existe
 // no banco (vendas_diarias + produtos_classes + estoque) pelas funções
@@ -107,7 +108,7 @@ async function dias(ini: string, fim: string): Promise<VendaDia[]> {
 }
 
 async function grupos(p: Periodo, nivel: number, caminho: string[]): Promise<VendaGrupo[]> {
-  const { data, error } = await supabase.rpc('vendas_loja_grupos', {
+  const data = await rpcTudo<Record<string, unknown>>('vendas_loja_grupos', {
     p_ini: p.ini,
     p_fim: p.fim,
     p_ini_ant: p.iniA,
@@ -118,8 +119,7 @@ async function grupos(p: Periodo, nivel: number, caminho: string[]): Promise<Ven
     p_c4: caminho[2] ?? null,
     p_c5: caminho[3] ?? null,
   });
-  if (error) throw error;
-  return ((data as Record<string, unknown>[]) || []).map((g) => ({
+  return data.map((g) => ({
     chave: String(g.chave),
     nome: String(g.nome),
     venda: Number(g.venda),
