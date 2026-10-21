@@ -2994,6 +2994,178 @@ async function confirmarImportacaoPerdas() {
   } catch (e) { mostrarToast('Não consegui gravar: ' + e.message, 'erro'); }
 }
 
+// ---------- Fluxo: importar Perdas pela PLANILHA (BAM "perda geral") ----------
+// Planilha com as quebras (impróprios) da loja: PRODUTO ("código - nome"),
+// QTD e PERDA R$, e uma linha de total no fim (sem produto). Não traz setor
+// nem período: o setor e o sortimento vêm do cadastro de produtos (classes do
+// Falcon), o período é informado aqui, e a venda de cada produto no período
+// vem das vendas importadas — para calcular a % de perda.
+let importPerdasPlan = null; // { itens, total, periodo }
+
+function setorPorClasse(c2, c3) {
+  if (!c2) return null;
+  if (c2 === 'HORTIFRUTIGRANJEIROS') return 'flv';
+  if (c2.indexOf('PADARIA') === 0) return 'padaria';
+  if (c2 === 'PERECIVEIS' || c3 === 'DEFUMADOS') return 'frios';
+  if (c2.indexOf('ACOUGUE') === 0) return 'acougue';
+  return 'mercearia';
+}
+
+function abrirImportarPerdasPlanilha() {
+  const hoje = new Date();
+  const ontem = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate() - 1);
+  const ini = new Date(ontem.getFullYear(), ontem.getMonth(), 1);
+  const iso = (d) => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+  abrirModal('Importar planilha de perdas',
+    '<div id="ipp-corpo">' +
+      '<div class="form-linha" style="display:flex; gap:10px; flex-wrap:wrap;">' +
+        '<label style="flex:1; min-width:140px;">Período de<input type="date" id="ipp-ini" value="' + iso(ini) + '" /></label>' +
+        '<label style="flex:1; min-width:140px;">até<input type="date" id="ipp-fim" value="' + iso(ontem) + '" /></label>' +
+      '</div>' +
+      '<div class="form-linha" style="font-size:12px; color:var(--text-secondary);">Confira o período da planilha antes de enviar o arquivo (ela não traz as datas).</div>' +
+      zonaArrastarSoltarPlanilhaHtml('ipp-arquivo', 'Planilha de perdas (PRODUTO · QTD · PERDA R$)') +
+    '</div>', 'Ler planilha', () => {});
+  document.getElementById('modal-btn-salvar').style.display = 'none';
+  ligarZonaArrastarSoltarPlanilha('ipp-arquivo', processarPlanilhaPerdas);
+}
+
+async function processarPlanilhaPerdas(file) {
+  const corpo = document.getElementById('ipp-corpo');
+  const ini = document.getElementById('ipp-ini').value;
+  const fim = document.getElementById('ipp-fim').value;
+  if (!ini || !fim || ini > fim) { mostrarToast('Confira o período (data inicial e final).', 'erro'); return; }
+  corpo.insertAdjacentHTML('beforeend', '<div class="carregando" style="margin-top:14px;">Lendo a planilha e cruzando com o cadastro…</div>');
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: null });
+    const iCab = linhas.findIndex((l) => l && l.some((c) => /PRODUTO/i.test(String(c || ''))) && l.some((c) => /PERDA/i.test(String(c || ''))));
+    if (iCab < 0) throw new Error('não achei o cabeçalho PRODUTO / QTD / PERDA R$.');
+    const cab = linhas[iCab].map((c) => String(c || '').toUpperCase());
+    const cP = cab.findIndex((c) => c.indexOf('PRODUTO') >= 0);
+    const cQ = cab.findIndex((c) => c.indexOf('QTD') >= 0 || c.indexOf('QUANT') >= 0);
+    const cV = cab.findIndex((c) => c.indexOf('PERDA') >= 0);
+    const num = (v) => (typeof v === 'number' ? v : numeroBR(v));
+    const itens = [];
+    let total = null;
+    const vistos = {};
+    for (const l of linhas.slice(iCab + 1)) {
+      if (!l) continue;
+      const p = l[cP] == null ? '' : String(l[cP]).trim();
+      const q = num(l[cQ]);
+      const v = num(l[cV]);
+      const m = p.match(/^(\d+)\s*-\s*(.+)$/);
+      if (!m) {
+        if (!p && v != null) total = { quant: q || 0, valor: v };
+        continue;
+      }
+      const cod = m[1].replace(/^0+(?=\d)/, '');
+      if (vistos[cod]) { vistos[cod].quant += q || 0; vistos[cod].valor += v || 0; continue; }
+      const it = { codigo: cod, produto: m[2].trim().replace(/\s+/g, ' '), quant: q || 0, valor: v || 0 };
+      vistos[cod] = it;
+      itens.push(it);
+    }
+    if (!itens.length) throw new Error('nenhuma linha de produto ("código - nome").');
+
+    // setor e sortimento pelo cadastro de produtos
+    const cods = itens.map((i) => i.codigo);
+    const classe = {};
+    for (let i = 0; i < cods.length; i += 300) {
+      const { data, error } = await sb.from('produtos_classes').select('codigo_produto,classe_2_nome,classe_3_nome').in('codigo_produto', cods.slice(i, i + 300));
+      if (error) throw error;
+      (data || []).forEach((x) => { classe[x.codigo_produto] = x; });
+    }
+    // venda de cada produto no período (para a % de perda)
+    const venda = {};
+    try {
+      const vs = await vlRpc('vendas_loja_grupos', { p_ini: ini, p_fim: fim, p_ini_ant: ini, p_fim_ant: fim, p_nivel: 6 });
+      vs.forEach((x) => { venda[String(x.chave)] = Number(x.venda) || 0; });
+    } catch (e) { /* sem venda: a % fica em branco */ }
+
+    itens.forEach((it) => {
+      const c = classe[it.codigo];
+      it.setor = c ? setorPorClasse(c.classe_2_nome, c.classe_3_nome) : null;
+      it.sortimento = c ? (c.classe_3_nome || c.classe_2_nome) : null;
+      it.venda = venda[it.codigo] || 0;
+    });
+    importPerdasPlan = { itens, total, periodo: { ini, fim } };
+    fecharModal();
+    renderRevisaoPerdasPlanilha();
+  } catch (e) {
+    corpo.querySelector('.carregando')?.remove();
+    mostrarToast('Não consegui ler essa planilha: ' + e.message, 'erro');
+  }
+}
+
+function renderRevisaoPerdasPlanilha() {
+  const { itens, total, periodo } = importPerdasPlan;
+  const somaV = itens.reduce((s, i) => s + i.valor, 0);
+  const somaQ = itens.reduce((s, i) => s + i.quant, 0);
+  const confere = total && Math.abs(total.valor - somaV) < 0.05 && Math.abs(total.quant - somaQ) < 0.05;
+  const fmtD = (d) => d.split('-').reverse().join('/');
+  const porSetor = {};
+  itens.forEach((i) => { const k = i.setor || ''; porSetor[k] = porSetor[k] || { itens: 0, valor: 0 }; porSetor[k].itens++; porSetor[k].valor += i.valor; });
+  const semCadastro = itens.map((it, idx) => ({ it, idx })).filter((x) => !x.it.setor);
+  const opcoes = ['flv', 'padaria', 'frios', 'acougue', 'mercearia'].map((s) => '<option value="' + s + '">' + nomeSetor(s) + '</option>').join('');
+
+  const corpo =
+    '<div class="faixa-checagem ' + (confere ? 'ok' : 'erro') + '">' +
+      '<span>' + (confere ? '✓ Confere com a linha de total da planilha' : (total ? '⚠ NÃO confere com a linha de total' : '⚠ Linha de total não encontrada')) + '</span>' +
+      '<span class="sub">' + itens.length + ' produtos · ' + somaQ.toLocaleString('pt-BR', { maximumFractionDigits: 2 }) + ' de quantidade · ' + reaisPerdas(somaV) +
+        (total ? ' / total ' + reaisPerdas(total.valor) : '') + '</span>' +
+    '</div>' +
+    '<div class="form-linha" style="font-size:12.5px;">Período: <b>' + fmtD(periodo.ini) + ' a ' + fmtD(periodo.fim) + '</b> · substitui as perdas importadas antes nesses setores.</div>' +
+    '<div class="tabela-revisao"><table><thead><tr><th>Setor</th><th>Produtos</th><th>Perda</th></tr></thead><tbody>' +
+      Object.entries(porSetor).sort((a, b) => b[1].valor - a[1].valor).map(([s, r]) =>
+        '<tr' + (!s ? ' class="linha-revisar"' : '') + '><td>' + (s ? nomeSetor(s) : 'Sem cadastro (escolher abaixo)') + '</td><td>' + r.itens + '</td><td>' + reaisPerdas(r.valor) + '</td></tr>').join('') +
+    '</tbody></table></div>' +
+    (semCadastro.length ?
+      '<div class="contagem-revisar" style="margin-top:12px;">' + semCadastro.length + ' produto(s) não estão no cadastro de classes. Escolha o setor de cada um:</div>' +
+      '<div class="tabela-revisao"><table><thead><tr><th>Código</th><th>Produto</th><th>Perda</th><th>Setor</th></tr></thead><tbody>' +
+        semCadastro.map(({ it, idx }) =>
+          '<tr class="linha-revisar"><td>' + it.codigo + '</td><td>' + it.produto + '</td><td>' + reaisPerdas(it.valor) + '</td>' +
+          '<td><select class="campo-tabela" id="ipp-setor-' + idx + '">' + opcoes.replace('value="mercearia"', 'value="mercearia" selected') + '</select></td></tr>').join('') +
+      '</tbody></table></div>' : '');
+
+  abrirModal('Revisar planilha de perdas', corpo, 'Confirmar e importar', confirmarImportacaoPerdasPlanilha);
+  document.getElementById('overlay-modal').querySelector('.modal-card').classList.add('largo');
+}
+
+async function confirmarImportacaoPerdasPlanilha() {
+  const { itens, periodo } = importPerdasPlan;
+  const agora = new Date().toISOString();
+  const linhas = itens.map((it, idx) => {
+    const sel = document.getElementById('ipp-setor-' + idx);
+    const setor = it.setor || (sel ? sel.value : 'mercearia');
+    const qtd = Math.round(it.quant * 1000) / 1000;
+    const kg = /\bKG\b/i.test(it.produto) || !Number.isInteger(qtd);
+    return {
+      loja: '327 - ITATIAIUCU', periodo_inicio: periodo.ini, periodo_fim: periodo.fim,
+      setor, sortimento: it.sortimento || '(sem cadastro)',
+      produto_cod: it.codigo, produto: it.produto, unidade: kg ? 'kg' : 'un',
+      quantidade: qtd,
+      valor_perdido: Math.round(it.valor * 100) / 100,
+      valor_vendido: Math.round(it.venda * 100) / 100,
+      pct_perda: it.venda > 0 ? Math.round((it.valor / it.venda) * 10000) / 100 : null,
+      importado_em: agora,
+    };
+  });
+  // Igual ao PDF: o relatório novo substitui o anterior nos setores que ele
+  // traz (a planilha traz todos os setores da loja).
+  const setoresDesteImport = Array.from(new Set(linhas.map((l) => l.setor)));
+  try {
+    const { error: erroDelete } = await sb.from('perdas').delete().in('setor', setoresDesteImport);
+    if (erroDelete) throw erroDelete;
+    for (let i = 0; i < linhas.length; i += 500) {
+      const { error } = await sb.from('perdas').upsert(linhas.slice(i, i + 500), { onConflict: 'setor,produto_cod' });
+      if (error) throw error;
+    }
+    fecharModal();
+    mostrarToast(linhas.length + ' produtos de perdas importados (substituindo o relatório anterior).', 'sucesso');
+    importPerdasPlan = null;
+    await paginaPerdas();
+  } catch (e) { mostrarToast('Não consegui gravar: ' + e.message, 'erro'); }
+}
+
 // ---------- Fluxo: nova Conferência a partir de uma Nota Fiscal ----------
 let importConf = null; // { itens, somaValorTotal, valorTotalPdf, info, setor }
 
@@ -3366,8 +3538,8 @@ function renderizarPerdas() {
       }).join('');
 
   document.getElementById('conteudo-principal').innerHTML =
-    cabecalho('Perdas e Desperdícios', 'Relatórios importados a partir dos PDFs') +
-    '<div class="toolbar" style="justify-content:flex-end;"><button class="btn-acao" onclick="abrirImportarPerdas()">+ Importar PDF</button></div>' +
+    cabecalho('Perdas e Desperdícios', 'Quebras da loja importadas da planilha (ou do PDF)') +
+    '<div class="toolbar" style="justify-content:flex-end; gap:8px; flex-wrap:wrap;"><button class="btn-acao secundario" onclick="abrirImportarPerdas()">+ Importar PDF</button><button class="btn-acao" onclick="abrirImportarPerdasPlanilha()">+ Importar planilha</button></div>' +
     '<div class="resumo-perdas">' +
       '<div class="box"><div class="rotulo">Total perdido' + (filtro ? ' · ' + nomeSetor(filtro) : '') + '</div><div class="valor">' + reaisPerdas(totalPerdido) + '</div></div>' +
       (!filtro && vendaGeral ? '<div class="box"><div class="rotulo">Quebra sobre a venda</div><div class="valor">' + pctPerdasTxt(totalGeral / vendaGeral * 100) + '</div></div>' : '') +
