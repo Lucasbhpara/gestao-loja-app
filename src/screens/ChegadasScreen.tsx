@@ -9,12 +9,14 @@ import {
   marcarAbastecido,
   ItemChegada,
   NotaChegada,
+  chegadaEhDoEstoque,
   GrupoChegada,
   NOME_SETOR_CHEGADA,
 } from '../data/chegadasApi';
 
-// "Chegou hoje": o que veio nas notas do CD (subidas no portal, em
-// Ofertas › Mercadoria que chegou), separado pelo que importa para a
+// "Chegou hoje": o que entrou no estoque da loja (comparando uma importação
+// do Estoque Loja com a anterior) e/ou o que veio nas notas subidas no
+// portal (Ofertas › Mercadoria que chegou), separado pelo que importa para a
 // gôndola: estava em falta, produto novo (sem cadastro), estoque baixo e
 // saldo negativo no sistema. Qualquer colaborador vê; cada um marca o ✓
 // quando o produto já está exposto.
@@ -22,7 +24,7 @@ import {
 type Icone = React.ComponentProps<typeof Feather>['name'];
 const G: Record<GrupoChegada, { nome: string; desc: string; cor: string; fundo: string; icone: Icone }> = {
   falta: { nome: 'Estava em falta', desc: 'Saldo zerado na loja — leve primeiro para a área de vendas', cor: '#C0392B', fundo: '#FBDEDC', icone: 'alert-triangle' },
-  novo: { nome: 'Produto novo', desc: 'A loja ainda não vendia esse produto', cor: '#5B3FC4', fundo: '#ECE7FB', icone: 'plus-square' },
+  novo: { nome: 'Produto novo', desc: 'Primeira vez no estoque — a loja ainda não vendia', cor: '#5B3FC4', fundo: '#ECE7FB', icone: 'plus-square' },
   baixo: { nome: 'Estoque baixo', desc: 'Tinha menos de 5 unidades', cor: '#B5750E', fundo: '#FFF1DB', icone: 'trending-down' },
   negativo: { nome: 'Saldo negativo no sistema', desc: 'Estoque provavelmente errado — conferir', cor: '#A35F00', fundo: '#FFF6D6', icone: 'alert-circle' },
   normal: { nome: 'Estoque normal', desc: 'Só repor quando abrir espaço', cor: '#1E8E5A', fundo: '#DFF3E8', icone: 'check' },
@@ -49,6 +51,7 @@ function nomeBonito(p: string) {
 }
 function chegouTexto(i: ItemChegada) {
   const q = i.quantidade ?? 0;
+  if (i.embalagem === 'un' || i.embalagem === 'kg') return `Entrou ${String(q).replace('.', ',')} ${i.embalagem}`;
   const un = i.embalagem === 'FD' ? (q === 1 ? 'fardo' : 'fardos') : i.embalagem === 'CX' ? (q === 1 ? 'caixa' : 'caixas') : (i.embalagem ?? '').toLowerCase();
   return `Chegou ${String(q).replace('.', ',')} ${un}`.trim();
 }
@@ -151,7 +154,7 @@ export default function ChegadasScreen({ onVoltar }: { onVoltar: () => void }) {
   );
 
   const ehHoje = dia === hojeIso();
-  const subtitulo = dia ? `${ehHoje ? 'Hoje · ' : 'Última chegada · '}${tituloDia(dia)}` : 'Notas do CD cruzadas com o estoque';
+  const subtitulo = dia ? `${ehHoje ? 'Hoje · ' : 'Última chegada · '}${tituloDia(dia)}` : 'Entradas no estoque da loja';
 
   // ---------- Lista de um grupo ----------
   if (aberto) {
@@ -270,8 +273,8 @@ export default function ChegadasScreen({ onVoltar }: { onVoltar: () => void }) {
           <Text style={styles.vazio}>{/chegadas|relation|schema/i.test(erro) ? 'A ferramenta ainda não foi ativada no banco.' : erro}</Text>
         ) : notas.length === 0 ? (
           <View style={styles.card}>
-            <Text style={styles.cardTitulo}>Nenhuma nota nos últimos dias</Text>
-            <Text style={styles.cardSub}>Quando a gerência subir a nota do CD no portal (Ofertas › Mercadoria que chegou), ela aparece aqui.</Text>
+            <Text style={styles.cardTitulo}>Nenhuma entrada nos últimos dias</Text>
+            <Text style={styles.cardSub}>Assim que o estoque da loja for importado no portal, o que entrou aparece aqui (ou suba a nota do CD em Ofertas › Mercadoria que chegou).</Text>
           </View>
         ) : (
           <>
@@ -281,9 +284,16 @@ export default function ChegadasScreen({ onVoltar }: { onVoltar: () => void }) {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.cardTitulo}>
-                  {notas.length} {notas.length === 1 ? 'nota' : 'notas'} · {totalItens} itens{setor !== 'todos' ? ` de ${NOME_SETOR_CHEGADA[setor] ?? 'outros'}` : ''}
+                  {totalItens} itens{setor !== 'todos' ? ` de ${NOME_SETOR_CHEGADA[setor] ?? 'outros'}` : ''}
                 </Text>
-                <Text style={styles.cardSub}>NF {notas.map((n) => n.numero).join(', ')}</Text>
+                <Text style={styles.cardSub}>
+                  {[
+                    notas.some(chegadaEhDoEstoque) ? 'Pelo estoque da loja' : null,
+                    notas.some((n) => !chegadaEhDoEstoque(n)) ? 'NF ' + notas.filter((n) => !chegadaEhDoEstoque(n)).map((n) => n.numero).join(', ') : null,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </Text>
               </View>
             </View>
             {chipsSetor}
