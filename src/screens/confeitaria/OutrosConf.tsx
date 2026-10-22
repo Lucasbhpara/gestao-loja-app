@@ -10,6 +10,9 @@ import {
   insumosDasFichas,
   atualizarPrecoInsumo,
   inserirProducao,
+  ItemEstoque,
+  darBaixaDoLote,
+  qtdEstoqueTexto,
   atualizarProducao,
   excluirProducao,
   inserirInvestimento,
@@ -35,7 +38,7 @@ const dataDigitada = (t: string, atual: string) => {
 };
 
 // =============================================================== PRODUÇÃO
-export function ProducaoConf({ producao, produtos, onVoltar, onRecarregar }: { producao: Producao[]; produtos: Produto[]; onVoltar: () => void; onRecarregar: () => Promise<void> }) {
+export function ProducaoConf({ producao, produtos, estoque, onVoltar, onRecarregar }: { producao: Producao[]; produtos: Produto[]; estoque: ItemEstoque[]; onVoltar: () => void; onRecarregar: () => Promise<void> }) {
   const [r, setR] = useState<{ id?: string; data: string; dataTxt: string; produtoId: string | null; produto: string; qtd: string; custo: string; obs: string } | null>(null);
   const [escolher, setEscolher] = useState(false);
   const [busca, setBusca] = useState('');
@@ -48,10 +51,20 @@ export function ProducaoConf({ producao, produtos, onVoltar, onRecarregar }: { p
     if (!r || !r.produto.trim()) return Alert.alert('Falta o produto', 'Escolha o que foi produzido.');
     const dados = { data: dataDigitada(r.dataTxt, r.data), produtoId: r.produtoId, produto: r.produto, quantidade: numeroDigitado(r.qtd) ?? 1, custoUnitario: numeroDigitado(r.custo), observacao: r.obs };
     try {
+      let aviso: string | null = null;
       if (r.id) await atualizarProducao(r.id, dados);
-      else await inserirProducao(dados);
+      else {
+        const id = await inserirProducao(dados);
+        // tira do estoque o que a receita usa
+        const prod = produtos.find((p) => p.id === r.produtoId);
+        if (prod && estoque.length) {
+          const b = await darBaixaDoLote(id, prod, dados.quantidade, estoque);
+          aviso = `${b.baixadas} ${b.baixadas === 1 ? 'item saiu' : 'itens saíram'} do estoque.` + (b.semEstoque.length ? `\n\nNão achei no estoque: ${b.semEstoque.join(', ')}.` : '');
+        }
+      }
       setR(null);
       await onRecarregar();
+      if (aviso) Alert.alert('Lote salvo', aviso);
     } catch (e: any) {
       Alert.alert('Não consegui salvar', e?.message ?? '');
     }
@@ -104,6 +117,8 @@ export function ProducaoConf({ producao, produtos, onVoltar, onRecarregar }: { p
             </View>
             <Campo rotulo="Data" value={r.dataTxt} onChangeText={(t) => setR({ ...r, dataTxt: t })} placeholder="dd/mm/aaaa" />
             <Campo rotulo="Observação" value={r.obs} onChangeText={(t) => setR({ ...r, obs: t })} />
+            {!r.id && r.produtoId && estoque.length ? <Text style={s.dica}>Ao salvar, o que a receita usa sai do estoque automaticamente.</Text> : null}
+            {r.id ? <Text style={s.dica}>Mudar a quantidade aqui não mexe no estoque. Para corrigir, exclua o lote (o estoque volta) e lance de novo.</Text> : null}
             {r.id ? (
               <Botao texto="Excluir lote" icone="trash-2" tipo="perigo" onPress={() => confirmar('Excluir lote?', r.produto, async () => { await excluirProducao(r.id!); setR(null); await onRecarregar(); })} />
             ) : null}

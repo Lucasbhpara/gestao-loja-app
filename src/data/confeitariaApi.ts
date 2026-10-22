@@ -415,16 +415,18 @@ const compraParaBanco = (c: NovaCompra) => ({
   observacao: c.observacao?.trim() || null,
   cupom_chave: c.cupomChave,
 });
-export async function inserirCompras(lista: NovaCompra[]): Promise<void> {
-  if (!lista.length) return;
-  const { error } = await supabase.from('conf_compras').insert(lista.map(compraParaBanco));
+export async function inserirCompras(lista: NovaCompra[]): Promise<string[]> {
+  if (!lista.length) return [];
+  const { data, error } = await supabase.from('conf_compras').insert(lista.map(compraParaBanco)).select('id');
   if (error) throw error;
+  return (data ?? []).map((x: any) => x.id as string);
 }
 export async function atualizarCompra(id: string, c: NovaCompra): Promise<void> {
   const { error } = await supabase.from('conf_compras').update(compraParaBanco(c)).eq('id', id);
   if (error) throw error;
 }
 export async function excluirCompra(id: string): Promise<void> {
+  await estornar(id, 'Compra apagada').catch(() => {});
   const { error } = await supabase.from('conf_compras').delete().eq('id', id);
   if (error) throw error;
 }
@@ -501,15 +503,17 @@ const producaoParaBanco = (p: NovaProducao) => ({
   custo_unitario: p.custoUnitario,
   observacao: p.observacao?.trim() || null,
 });
-export async function inserirProducao(p: NovaProducao): Promise<void> {
-  const { error } = await supabase.from('conf_producao').insert(producaoParaBanco(p));
+export async function inserirProducao(p: NovaProducao): Promise<string> {
+  const { data, error } = await supabase.from('conf_producao').insert(producaoParaBanco(p)).select('id').single();
   if (error) throw error;
+  return data.id as string;
 }
 export async function atualizarProducao(id: string, p: NovaProducao): Promise<void> {
   const { error } = await supabase.from('conf_producao').update(producaoParaBanco(p)).eq('id', id);
   if (error) throw error;
 }
 export async function excluirProducao(id: string): Promise<void> {
+  await estornar(id, 'Lote apagado').catch(() => {});
   const { error } = await supabase.from('conf_producao').delete().eq('id', id);
   if (error) throw error;
 }
@@ -670,4 +674,193 @@ export function categoriaSugerida(nome: string): string {
   const t = normalizar(nome);
   if (/pote|embalag|tampa|saco|saquinho|bandeja|forma|caixa|etiqueta|fita|papel|guardanapo|colher|garfo|filme|disco/.test(t)) return 'Embalagens';
   return 'Insumos';
+}
+
+// ================================================================ ESTOQUE
+// Cada item do estoque é um insumo (ingrediente ou embalagem), guardado
+// numa unidade só: g, ml ou un. A produção tira do estoque o que a ficha usa
+// (proporcional à quantidade produzida ÷ rendimento); a compra põe.
+// Ver supabase/confeitaria_estoque.sql.
+export type ItemEstoque = {
+  id: string;
+  nome: string;
+  chave: string;
+  unidade: 'g' | 'ml' | 'un';
+  quantidade: number;
+  minimo: number;
+  embalagemQtd: number | null;
+  embalagemTexto: string;
+  atualizadoEm: string;
+};
+export type MovEstoque = { id: string; criadoEm: string; tipo: string; quantidade: number; saldoDepois: number | null; referencia: string | null };
+
+// "Ovos" e "Ovo" viram a mesma chave; tira "- OPÇÃO 1", "1 - ", acentos e símbolos
+export const chaveInsumo = (nome: string) =>
+  normalizar(nome)
+    .replace(/\s*-\s*opcao \d+/, '')
+    .replace(/^\d+\s*-\s*/, '')
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => (w.length > 3 && w.endsWith('s') ? w.slice(0, -1) : w))
+    .join(' ');
+
+const itemDoBanco = (e: any): ItemEstoque => ({
+  id: e.id,
+  nome: e.nome,
+  chave: e.chave,
+  unidade: (e.unidade ?? 'un') as ItemEstoque['unidade'],
+  quantidade: Number(e.quantidade) || 0,
+  minimo: Number(e.minimo) || 0,
+  embalagemQtd: n(e.embalagem_qtd),
+  embalagemTexto: e.embalagem_texto ?? '',
+  atualizadoEm: e.atualizado_em,
+});
+
+export async function listarEstoque(): Promise<ItemEstoque[]> {
+  return (await tudo('conf_estoque', '*', { col: 'nome', asc: true })).map(itemDoBanco);
+}
+
+export async function listarMovimentos(estoqueId: string): Promise<MovEstoque[]> {
+  const { data, error } = await supabase.from('conf_estoque_mov').select('*').eq('estoque_id', estoqueId).order('criado_em', { ascending: false }).limit(60);
+  if (error) throw error;
+  return (data ?? []).map((m: any) => ({ id: m.id, criadoEm: m.criado_em, tipo: m.tipo, quantidade: Number(m.quantidade), saldoDepois: n(m.saldo_depois), referencia: m.referencia }));
+}
+
+export async function salvarItemEstoque(i: { id?: string; nome: string; unidade: string; minimo: number; embalagemQtd: number | null; embalagemTexto: string }): Promise<string> {
+  const linha = { nome: i.nome.trim(), chave: chaveInsumo(i.nome), unidade: i.unidade, minimo: i.minimo, embalagem_qtd: i.embalagemQtd, embalagem_texto: i.embalagemTexto.trim() || null, atualizado_em: new Date().toISOString() };
+  if (i.id) {
+    const { error } = await supabase.from('conf_estoque').update(linha).eq('id', i.id);
+    if (error) throw error;
+    return i.id;
+  }
+  const { data, error } = await supabase.from('conf_estoque').insert(linha).select('id').single();
+  if (error) throw error;
+  return data.id as string;
+}
+
+export async function excluirItemEstoque(id: string): Promise<void> {
+  const { error } = await supabase.from('conf_estoque').delete().eq('id', id);
+  if (error) throw error;
+}
+
+export async function movimentar(estoqueId: string, tipo: 'contagem' | 'compra' | 'producao' | 'ajuste', qtd: number, referencia: string, origemId?: string | null): Promise<number> {
+  const { data, error } = await supabase.rpc('conf_movimentar', { p_estoque: estoqueId, p_tipo: tipo, p_qtd: Math.round(qtd * 1000) / 1000, p_referencia: referencia, p_origem: origemId ?? null });
+  if (error) throw error;
+  return Number(data);
+}
+
+export async function estornar(origemId: string, referencia: string): Promise<void> {
+  const { error } = await supabase.rpc('conf_estornar', { p_origem: origemId, p_referencia: referencia });
+  if (error) throw error;
+}
+
+// Monta os itens do estoque a partir dos ingredientes/embalagens das fichas
+// (só os que ainda não existem). Unidade e tamanho da embalagem saem do texto
+// da embalagem (ex.: "395g" → g, 395).
+export async function criarEstoqueDasFichas(produtos: Produto[], existentes: ItemEstoque[]): Promise<number> {
+  const ja = new Set(existentes.map((e) => e.chave));
+  const novos: any[] = [];
+  for (const ins of insumosDasFichas(produtos)) {
+    const chave = chaveInsumo(ins.nome);
+    if (!chave || ja.has(chave) || /^\d+\s*-/.test(ins.nome.trim())) continue;
+    ja.add(chave);
+    const emb = medida(ins.embalagemTexto);
+    const uso = ins.usos.map((u) => medida(u.item.qtdTexto)).find(Boolean);
+    const unidade = emb?.base ?? (uso && uso.base !== 'un' ? uso.base : 'un');
+    novos.push({ nome: ins.nome.trim(), chave, unidade, quantidade: 0, minimo: 0, embalagem_qtd: emb && emb.base === unidade ? emb.valor : null, embalagem_texto: ins.embalagemTexto || null });
+  }
+  for (let i = 0; i < novos.length; i += 200) {
+    const { error } = await supabase.from('conf_estoque').insert(novos.slice(i, i + 200));
+    if (error) throw error;
+  }
+  return novos.length;
+}
+
+export const unidadeTexto = (u: string) => (u === 'g' ? 'g' : u === 'ml' ? 'ml' : 'un');
+// 1500 g → "1,5 kg" · 750 ml → "750 ml" · 3 un → "3 un"
+export function qtdEstoqueTexto(q: number, u: string): string {
+  if (u === 'g' && Math.abs(q) >= 1000) return `${numeroTexto(q / 1000, 2)} kg`;
+  if (u === 'ml' && Math.abs(q) >= 1000) return `${numeroTexto(q / 1000, 2)} L`;
+  return `${numeroTexto(q, u === 'un' ? 1 : 0)} ${unidadeTexto(u)}`;
+}
+export function statusEstoque(i: ItemEstoque): 'zerado' | 'baixo' | 'ok' | 'sem_minimo' {
+  if (i.quantidade <= 0) return 'zerado';
+  if (i.minimo > 0 && i.quantidade <= i.minimo) return 'baixo';
+  return i.minimo > 0 ? 'ok' : 'sem_minimo';
+}
+
+// Quanto da unidade do estoque um item da ficha usa (por receita inteira)
+export function usoNaUnidadeDoEstoque(qtdTexto: string, est: ItemEstoque): number | null {
+  const u = medida(qtdTexto);
+  if (!u) return null;
+  if (u.base === est.unidade) return u.valor;
+  // "1 cx" de leite condensado com embalagem de 395 g → 395 g
+  if (u.base === 'un' && est.embalagemQtd) return u.valor * est.embalagemQtd;
+  return null;
+}
+
+export type BaixaPrevista = { item: ItemEstoque; quantidade: number; nomeFicha: string };
+export function baixasDoLote(p: Produto, qtdProduzida: number, estoque: ItemEstoque[]): { baixas: BaixaPrevista[]; semEstoque: string[] } {
+  const fator = p.rendimento > 0 ? qtdProduzida / p.rendimento : 1;
+  const porChave = new Map(estoque.map((e) => [e.chave, e]));
+  const baixas = new Map<string, BaixaPrevista>();
+  const semEstoque: string[] = [];
+  for (const it of p.itens) {
+    if (it.opcional || /^adicionais$/i.test(it.grupo) || /m[aã]o de obra/i.test(it.nome)) continue;
+    const est = porChave.get(chaveInsumo(it.nome));
+    const uso = est ? usoNaUnidadeDoEstoque(it.qtdTexto, est) : null;
+    if (!est || uso == null) {
+      semEstoque.push(it.nome);
+      continue;
+    }
+    const atual = baixas.get(est.id);
+    const q = uso * fator;
+    baixas.set(est.id, { item: est, quantidade: (atual?.quantidade ?? 0) + q, nomeFicha: it.nome });
+  }
+  return { baixas: Array.from(baixas.values()), semEstoque };
+}
+
+export async function darBaixaDoLote(loteId: string, p: Produto, qtdProduzida: number, estoque: ItemEstoque[]): Promise<{ baixadas: number; semEstoque: string[] }> {
+  const { baixas, semEstoque } = baixasDoLote(p, qtdProduzida, estoque);
+  const ref = `Produção: ${numeroTexto(qtdProduzida)} ${nomeCompleto(p)}`;
+  for (const b of baixas) await movimentar(b.item.id, 'producao', -b.quantidade, ref, loteId);
+  return { baixadas: baixas.length, semEstoque };
+}
+
+// Sugere o item do estoque para um produto do cupom ("LEITE COND MOCOCA 395G" → "Leite Condensado")
+export function sugerirItemEstoque(nomeCompra: string, estoque: ItemEstoque[]): ItemEstoque | null {
+  const palavras = chaveInsumo(nomeCompra).split(' ').filter((w) => w.length >= 2);
+  let melhor: ItemEstoque | null = null;
+  let nota = 0;
+  for (const e of estoque) {
+    const alvo = e.chave.split(' ').filter((w) => w.length >= 3 && !['com', 'para', 'de', 'em', 'po'].includes(w));
+    if (!alvo.length) continue;
+    const acertos = alvo.filter((w) => palavras.some((p) => w.startsWith(p) && p.length >= 3) || palavras.some((p) => p.startsWith(w))).length;
+    const s = acertos ? acertos / alvo.length + acertos * 0.1 : 0;
+    if (s > nota) {
+      nota = s;
+      melhor = e;
+    }
+  }
+  return nota >= 0.6 ? melhor : null;
+}
+
+// Quanto uma linha de compra põe no estoque, na unidade do item
+export function entradaDaCompra(quantidade: number | null, unidade: string | null, est: ItemEstoque, nomeCompra = ''): number {
+  const q = quantidade ?? 1;
+  const u = normalizar(unidade || '');
+  // o nome do cupom costuma trazer o tamanho: "... 395G", "... 2KG", "... 1L", "OVOS C/30"
+  const nome = normalizar(nomeCompra).replace(',', '.');
+  const tam = nome.match(/(\d+(?:\.\d+)?)\s*(kg|g|gr|ml|l|lt)\b/);
+  if (tam && !/^(kg|g|gr|grs|l|lt|ml)$/.test(u)) {
+    const v = Number(tam[1]);
+    const base = /^(kg|g|gr)$/.test(tam[2]) ? 'g' : 'ml';
+    if (base === est.unidade) return q * (tam[2] === 'kg' || tam[2] === 'l' || tam[2] === 'lt' ? v * 1000 : v);
+  }
+  const pacote = nome.match(/\bc\s*\/\s*(\d+)/);
+  if (pacote && est.unidade === 'un') return q * Number(pacote[1]);
+  if (/^(kg|g|gr|grs)$/.test(u) && est.unidade === 'g') return u === 'kg' ? q * 1000 : q;
+  if (/^(l|lt|ml)$/.test(u) && est.unidade === 'ml') return u === 'ml' ? q : q * 1000;
+  return est.embalagemQtd ? q * est.embalagemQtd : q; // embalagens (cx, pct, un do cupom)
 }
