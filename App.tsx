@@ -10,6 +10,8 @@ import ForgotPasswordScreen from './src/screens/ForgotPasswordScreen';
 import CreatePasswordScreen from './src/screens/CreatePasswordScreen';
 import HomeColaboradorScreen from './src/screens/HomeColaboradorScreen';
 import HomeAdminScreen from './src/screens/HomeAdminScreen';
+import ConfeitariaScreen from './src/screens/confeitaria/ConfeitariaScreen';
+import { SETOR_CONFEITARIA } from './src/data/confeitariaApi';
 import PrecificacaoScreen from './src/screens/PrecificacaoScreen';
 import VisitaTecnicaScreen from './src/screens/VisitaTecnicaScreen';
 import { ehTecnicoVeterinario } from './src/data/visitaTecnicaApi';
@@ -99,6 +101,15 @@ function AppInterno() {
     conteudo = (
       <>
         <CreatePasswordScreen />
+        <Rodape />
+      </>
+    );
+  } else if (usuarioAtual.setor === SETOR_CONFEITARIA) {
+    // Confeitaria (Sabores da Pri): aba exclusiva, sem nada da loja e sem o
+    // vídeo do ULVA. Ver src/screens/confeitaria.
+    conteudo = (
+      <>
+        <ConfeitariaScreen />
         <Rodape />
       </>
     );
