@@ -15,6 +15,11 @@ import {
   JS_LER_NFCE,
   lerItensCupom,
   categoriaSugerida,
+  ItemEstoque,
+  sugerirItemEstoque,
+  entradaDaCompra,
+  movimentar,
+  qtdEstoqueTexto,
   lembrarNaLista,
   numeroDigitado,
   numeroTexto,
@@ -25,12 +30,13 @@ import {
 } from '../../data/confeitariaApi';
 import { C, s, Topo, Cartao, Botao, Campo, Chips, CampoComLista, Folha, Vazio, confirmar } from './ui';
 
-type Props = { compras: Compra[]; config: ConfigConf; onConfig: (c: ConfigConf) => void; onVoltar: () => void; onRecarregar: () => Promise<void> };
+type Props = { compras: Compra[]; estoque: ItemEstoque[]; config: ConfigConf; onConfig: (c: ConfigConf) => void; onVoltar: () => void; onRecarregar: () => Promise<void> };
 
-type Linha = { chave: string; item: string; quantidade: string; unidade: string; valor: string; categoria: string };
+// estoqueId: undefined = escolher sozinho pelo nome · null = não controlar no estoque
+type Linha = { chave: string; item: string; quantidade: string; unidade: string; valor: string; categoria: string; estoqueId?: string | null; entradaTxt?: string };
 const nova = (): Linha => ({ chave: Math.random().toString(36).slice(2), item: '', quantidade: '1', unidade: 'un', valor: '', categoria: 'Insumos' });
 
-export default function ComprasConf({ compras, config, onConfig, onVoltar, onRecarregar }: Props) {
+export default function ComprasConf({ compras, estoque, config, onConfig, onVoltar, onRecarregar }: Props) {
   const [busca, setBusca] = useState('');
   const [mes, setMes] = useState(hojeIso().slice(0, 7));
   const [lendoQr, setLendoQr] = useState(false);
@@ -39,6 +45,17 @@ export default function ComprasConf({ compras, config, onConfig, onVoltar, onRec
   const [editando, setEditando] = useState<Compra | null>(null);
   const [salvando, setSalvando] = useState(false);
   const leuRef = useRef(false);
+  const [escolhendoEstoque, setEscolhendoEstoque] = useState<string | null>(null);
+  const [buscaEst, setBuscaEst] = useState('');
+
+  // item do estoque de cada linha (escolhido ou sugerido pelo nome) e quanto entra
+  function destinoDaLinha(l: Linha): { item: ItemEstoque | null; entrada: number | null } {
+    if (l.estoqueId === null || !estoque.length) return { item: null, entrada: null };
+    const item = l.estoqueId ? estoque.find((e) => e.id === l.estoqueId) ?? null : sugerirItemEstoque(l.item, estoque);
+    if (!item) return { item: null, entrada: null };
+    const manual = l.entradaTxt != null && l.entradaTxt.trim() !== '' ? numeroDigitado(l.entradaTxt) : null;
+    return { item, entrada: manual ?? entradaDaCompra(numeroDigitado(l.quantidade), l.unidade, item, l.item) };
+  }
 
   const meses = useMemo(() => Array.from(new Set([hojeIso().slice(0, 7), ...compras.map((c) => c.data.slice(0, 7))])).sort().reverse().slice(0, 12), [compras]);
   const lista = useMemo(() => {
@@ -105,7 +122,7 @@ export default function ComprasConf({ compras, config, onConfig, onVoltar, onRec
     if (semValor) return Alert.alert('Falta o valor', `Preencha o valor de "${semValor.item}".`);
     setSalvando(true);
     try {
-      await inserirCompras(
+      const ids = await inserirCompras(
         linhas.map((l) => ({
           data: lote.data,
           item: l.item,
@@ -118,8 +135,18 @@ export default function ComprasConf({ compras, config, onConfig, onVoltar, onRec
           cupomChave: lote.cupomChave,
         })),
       );
+      // põe no estoque
+      let noEstoque = 0;
+      for (let k = 0; k < linhas.length; k++) {
+        const d = destinoDaLinha(linhas[k]);
+        if (d.item && d.entrada && ids[k]) {
+          await movimentar(d.item.id, 'compra', d.entrada, `Compra: ${linhas[k].item}${lote.fornecedor ? ` (${lote.fornecedor})` : ''}`, ids[k]);
+          noEstoque++;
+        }
+      }
       onConfig(await lembrarNaLista(config, 'fornecedores', lote.fornecedor));
       setLote(null);
+      if (noEstoque) Alert.alert('Compra salva', `${noEstoque} ${noEstoque === 1 ? 'item entrou' : 'itens entraram'} no estoque.`);
       await onRecarregar();
     } catch (e: any) {
       Alert.alert('Não consegui salvar', e?.message ?? '');
@@ -220,7 +247,7 @@ export default function ComprasConf({ compras, config, onConfig, onVoltar, onRec
 
       {/* conferir / lançar itens */}
       <Folha
-        visivel={!!lote}
+        visivel={!!lote && !escolhendoEstoque}
         titulo={lote?.cupomChave ? 'Itens do cupom' : 'Nova compra'}
         onFechar={() => setLote(null)}
         rodape={
@@ -261,11 +288,67 @@ export default function ComprasConf({ compras, config, onConfig, onVoltar, onRec
                   <TextInput style={[s.input, { flex: 1.3, paddingVertical: 8, fontWeight: '800' }]} value={l.valor} onChangeText={(t) => mudarLinha(l.chave, { valor: t })} keyboardType="decimal-pad" placeholder="R$ total" placeholderTextColor="#C4AEB5" />
                 </View>
                 <Chips opcoes={categorias} valor={l.categoria} onMudar={(v) => v && mudarLinha(l.chave, { categoria: v })} />
+                {estoque.length ? (
+                  (() => {
+                    const d = destinoDaLinha(l);
+                    return (
+                      <View style={{ backgroundColor: d.item ? C.mentaClaro : '#F6F0F2', borderRadius: 12, padding: 10, gap: 6 }}>
+                        <TouchableOpacity onPress={() => { setBuscaEst(''); setEscolhendoEstoque(l.chave); }} style={[s.linha, { gap: 6 }]}>
+                          <Feather name="archive" size={15} color={d.item ? C.menta : C.suave} />
+                          <Text style={{ flex: 1, color: d.item ? C.menta : C.suave, fontWeight: '700' }} numberOfLines={1}>
+                            {d.item ? `Estoque: ${d.item.nome}` : 'Não entra no estoque (tocar para escolher)'}
+                          </Text>
+                          <Feather name="chevron-down" size={15} color={C.suave} />
+                        </TouchableOpacity>
+                        {d.item ? (
+                          <View style={[s.linha, { gap: 8 }]}>
+                            <Text style={{ color: C.texto, fontSize: 13 }}>Entra</Text>
+                            <TextInput
+                              style={[s.input, { flex: 1, paddingVertical: 6, fontSize: 14 }]}
+                              value={l.entradaTxt ?? numeroTexto(d.entrada, 3)}
+                              onChangeText={(t) => mudarLinha(l.chave, { entradaTxt: t })}
+                              keyboardType="decimal-pad"
+                            />
+                            <Text style={{ color: C.texto, fontWeight: '700' }}>{d.item.unidade}</Text>
+                          </View>
+                        ) : null}
+                      </View>
+                    );
+                  })()
+                ) : null}
               </Cartao>
             ))}
             <Botao texto="Adicionar item" icone="plus" tipo="claro" onPress={() => setLote({ ...lote, linhas: [...lote.linhas, nova()] })} />
           </>
         ) : null}
+      </Folha>
+
+      <Folha visivel={!!escolhendoEstoque} titulo="Vai para qual item do estoque?" onFechar={() => setEscolhendoEstoque(null)}>
+        <TextInput style={[s.busca, { marginTop: 0 }]} value={buscaEst} onChangeText={setBuscaEst} placeholder="Buscar" placeholderTextColor="#C4AEB5" />
+        <Botao
+          texto="Não controlar no estoque"
+          tipo="claro"
+          icone="slash"
+          onPress={() => {
+            if (escolhendoEstoque) mudarLinha(escolhendoEstoque, { estoqueId: null, entradaTxt: undefined });
+            setEscolhendoEstoque(null);
+          }}
+        />
+        {estoque
+          .filter((e) => !buscaEst || e.chave.includes(normalizar(buscaEst)))
+          .map((e) => (
+            <Cartao
+              key={e.id}
+              onPress={() => {
+                if (escolhendoEstoque) mudarLinha(escolhendoEstoque, { estoqueId: e.id, entradaTxt: undefined });
+                setEscolhendoEstoque(null);
+              }}
+              style={{ flexDirection: 'row', gap: 10, padding: 12 } as any}
+            >
+              <Text style={[s.titulo, { flex: 1, fontSize: 15 }]}>{e.nome}</Text>
+              <Text style={s.dica}>{qtdEstoqueTexto(e.quantidade, e.unidade)}</Text>
+            </Cartao>
+          ))}
       </Folha>
 
       {/* editar uma compra lançada */}

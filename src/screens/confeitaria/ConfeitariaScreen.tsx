@@ -15,6 +15,10 @@ import {
   listarVendas,
   listarProducao,
   listarInvestimentos,
+  ItemEstoque,
+  listarEstoque,
+  statusEstoque,
+  qtdEstoqueTexto,
   montarResumo,
   margemDe,
   nomeCompleto,
@@ -29,11 +33,12 @@ import ComprasConf from './ComprasConf';
 import VendasConf from './VendasConf';
 import VitrineConf from './VitrineConf';
 import { ProducaoConf, InvestimentosConf, InsumosConf, AjustesConf } from './OutrosConf';
+import EstoqueConf from './EstoqueConf';
 
 // Início da Confeitaria (Sabores da Pri). Só aparece para quem tem
 // setor = 'confeitaria' no cadastro (ver App.tsx). Nada da loja aparece aqui.
 
-type Tela = 'inicio' | 'produtos' | 'vitrine' | 'compras' | 'vendas' | 'producao' | 'investimentos' | 'insumos' | 'ajustes';
+type Tela = 'inicio' | 'estoque' | 'produtos' | 'vitrine' | 'compras' | 'vendas' | 'producao' | 'investimentos' | 'insumos' | 'ajustes';
 type Icone = React.ComponentProps<typeof Feather>['name'];
 
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -50,6 +55,7 @@ export default function ConfeitariaScreen() {
   const [vendas, setVendas] = useState<Venda[]>([]);
   const [producao, setProducao] = useState<Producao[]>([]);
   const [invest, setInvest] = useState<Investimento[]>([]);
+  const [estoque, setEstoque] = useState<ItemEstoque[]>([]);
 
   const carregar = useCallback(async () => {
     try {
@@ -60,6 +66,8 @@ export default function ConfeitariaScreen() {
       setVendas(vs);
       setProducao(pr);
       setInvest(iv);
+      // estoque é opcional (precisa do confeitaria_estoque.sql)
+      setEstoque(await listarEstoque().catch(() => []));
       setErro(null);
     } catch (e: any) {
       setErro(/conf_|relation|schema/i.test(e?.message ?? '') ? 'A Confeitaria ainda não foi ativada no banco (rodar supabase/confeitaria.sql).' : e?.message ?? 'Não consegui carregar.');
@@ -84,6 +92,7 @@ export default function ConfeitariaScreen() {
   }, [tela]);
 
   const resumo = useMemo(() => montarResumo(vendas, compras, producao, invest), [vendas, compras, producao, invest]);
+  const paraComprar = useMemo(() => estoque.filter((i) => i.minimo > 0 && ['zerado', 'baixo'].includes(statusEstoque(i))), [estoque]);
   const atencao = useMemo(() => produtos.filter((p) => p.ativo && p.precoVenda && (margemDe(p) ?? 1) < 0.3), [produtos]);
 
   if (carregando || !config) {
@@ -106,9 +115,10 @@ export default function ConfeitariaScreen() {
   };
   if (tela === 'produtos') return <ProdutosConf produtos={produtos} config={config} onVoltar={voltar} onRecarregar={recarregar} />;
   if (tela === 'vitrine') return <VitrineConf produtos={produtos} config={config} onVoltar={voltar} onRecarregar={recarregar} />;
-  if (tela === 'compras') return <ComprasConf compras={compras} config={config} onConfig={setConfig} onVoltar={voltar} onRecarregar={recarregar} />;
+  if (tela === 'compras') return <ComprasConf compras={compras} estoque={estoque} config={config} onConfig={setConfig} onVoltar={voltar} onRecarregar={recarregar} />;
   if (tela === 'vendas') return <VendasConf vendas={vendas} produtos={produtos} config={config} onConfig={setConfig} onVoltar={voltar} onRecarregar={recarregar} />;
-  if (tela === 'producao') return <ProducaoConf producao={producao} produtos={produtos} onVoltar={voltar} onRecarregar={recarregar} />;
+  if (tela === 'estoque') return <EstoqueConf estoque={estoque} produtos={produtos} onVoltar={voltar} onRecarregar={recarregar} />;
+  if (tela === 'producao') return <ProducaoConf producao={producao} produtos={produtos} estoque={estoque} onVoltar={voltar} onRecarregar={recarregar} />;
   if (tela === 'investimentos') return <InvestimentosConf investimentos={invest} config={config} onVoltar={voltar} onRecarregar={recarregar} />;
   if (tela === 'insumos') return <InsumosConf produtos={produtos} onVoltar={voltar} onRecarregar={recarregar} />;
   if (tela === 'ajustes') return <AjustesConf config={config} onConfig={setConfig} onVoltar={voltar} />;
@@ -120,6 +130,7 @@ export default function ConfeitariaScreen() {
     { tela: 'vendas', nome: 'Vendas', desc: 'Pedidos e quem falta pagar', icone: 'dollar-sign', cor: C.menta, fundo: C.mentaClaro },
     { tela: 'vitrine', nome: 'Vitrine', desc: 'Imagem para o WhatsApp', icone: 'send', cor: C.rosa, fundo: C.rosaClaro },
     { tela: 'produtos', nome: 'Produtos e receitas', desc: `${produtos.length} fichas · custo e preço`, icone: 'book-open', cor: C.lilas, fundo: C.lilasClaro },
+    { tela: 'estoque', nome: 'Estoque', desc: paraComprar.length ? `${paraComprar.length} para comprar` : 'Contagem e mínimos', icone: 'archive', cor: '#2F8F83', fundo: '#DDF2EE' },
     { tela: 'compras', nome: 'Compras', desc: 'Lê o cupom fiscal', icone: 'shopping-bag', cor: '#B7791F', fundo: C.ouroClaro },
     { tela: 'producao', nome: 'Produção', desc: 'Lotes feitos', icone: 'layers', cor: C.rosaEsc, fundo: '#F8E1E8' },
     { tela: 'insumos', nome: 'Preços dos insumos', desc: 'Atualiza todas as receitas', icone: 'tag', cor: '#3F8FA8', fundo: '#E1F1F6' },
@@ -167,6 +178,21 @@ export default function ConfeitariaScreen() {
             </TouchableOpacity>
           ))}
         </View>
+
+        {paraComprar.length ? (
+          <Cartao onPress={() => setTela('estoque')} style={{ backgroundColor: '#FFF8F0', borderColor: '#F2D9B0' } as any}>
+            <Text style={s.titulo}>🛒 Lista de compras ({paraComprar.length})</Text>
+            {paraComprar.slice(0, 6).map((i) => (
+              <View key={i.id} style={[s.linha, { justifyContent: 'space-between' }]}>
+                <Text style={{ color: C.texto, flex: 1 }} numberOfLines={1}>
+                  {i.nome}
+                </Text>
+                <Text style={{ color: i.quantidade <= 0 ? C.vermelho : '#9A6B12', fontWeight: '800' }}>{qtdEstoqueTexto(i.quantidade, i.unidade)}</Text>
+              </View>
+            ))}
+            {paraComprar.length > 6 ? <Text style={s.dica}>e mais {paraComprar.length - 6}…</Text> : null}
+          </Cartao>
+        ) : null}
 
         {resumo.clientesDevendo.length ? (
           <Cartao onPress={() => setTela('vendas')}>
