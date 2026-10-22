@@ -134,4 +134,10 @@ insert into public.colaboradores (nome, matricula, funcao, setor, is_admin, senh
 select 'Priscila', '040491', 'Confeiteira', 'confeitaria', false, '040491', false
 where not exists (select 1 from public.colaboradores where lower(nome) = 'priscila');
 
+-- Login do Lucas para ver a Confeitaria como ela vê (o login normal dele
+-- continua abrindo o ULVA da loja).
+insert into public.colaboradores (nome, matricula, funcao, setor, is_admin, senha_atual, senha_definida)
+select 'Lucas Confeitaria', '327327', 'Teste Confeitaria', 'confeitaria', false, '327327', false
+where not exists (select 1 from public.colaboradores where lower(nome) = 'lucas confeitaria');
+
 select 'confeitaria pronta' as ok;
