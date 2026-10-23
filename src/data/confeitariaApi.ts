@@ -60,6 +60,7 @@ export type Venda = {
   formaPagamento: string | null;
   recebido: boolean;
   observacao: string | null;
+  criadoEm: string; // vendas salvas juntas (mesmo pedido) têm o mesmo criado_em
 };
 
 export type Producao = {
@@ -88,6 +89,7 @@ export type ConfigConf = {
   logoUrl: string | null;
   whatsapp: string;
   instagram: string;
+  pix: string; // chave Pix que aparece na cobrança
   margem: number; // 0.6 = 60%
   clientes: string[];
   fornecedores: string[];
@@ -185,6 +187,7 @@ const CONFIG_PADRAO: ConfigConf = {
   logoUrl: null,
   whatsapp: '',
   instagram: '',
+  pix: '',
   margem: 0.6,
   clientes: [],
   fornecedores: [],
@@ -196,6 +199,7 @@ const CHAVES: Record<keyof ConfigConf, string> = {
   logoUrl: 'logo_url',
   whatsapp: 'whatsapp',
   instagram: 'instagram',
+  pix: 'pix',
   margem: 'margem',
   clientes: 'clientes',
   fornecedores: 'fornecedores',
@@ -447,11 +451,12 @@ const vendaDoBanco = (v: any): Venda => ({
   formaPagamento: v.forma_pagamento,
   recebido: !!v.recebido,
   observacao: v.observacao,
+  criadoEm: v.criado_em,
 });
 export async function listarVendas(): Promise<Venda[]> {
   return (await tudo('conf_vendas', '*', { col: 'data', asc: false })).map(vendaDoBanco);
 }
-export type NovaVenda = Omit<Venda, 'id'>;
+export type NovaVenda = Omit<Venda, 'id' | 'criadoEm'> & { criadoEm?: string };
 const vendaParaBanco = (v: NovaVenda) => ({
   data: v.data,
   cliente: v.cliente?.trim() || null,
@@ -462,6 +467,7 @@ const vendaParaBanco = (v: NovaVenda) => ({
   forma_pagamento: v.formaPagamento,
   recebido: v.recebido,
   observacao: v.observacao?.trim() || null,
+  ...(v.criadoEm ? { criado_em: v.criadoEm } : {}),
 });
 export async function inserirVendas(lista: NovaVenda[]): Promise<void> {
   if (!lista.length) return;
@@ -479,6 +485,63 @@ export async function marcarRecebido(id: string, recebido: boolean): Promise<voi
 export async function excluirVenda(id: string): Promise<void> {
   const { error } = await supabase.from('conf_vendas').delete().eq('id', id);
   if (error) throw error;
+}
+export async function marcarRecebidoVarios(ids: string[], recebido: boolean): Promise<void> {
+  if (!ids.length) return;
+  const { error } = await supabase.from('conf_vendas').update({ recebido }).in('id', ids);
+  if (error) throw error;
+}
+export async function excluirVendas(ids: string[]): Promise<void> {
+  if (!ids.length) return;
+  const { error } = await supabase.from('conf_vendas').delete().in('id', ids);
+  if (error) throw error;
+}
+
+// Pedido = vendas salvas juntas (mesmo cliente, mesma data, mesmo criado_em).
+// Ex.: Lucas levou brigadeiro, pizza e torta → 3 linhas, 1 pedido.
+export type Pedido = {
+  chave: string;
+  cliente: string | null;
+  data: string;
+  criadoEm: string;
+  itens: Venda[];
+  total: number;
+  recebido: boolean; // todos os itens recebidos
+  formaPagamento: string | null;
+  observacao: string | null;
+};
+export function agruparPedidos(vendas: Venda[]): Pedido[] {
+  const mapa = new Map<string, Pedido>();
+  vendas.forEach((v) => {
+    const chave = `${normalizar(v.cliente ?? '')}|${v.data}|${v.criadoEm ?? v.id}`;
+    const p = mapa.get(chave) ?? { chave, cliente: v.cliente, data: v.data, criadoEm: v.criadoEm, itens: [], total: 0, recebido: true, formaPagamento: v.formaPagamento, observacao: v.observacao };
+    p.itens.push(v);
+    p.total += v.quantidade * v.precoUnitario;
+    p.recebido = p.recebido && v.recebido;
+    if (!p.observacao && v.observacao) p.observacao = v.observacao;
+    mapa.set(chave, p);
+  });
+  return Array.from(mapa.values()).sort((a, b) => (a.data === b.data ? (b.criadoEm ?? '').localeCompare(a.criadoEm ?? '') : b.data.localeCompare(a.data)));
+}
+
+// Cobrança: o que a pessoa ainda deve (itens não recebidos) e a mensagem.
+export function pendenciasDoCliente(vendas: Venda[], cliente: string): Venda[] {
+  const alvo = normalizar(cliente || 'Sem nome');
+  return vendas
+    .filter((v) => !v.recebido && normalizar(v.cliente || 'Sem nome') === alvo)
+    .sort((a, b) => a.data.localeCompare(b.data));
+}
+export function mensagemCobranca(cliente: string, total: number, cfg: Pick<ConfigConf, 'marca' | 'pix'>): string {
+  const nome = (cliente || '').trim().split(/\s+/)[0] || '';
+  const linhas = [
+    `Oi${nome ? `, ${nome}` : ''}! Tudo bem? 💕`,
+    '',
+    `Passando com carinho pra lembrar dos docinhos da ${cfg.marca || 'Sabores da Pri'} que ficaram em aberto, no total de ${reais(total)}.`,
+    'Te mando o resuminho em PDF com tudo certinho, com as datas e os valores.',
+  ];
+  if (cfg.pix?.trim()) linhas.push('', `Se ficar mais fácil, o Pix é: ${cfg.pix.trim()}`);
+  linhas.push('', 'Sem pressa, tá? Obrigada pela confiança e pelo carinho de sempre! 🧁');
+  return linhas.join('\n');
 }
 
 // --------------------------------------------------------------- produção

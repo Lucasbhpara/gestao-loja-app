@@ -296,7 +296,7 @@ export function AjustesConf({ config, onConfig, onVoltar }: { config: ConfigConf
   async function salvar() {
     setSalvando(true);
     try {
-      const nova = { marca: c.marca.trim() || 'Sabores da Pri', logoUrl: c.logoUrl, whatsapp: c.whatsapp.trim(), instagram: c.instagram.trim(), margem: Math.min(0.95, Math.max(0, (numeroDigitado(c.margemTxt) ?? 60) / 100)) };
+      const nova = { marca: c.marca.trim() || 'Sabores da Pri', logoUrl: c.logoUrl, whatsapp: c.whatsapp.trim(), instagram: c.instagram.trim(), pix: (c.pix ?? '').trim(), margem: Math.min(0.95, Math.max(0, (numeroDigitado(c.margemTxt) ?? 60) / 100)) };
       await salvarConfig(nova);
       onConfig({ ...config, ...nova });
       onVoltar();
@@ -318,6 +318,7 @@ export function AjustesConf({ config, onConfig, onVoltar }: { config: ConfigConf
         <Campo rotulo="Nome da marca" value={c.marca} onChangeText={(t) => setC({ ...c, marca: t })} />
         <Campo rotulo="WhatsApp para encomendas" value={c.whatsapp} onChangeText={(t) => setC({ ...c, whatsapp: t })} keyboardType="phone-pad" placeholder="(31) 9 9999-9999" dica="Aparece no rodapé das imagens da vitrine." />
         <Campo rotulo="Instagram" value={c.instagram} onChangeText={(t) => setC({ ...c, instagram: t })} placeholder="@saboresdapri" autoCapitalize="none" />
+        <Campo rotulo="Chave Pix" value={c.pix ?? ''} onChangeText={(t) => setC({ ...c, pix: t })} placeholder="CPF, celular, e-mail ou chave aleatória" autoCapitalize="none" dica="Aparece na cobrança que você compartilha com a cliente." />
         <Campo rotulo="Margem de lucro desejada (%)" value={c.margemTxt} onChangeText={(t) => setC({ ...c, margemTxt: t })} keyboardType="number-pad" dica="Usada no “preço sugerido” de cada produto." />
         <Botao texto={salvando ? 'Salvando…' : 'Salvar'} icone="check" onPress={salvar} desativado={salvando} />
       </ScrollView>

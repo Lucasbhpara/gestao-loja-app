@@ -56,6 +56,7 @@ export default function ConfeitariaScreen() {
   const [producao, setProducao] = useState<Producao[]>([]);
   const [invest, setInvest] = useState<Investimento[]>([]);
   const [estoque, setEstoque] = useState<ItemEstoque[]>([]);
+  const [clienteAberto, setClienteAberto] = useState<string | null>(null);
 
   const carregar = useCallback(async () => {
     try {
@@ -84,6 +85,7 @@ export default function ConfeitariaScreen() {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
       if (tela !== 'inicio') {
         setTela('inicio');
+        setClienteAberto(null);
         return true;
       }
       return false;
@@ -109,14 +111,17 @@ export default function ConfeitariaScreen() {
     );
   }
 
-  const voltar = () => setTela('inicio');
+  const voltar = () => {
+    setTela('inicio');
+    setClienteAberto(null);
+  };
   const recarregar = async () => {
     await carregar();
   };
   if (tela === 'produtos') return <ProdutosConf produtos={produtos} config={config} onVoltar={voltar} onRecarregar={recarregar} />;
   if (tela === 'vitrine') return <VitrineConf produtos={produtos} config={config} onVoltar={voltar} onRecarregar={recarregar} />;
   if (tela === 'compras') return <ComprasConf compras={compras} estoque={estoque} config={config} onConfig={setConfig} onVoltar={voltar} onRecarregar={recarregar} />;
-  if (tela === 'vendas') return <VendasConf vendas={vendas} produtos={produtos} config={config} onConfig={setConfig} onVoltar={voltar} onRecarregar={recarregar} />;
+  if (tela === 'vendas') return <VendasConf vendas={vendas} produtos={produtos} config={config} onConfig={setConfig} onVoltar={voltar} onRecarregar={recarregar} clienteInicial={clienteAberto} />;
   if (tela === 'estoque') return <EstoqueConf estoque={estoque} produtos={produtos} onVoltar={voltar} onRecarregar={recarregar} />;
   if (tela === 'producao') return <ProducaoConf producao={producao} produtos={produtos} estoque={estoque} onVoltar={voltar} onRecarregar={recarregar} />;
   if (tela === 'investimentos') return <InvestimentosConf investimentos={invest} config={config} onVoltar={voltar} onRecarregar={recarregar} />;
@@ -195,14 +200,30 @@ export default function ConfeitariaScreen() {
         ) : null}
 
         {resumo.clientesDevendo.length ? (
-          <Cartao onPress={() => setTela('vendas')}>
+          <Cartao>
             <Text style={s.titulo}>Quem falta pagar</Text>
-            {resumo.clientesDevendo.slice(0, 5).map((c) => (
-              <View key={c.cliente} style={[s.linha, { justifyContent: 'space-between' }]}>
-                <Text style={{ color: C.texto }}>{c.cliente}</Text>
+            <Text style={s.dica}>Toque no nome para abrir a ficha e compartilhar a dívida</Text>
+            {resumo.clientesDevendo.slice(0, 6).map((c) => (
+              <TouchableOpacity
+                key={c.cliente}
+                onPress={() => {
+                  setClienteAberto(c.cliente);
+                  setTela('vendas');
+                }}
+                style={[s.linha, { justifyContent: 'space-between', paddingVertical: 6 }]}
+              >
+                <Text style={{ color: C.texto, fontWeight: '700', flex: 1 }} numberOfLines={1}>
+                  {c.cliente}
+                </Text>
                 <Text style={{ color: '#B7791F', fontWeight: '800' }}>{reais(c.valor)}</Text>
-              </View>
+                <Feather name="chevron-right" size={16} color={C.suave} />
+              </TouchableOpacity>
             ))}
+            {resumo.clientesDevendo.length > 6 ? (
+              <TouchableOpacity onPress={() => setTela('vendas')}>
+                <Text style={{ color: C.rosaEsc, fontWeight: '800', marginTop: 4 }}>Ver todos ({resumo.clientesDevendo.length})</Text>
+              </TouchableOpacity>
+            ) : null}
           </Cartao>
         ) : null}
 
