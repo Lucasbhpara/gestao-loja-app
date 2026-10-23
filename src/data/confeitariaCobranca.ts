@@ -20,7 +20,7 @@ export function montarHtmlCobranca(cliente: string, itens: Venda[], cfg: ConfigC
     .split('\n')
     .filter((l) => !/resuminho em PDF|o Pix é:/i.test(l))
     .filter((l, i, arr) => l.trim() || (i > 0 && arr[i - 1].trim())) // sem linhas em branco seguidas
-    .map((l) => (l.trim() ? `<p>${esc(l).replace(/R\$ /g, 'R$&nbsp;')}</p>` : ''))
+    .map((l) => (l.trim() ? `<p>${esc(l).replace(/R\$ /g, () => 'R$&nbsp;')}</p>` : ''))
     .join('');
   const logo = cfg.logoUrl || LOGO_CONFEITARIA;
   const linhas = itens
