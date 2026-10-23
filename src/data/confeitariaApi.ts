@@ -541,7 +541,7 @@ export function mensagemCobranca(cliente: string, total: number, cfg: Pick<Confi
   const linhas = [
     `Oi${nome ? `, ${nome}` : ''}! Tudo bem? 💕`,
     '',
-    `Passando com carinho pra lembrar dos docinhos da ${cfg.marca || 'Sabores da Pri'} que ficaram em aberto, no total de ${reais(total)}.`,
+    `Passando com carinho pra lembrar das comprinhas na ${cfg.marca || 'Sabores da Pri'} que ficaram em aberto, no total de ${reais(total)}.`,
     'Te mando o resuminho com tudo certinho, com as datas e os valores.',
   ];
   if (cfg.pix?.trim()) linhas.push('', `Se ficar mais fácil, o Pix é: ${cfg.pix.trim()}`);
