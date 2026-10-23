@@ -8,13 +8,13 @@ import { rodandoNaWeb } from './plataforma';
 //
 // Na versão web não existe tela de compartilhar de arquivo — cai pro
 // diálogo de impressão do navegador, onde dá pra "Salvar como PDF".
-export async function compartilharPdf(html: string, nomeBase: string, titulo = 'Compartilhar checklist'): Promise<void> {
+export async function compartilharPdf(html: string, nomeBase: string, titulo = 'Compartilhar checklist', pagina?: { width: number; height: number }): Promise<void> {
   if (rodandoNaWeb) {
     await Print.printAsync({ html });
     return;
   }
 
-  const { uri } = await Print.printToFileAsync({ html });
+  const { uri } = await Print.printToFileAsync({ html, ...(pagina ?? {}) });
 
   // printToFileAsync gera um nome aleatório (ex.: "4f1c…pdf"). Renomeia pra
   // algo que a pessoa reconheça no WhatsApp ("checklist-acougue-09-10-2026.pdf").
