@@ -8,7 +8,7 @@ import { rodandoNaWeb } from './plataforma';
 //
 // Na versão web não existe tela de compartilhar de arquivo — cai pro
 // diálogo de impressão do navegador, onde dá pra "Salvar como PDF".
-export async function compartilharPdf(html: string, nomeBase: string): Promise<void> {
+export async function compartilharPdf(html: string, nomeBase: string, titulo = 'Compartilhar checklist'): Promise<void> {
   if (rodandoNaWeb) {
     await Print.printAsync({ html });
     return;
@@ -41,7 +41,7 @@ export async function compartilharPdf(html: string, nomeBase: string): Promise<v
   await Sharing.shareAsync(arquivo, {
     mimeType: 'application/pdf',
     UTI: 'com.adobe.pdf',
-    dialogTitle: 'Compartilhar checklist',
+    dialogTitle: titulo,
   });
 }
 

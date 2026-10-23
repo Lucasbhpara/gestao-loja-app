@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, RefreshControl, Alert } from 'react-native';
+import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
 import { setores, SetorKey } from '../data/employees';
 import { Perda, buscarTodasPerdas, buscarVendaSetores, vendaDoSetor, VendaSetores } from '../data/perdasApi';
 import CabecalhoTela from '../components/CabecalhoTela';
+import { compartilharPdfPerdas } from '../lib/perdasPdf';
 
 function formatarReais(valor: number): string {
   return 'R$ ' + valor.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -39,6 +41,7 @@ export default function PerdasAdminScreen({ onVoltar }: { onVoltar: () => void }
   const [erro, setErro] = useState<string | null>(null);
   const [setorFiltro, setSetorFiltro] = useState<SetorKey | null>(null);
   const [vendas, setVendas] = useState<VendaSetores | null>(null);
+  const [gerandoPdf, setGerandoPdf] = useState(false);
 
   function carregar() {
     buscarTodasPerdas()
@@ -122,6 +125,23 @@ export default function PerdasAdminScreen({ onVoltar }: { onVoltar: () => void }
     return setores.filter((s) => chaves.has(s.key));
   }, [perdas]);
 
+  async function gerarPdf() {
+    if (gerandoPdf || perdas.length === 0) return;
+    setGerandoPdf(true);
+    try {
+      await compartilharPdfPerdas({
+        perdas,
+        resumoSetores: resumoSetores.map((r) => ({ ...r, nome: nomeSetor(r.setor) })),
+        setor: setorFiltro,
+        notaVenda,
+      });
+    } catch (e: any) {
+      Alert.alert('Não consegui gerar o PDF', e?.message ?? 'Tente de novo.');
+    } finally {
+      setGerandoPdf(false);
+    }
+  }
+
   return (
     <View style={styles.flex}>
       <CabecalhoTela
@@ -157,6 +177,15 @@ export default function PerdasAdminScreen({ onVoltar }: { onVoltar: () => void }
             <Text style={styles.resumoSub}>Quebra sobre a venda da loja: {formatarPct((totalPerdido / vendaTotal) * 100, 2)}</Text>
           ) : null}
         </View>
+
+        {!carregando && perdas.length > 0 && (
+          <TouchableOpacity style={styles.botaoPdf} onPress={gerarPdf} activeOpacity={0.8} disabled={gerandoPdf}>
+            {gerandoPdf ? <ActivityIndicator color={colors.white} /> : <Feather name="share-2" size={16} color={colors.white} />}
+            <Text style={styles.botaoPdfTexto}>
+              {gerandoPdf ? 'Gerando PDF…' : setorFiltro ? `Compartilhar PDF · ${nomeSetor(setorFiltro)}` : 'Compartilhar PDF · todos os setores'}
+            </Text>
+          </TouchableOpacity>
+        )}
 
         {setoresComPerda.length > 0 && (
           <View style={styles.chipsWrap}>
@@ -316,6 +345,8 @@ const styles = StyleSheet.create({
   titulo: { fontSize: 16, fontWeight: '700', color: colors.navy900 },
   resumoCard: { backgroundColor: colors.navy900, borderRadius: radius.lg, padding: spacing.lg, marginBottom: spacing.lg },
   resumoLabel: { color: colors.gray100, fontSize: 12, fontWeight: '600' },
+  botaoPdf: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#2F7BFF', borderRadius: radius.md, paddingVertical: 12, marginBottom: spacing.lg },
+  botaoPdfTexto: { color: colors.white, fontWeight: '800', fontSize: 13.5 },
   resumoValor: { color: colors.white, fontSize: 26, fontWeight: '700', marginTop: 4 },
   resumoSub: { color: colors.gray100, fontSize: 11, marginTop: 4 },
   chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: spacing.lg },
