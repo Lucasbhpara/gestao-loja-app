@@ -128,10 +128,10 @@ create policy confeitaria_fotos_enviar on storage.objects for insert with check 
 drop policy if exists confeitaria_fotos_trocar on storage.objects;
 create policy confeitaria_fotos_trocar on storage.objects for update using (bucket_id = 'confeitaria-fotos');
 
--- Login da Priscila (Sabores da Pri). Senha inicial = matrícula; no primeiro
+-- Login da Priscilla (Sabores da Pri). Senha inicial = matrícula; no primeiro
 -- acesso o app pede para ela criar a senha dela, igual aos colaboradores.
 insert into public.colaboradores (nome, matricula, funcao, setor, is_admin, senha_atual, senha_definida)
-select 'Priscila', '040491', 'Confeiteira', 'confeitaria', false, '040491', false
+select 'Priscilla', '040491', 'Confeiteira', 'confeitaria', false, '040491', false
 where not exists (select 1 from public.colaboradores where lower(nome) = 'priscila');
 
 -- Login do Lucas para ver a Confeitaria como ela vê (o login normal dele
