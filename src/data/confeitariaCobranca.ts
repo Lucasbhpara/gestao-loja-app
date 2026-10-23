@@ -32,6 +32,23 @@ export function dadosCobranca(cliente: string, itens: Venda[], cfg: ConfigConf) 
   };
 }
 
+// Agradecimento de pagamento (imagem). valor = quanto ela acabou de pagar (opcional).
+export function dadosAgradecimento(cliente: string, valor: number | null, cfg: ConfigConf) {
+  const nome = (cliente || '').trim().split(/\s+/)[0];
+  const marca = cfg.marca || 'Sabores da Pri';
+  return {
+    modo: 'agradecimento',
+    marca,
+    logo: cfg.logoUrl || LOGO_CONFEITARIA,
+    contato: cfg.whatsapp,
+    instagram: cfg.instagram,
+    titulo: nome && nome !== 'Sem' ? `Obrigada, ${nome}!` : 'Obrigada!',
+    frases: [`A ${marca} agradece o seu pagamento! 💕`, 'Deus abençoe e multiplique!', 'Volte sempre! 🧁'],
+    valor: valor && valor > 0 ? reais(valor) : null,
+    data: dataBr(hojeIso()),
+  };
+}
+
 export async function compartilharMensagem(cliente: string, itens: Venda[], cfg: ConfigConf): Promise<void> {
   const total = itens.reduce((a, v) => a + v.quantidade * v.precoUnitario, 0);
   await Share.share({ message: mensagemCobranca(cliente, total, cfg) });
