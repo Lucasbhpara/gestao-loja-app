@@ -2,7 +2,7 @@
 // Imagem da vitrine da Confeitaria (para mandar no WhatsApp), desenhada em
 // <canvas> dentro de uma WebView — o mesmo esquema do card de ofertas da loja,
 // mas com a logo e as cores da marca dela.
-//   gerarCard({ modo: 'produto' | 'cardapio', marca, logo, contato, titulo,
+//   gerarCard({ modo: 'produto' | 'cardapio' | 'cobranca', marca, logo, contato, titulo,
 //               produtos: [{ nome, sabor, preco, foto, descricao }] }, exportar)
 // =============================================================================
 
@@ -29,7 +29,7 @@ function cobrir(ctx, im, x, y, w, h) {
   ctx.drawImage(im, x + (w - iw) / 2, y + (h - ih) / 2, iw, ih);
 }
 function linhas(ctx, texto, larg, max) {
-  var p = String(texto || '').split(/\s+/), out = [], l = '';
+  var p = String(texto || '').split(/[ \t\n]+/), out = [], l = '';
   p.forEach(function (w) { var t = l ? l + ' ' + w : w; if (ctx.measureText(t).width > larg && l) { out.push(l); l = w; } else l = t; });
   if (l) out.push(l);
   if (out.length > max) { out = out.slice(0, max); out[max - 1] = out[max - 1].replace(/\s*\S*$/, '') + '…'; }
@@ -104,11 +104,73 @@ function cardapio(ctx, W, H, d, logo) {
   rodape(ctx, W, H, d);
   return Promise.resolve();
 }
+// Cobrança (ficha da cliente): altura cresce com a quantidade de itens.
+function medirCobranca(d) {
+  var m = document.createElement('canvas').getContext('2d'), W = 1080;
+  m.font = '500 34px ' + T.texto;
+  var hb = 60; (d.mensagem || []).forEach(function (p) { hb += linhas(m, p, W - 200, 6).length * 48 + 16; });
+  m.font = '700 34px ' + T.texto;
+  var hi = 20; (d.itens || []).forEach(function (i) { hi += linhas(m, i.titulo, W - 460, 2).length * 42 + 52; });
+  return 30 + 176 + 140 + hb + 50 + 40 + hi + 30 + 150 + (d.pix ? 134 : 0) + 150;
+}
+function cobranca(ctx, W, H, d, logo) {
+  var y = 30;
+  if (logo) {
+    var r = 78; ctx.save(); ctx.beginPath(); ctx.arc(W / 2, y + r, r, 0, Math.PI * 2); ctx.closePath();
+    ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(169,68,95,0.25)'; ctx.shadowBlur = 20; ctx.fill(); ctx.shadowBlur = 0; ctx.clip();
+    var sc = Math.min((r * 2 - 14) / logo.width, (r * 2 - 14) / logo.height);
+    ctx.drawImage(logo, W / 2 - logo.width * sc / 2, y + r - logo.height * sc / 2, logo.width * sc, logo.height * sc); ctx.restore();
+    y += r * 2 + 20;
+  }
+  ctx.textAlign = 'center'; ctx.fillStyle = T.chocolate; ctx.font = 'italic 800 58px ' + T.titulo; ctx.fillText(d.marca || '', W / 2, y + 52);
+  ctx.fillStyle = T.rosaEsc; ctx.font = '700 30px ' + T.texto; ctx.fillText('Resuminho de ' + (d.cliente || '') + '  ·  ' + (d.data || ''), W / 2, y + 100);
+  y += 140;
+  // bilhete
+  ctx.font = '500 34px ' + T.texto;
+  var blocos = (d.mensagem || []).map(function (p) { return linhas(ctx, p, W - 200, 6); });
+  var hb = 60; blocos.forEach(function (b) { hb += b.length * 48 + 16; });
+  ctx.fillStyle = 'rgba(255,255,255,0.9)'; rr(ctx, 60, y, W - 120, hb, 36); ctx.fill();
+  ctx.strokeStyle = 'rgba(217,102,138,0.45)'; ctx.setLineDash([10, 10]); ctx.lineWidth = 2; rr(ctx, 60, y, W - 120, hb, 36); ctx.stroke(); ctx.setLineDash([]);
+  ctx.textAlign = 'left'; ctx.fillStyle = T.chocolate; var yb = y + 62;
+  blocos.forEach(function (b) { b.forEach(function (l) { ctx.fillText(l, 100, yb); yb += 48; }); yb += 16; });
+  y += hb + 50;
+  // itens
+  ctx.fillStyle = T.chocolate; ctx.font = '800 42px ' + T.titulo; ctx.fillText('O que ficou em aberto', 70, y + 10); y += 40;
+  ctx.font = '700 34px ' + T.texto;
+  var alts = (d.itens || []).map(function (i) { return linhas(ctx, i.titulo, W - 460, 2); });
+  var hi = 20; alts.forEach(function (a) { hi += a.length * 42 + 52; });
+  ctx.fillStyle = 'rgba(255,255,255,0.9)'; rr(ctx, 60, y, W - 120, hi, 32); ctx.fill();
+  var yi = y + 20;
+  (d.itens || []).forEach(function (i, k) {
+    var ls = alts[k];
+    ctx.textAlign = 'left'; ctx.fillStyle = T.chocolate; ctx.font = '700 34px ' + T.texto;
+    ls.forEach(function (l, j) { ctx.fillText(l, 100, yi + 42 + j * 42); });
+    ctx.fillStyle = '#9B8088'; ctx.font = '600 26px ' + T.texto; ctx.fillText(i.detalhe, 100, yi + ls.length * 42 + 34);
+    ctx.textAlign = 'right'; ctx.fillStyle = T.chocolate; ctx.font = '800 38px ' + T.texto; ctx.fillText(i.valor, W - 100, yi + 44);
+    yi += ls.length * 42 + 52;
+    if (k < d.itens.length - 1) { ctx.strokeStyle = 'rgba(217,102,138,0.22)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(100, yi - 4); ctx.lineTo(W - 100, yi - 4); ctx.stroke(); }
+  });
+  y += hi + 30;
+  // total
+  ctx.fillStyle = T.rosa; rr(ctx, 60, y, W - 120, 120, 40); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.textAlign = 'left'; ctx.font = '700 34px ' + T.texto; ctx.fillText('Total em aberto', 110, y + 72);
+  ctx.textAlign = 'right'; ctx.font = '800 62px ' + T.titulo; ctx.fillText(d.total || '', W - 110, y + 82);
+  y += 150;
+  if (d.pix) {
+    ctx.fillStyle = '#E2F3EA'; rr(ctx, 60, y - 10, W - 120, 124, 32); ctx.fill();
+    ctx.textAlign = 'center'; ctx.fillStyle = '#2F7A55'; ctx.font = '700 26px ' + T.texto; ctx.fillText('PIX', W / 2, y + 30);
+    ctx.font = '800 30px ' + T.texto; linhas(ctx, d.pix, W - 180, 2).slice(0, 2).forEach(function (l, j) { ctx.fillText(l, W / 2, y + 72 + j * 36); });
+  }
+  rodape(ctx, W, H, d);
+  return Promise.resolve();
+}
 function desenhar(c, d) {
-  var W = 1080, H = 1350; c.width = W; c.height = H;
-  var ctx = c.getContext('2d');
+  var W = 1080, H = 1350, ctx;
   return (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function () { return img(d.logo); }).then(function (logo) {
+    if (d.modo === 'cobranca') H = medirCobranca(d);
+    c.width = W; c.height = H; ctx = c.getContext('2d');
     fundo(ctx, W, H);
+    if (d.modo === 'cobranca') return cobranca(ctx, W, H, d, logo);
     return d.modo === 'cardapio' ? cardapio(ctx, W, H, d, logo) : produto(ctx, W, H, d, logo);
   });
 }

@@ -1,6 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, Switch } from 'react-native';
 import { Feather } from '@expo/vector-icons';
+import { WebView } from 'react-native-webview';
 import {
   Venda,
   NovaVenda,
@@ -22,13 +23,15 @@ import {
   hojeIso,
   normalizar,
 } from '../../data/confeitariaApi';
-import { compartilharDivida, compartilharMensagem } from '../../data/confeitariaCobranca';
+import { dadosCobranca, compartilharMensagem } from '../../data/confeitariaCobranca';
+import { CARD_CONF_HTML } from '../../data/confeitariaCard';
 import { C, s, Topo, Cartao, Botao, Campo, Chips, CampoComLista, Folha, Vazio, confirmar } from './ui';
 
 // Vendas da confeitaria. Uma venda pode ter vários produtos (pedido) — ficam
 // salvos como linhas com o mesmo cliente, data e criado_em. Tocar no nome da
 // cliente abre a ficha dela: o que ainda deve (de vários dias), "Nova venda
-// para ela" e "Compartilhar dívida" (PDF com a marca + mensagem delicada).
+// para ela" e "Compartilhar dívida" (imagem com a marca + mensagem delicada,
+// desenhada no mesmo canvas da Vitrine).
 
 type Props = {
   vendas: Venda[];
@@ -55,6 +58,9 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
   const [salvando, setSalvando] = useState(false);
   const [ficha, setFicha] = useState<string | null>(clienteInicial ?? null);
   const [enviando, setEnviando] = useState(false);
+  const [webPronta, setWebPronta] = useState(false);
+  const webRef = useRef<WebView>(null);
+  const pedidoImagem = useRef(false);
   const mes = hojeIso().slice(0, 7);
 
   useEffect(() => {
@@ -164,16 +170,55 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
     }
   }
 
-  async function enviar(tipo: 'pdf' | 'texto') {
+  function gerarImagem() {
+    if (!ficha || !webRef.current) return;
+    pedidoImagem.current = false;
+    webRef.current.injectJavaScript(`window.gerarCard(${JSON.stringify(dadosCobranca(ficha, pendFicha, config))}, true); true;`);
+  }
+
+  async function enviar(tipo: 'imagem' | 'texto') {
     if (!ficha || !pendFicha.length || enviando) return;
+    if (tipo === 'texto') {
+      try {
+        await compartilharMensagem(ficha, pendFicha, config);
+      } catch (e: any) {
+        Alert.alert('Não consegui compartilhar', e?.message ?? '');
+      }
+      return;
+    }
     setEnviando(true);
+    if (webPronta) gerarImagem();
+    else pedidoImagem.current = true; // gera assim que a página do desenho carregar
+  }
+
+  async function aoMensagemImagem(ev: { nativeEvent: { data: string } }) {
+    let m: any;
     try {
-      if (tipo === 'pdf') await compartilharDivida(ficha, pendFicha, config);
-      else await compartilharMensagem(ficha, pendFicha, config);
-    } catch (e: any) {
-      Alert.alert('Não consegui compartilhar', e?.message ?? '');
-    } finally {
+      m = JSON.parse(ev.nativeEvent.data);
+    } catch {
+      return;
+    }
+    if (m.tipo === 'carregado') {
+      setWebPronta(true);
+      if (pedidoImagem.current) gerarImagem();
+    }
+    if (m.tipo === 'erro') {
       setEnviando(false);
+      Alert.alert('Não consegui gerar a imagem', m.mensagem);
+    }
+    if (m.tipo === 'imagem') {
+      try {
+        const FileSystem = await import('expo-file-system/legacy');
+        const Sharing = await import('expo-sharing');
+        const nome = normalizar(ficha ?? 'cliente').replace(/[^a-z0-9]+/g, '-') || 'cliente';
+        const caminho = `${FileSystem.cacheDirectory}cobranca-${nome}-${Date.now()}.jpg`;
+        await FileSystem.writeAsStringAsync(caminho, m.base64, { encoding: FileSystem.EncodingType.Base64 });
+        await Sharing.shareAsync(caminho, { mimeType: 'image/jpeg', dialogTitle: 'Compartilhar com a cliente', UTI: 'public.jpeg' });
+      } catch (e: any) {
+        Alert.alert('Não consegui compartilhar', e?.message ?? '');
+      } finally {
+        setEnviando(false);
+      }
     }
   }
 
@@ -273,14 +318,18 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
       <Folha
         visivel={!!ficha && !rasc && !escolhendo}
         titulo={ficha ?? ''}
-        onFechar={() => setFicha(null)}
+        onFechar={() => {
+          setFicha(null);
+          setWebPronta(false);
+          setEnviando(false);
+        }}
         rodape={
           ficha ? (
             <>
               <Botao texto={`Nova venda para ${ficha.split(' ')[0]}`} icone="plus" onPress={() => novaVenda(ficha === 'Sem nome' ? '' : ficha)} />
               {pendFicha.length ? (
                 <View style={{ flexDirection: 'row', gap: 8 }}>
-                  <Botao texto={enviando ? 'Gerando…' : 'Compartilhar dívida'} icone="share-2" tipo="claro" onPress={() => enviar('pdf')} desativado={enviando} style={{ flex: 1 }} />
+                  <Botao texto={enviando ? 'Gerando…' : 'Compartilhar dívida'} icone="image" tipo="claro" onPress={() => enviar('imagem')} desativado={enviando} style={{ flex: 1 }} />
                   <Botao texto="Mensagem" icone="message-circle" tipo="claro" onPress={() => enviar('texto')} desativado={enviando} style={{ flex: 0.8 }} />
                 </View>
               ) : null}
@@ -290,6 +339,10 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
       >
         {ficha ? (
           <>
+            {/* desenho da imagem de cobrança (fica invisível) */}
+            <View style={{ position: 'absolute', width: 2, height: 2, opacity: 0, overflow: 'hidden' }} pointerEvents="none">
+              <WebView ref={webRef} originWhitelist={['*']} source={{ html: CARD_CONF_HTML }} onMessage={aoMensagemImagem} javaScriptEnabled style={{ width: 2, height: 2 }} />
+            </View>
             <Cartao style={{ backgroundColor: pendFicha.length ? C.ouroClaro : C.mentaClaro, gap: 2 } as any}>
               <Text style={s.sub}>{pendFicha.length ? 'Em aberto' : 'Nada em aberto'}</Text>
               <Text style={[s.valor, { fontSize: 26, color: pendFicha.length ? '#9A6B12' : C.menta }]}>{reais(totalFicha)}</Text>
@@ -320,7 +373,7 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
             ) : null}
             {pendFicha.length ? (
               <Text style={s.dica}>
-                “Compartilhar dívida” gera um PDF com a sua logo, um bilhetinho carinhoso e a lista acima. “Mensagem” manda só o texto, se quiser enviar junto.
+                “Compartilhar dívida” gera uma imagem com a sua logo, um bilhetinho carinhoso, a lista acima e o Pix. “Mensagem” manda só o texto, se quiser enviar junto.
                 {config.pix ? '' : ' Dica: coloque sua chave Pix em Minha marca para ela aparecer na cobrança.'}
               </Text>
             ) : null}
