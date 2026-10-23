@@ -164,6 +164,40 @@ function cobranca(ctx, W, H, d, logo) {
   rodape(ctx, W, H, d);
   return Promise.resolve();
 }
+// Agradecimento de pagamento: 1080×1350, logo grande, "Obrigada, Fulana!" e a frase da marca.
+function agradecimento(ctx, W, H, d, logo) {
+  var y = d.valor ? 100 : 150;
+  if (logo) {
+    var r = 120; ctx.save(); ctx.beginPath(); ctx.arc(W / 2, y + r, r, 0, Math.PI * 2); ctx.closePath();
+    ctx.fillStyle = '#fff'; ctx.shadowColor = 'rgba(169,68,95,0.25)'; ctx.shadowBlur = 28; ctx.fill(); ctx.shadowBlur = 0; ctx.clip();
+    var sc = Math.min((r * 2 - 18) / logo.width, (r * 2 - 18) / logo.height);
+    ctx.drawImage(logo, W / 2 - logo.width * sc / 2, y + r - logo.height * sc / 2, logo.width * sc, logo.height * sc); ctx.restore();
+    y += r * 2 + 40;
+  }
+  ctx.textAlign = 'center'; ctx.fillStyle = T.rosaEsc; ctx.font = 'italic 800 92px ' + T.titulo;
+  linhas(ctx, d.titulo || 'Obrigada!', W - 140, 2).forEach(function (l, k) { ctx.fillText(l, W / 2, y + 90 + k * 100); y += k ? 100 : 0; });
+  y += 150;
+  var frases = d.frases || [];
+  ctx.font = '700 46px ' + T.texto;
+  var blocos = frases.map(function (f) { return linhas(ctx, f, W - 260, 3); });
+  var hb = 70; blocos.forEach(function (b) { hb += b.length * 62 + 26; });
+  ctx.fillStyle = 'rgba(255,255,255,0.9)'; rr(ctx, 80, y, W - 160, hb, 44); ctx.fill();
+  ctx.strokeStyle = 'rgba(217,102,138,0.45)'; ctx.setLineDash([12, 12]); ctx.lineWidth = 3; rr(ctx, 80, y, W - 160, hb, 44); ctx.stroke(); ctx.setLineDash([]);
+  var yb = y + 86;
+  blocos.forEach(function (b, k) {
+    ctx.fillStyle = k === 1 ? T.rosaEsc : T.chocolate; ctx.font = (k === 1 ? 'italic 800 50px ' + T.titulo : '700 46px ' + T.texto);
+    b.forEach(function (l) { ctx.fillText(l, W / 2, yb); yb += 62; }); yb += 26;
+  });
+  y += hb + 60;
+  if (d.valor) {
+    ctx.font = '800 38px ' + T.texto; var t = '✓ Pagamento recebido · ' + d.valor + (d.data ? ' · ' + d.data : '');
+    var tw = Math.min(W - 160, ctx.measureText(t).width + 80);
+    ctx.fillStyle = '#E2F3EA'; rr(ctx, W / 2 - tw / 2, y, tw, 84, 42); ctx.fill();
+    ctx.fillStyle = '#2F7A55'; ctx.fillText(t, W / 2, y + 56);
+  }
+  rodape(ctx, W, H, d);
+  return Promise.resolve();
+}
 function desenhar(c, d) {
   var W = 1080, H = 1350, ctx;
   return (document.fonts && document.fonts.ready ? document.fonts.ready : Promise.resolve()).then(function () { return img(d.logo); }).then(function (logo) {
@@ -171,6 +205,7 @@ function desenhar(c, d) {
     c.width = W; c.height = H; ctx = c.getContext('2d');
     fundo(ctx, W, H);
     if (d.modo === 'cobranca') return cobranca(ctx, W, H, d, logo);
+    if (d.modo === 'agradecimento') return agradecimento(ctx, W, H, d, logo);
     return d.modo === 'cardapio' ? cardapio(ctx, W, H, d, logo) : produto(ctx, W, H, d, logo);
   });
 }

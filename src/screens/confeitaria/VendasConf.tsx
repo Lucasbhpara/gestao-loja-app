@@ -23,7 +23,7 @@ import {
   hojeIso,
   normalizar,
 } from '../../data/confeitariaApi';
-import { dadosCobranca, compartilharMensagem } from '../../data/confeitariaCobranca';
+import { dadosCobranca, dadosAgradecimento, compartilharMensagem } from '../../data/confeitariaCobranca';
 import { CARD_CONF_HTML } from '../../data/confeitariaCard';
 import { C, s, Topo, Cartao, Botao, Campo, Chips, CampoComLista, Folha, Vazio, confirmar } from './ui';
 
@@ -60,7 +60,7 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
   const [enviando, setEnviando] = useState(false);
   const [webPronta, setWebPronta] = useState(false);
   const webRef = useRef<WebView>(null);
-  const pedidoImagem = useRef(false);
+  const pedidoImagem = useRef<object | null>(null); // imagem esperando a página do desenho carregar
   const mes = hojeIso().slice(0, 7);
 
   useEffect(() => {
@@ -165,15 +165,33 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
         !p.recebido,
       );
       await onRecarregar();
+      if (!p.recebido && p.cliente) oferecerAgradecimento(p.cliente, p.total);
     } catch (e: any) {
       Alert.alert('Erro', e?.message ?? '');
     }
   }
 
-  function gerarImagem() {
-    if (!ficha || !webRef.current) return;
-    pedidoImagem.current = false;
-    webRef.current.injectJavaScript(`window.gerarCard(${JSON.stringify(dadosCobranca(ficha, pendFicha, config))}, true); true;`);
+  function gerarImagem(dados: object) {
+    if (!webRef.current) return;
+    pedidoImagem.current = null;
+    webRef.current.injectJavaScript(`window.gerarCard(${JSON.stringify(dados)}, true); true;`);
+  }
+  function pedirImagem(dados: object) {
+    setEnviando(true);
+    if (webPronta) gerarImagem(dados);
+    else pedidoImagem.current = dados; // gera assim que a página do desenho carregar
+  }
+  function oferecerAgradecimento(cliente: string, valor: number) {
+    Alert.alert('Pagamento registrado 💕', `Quer mandar uma imagem de agradecimento para ${cliente.split(' ')[0]}?`, [
+      { text: 'Agora não', style: 'cancel' },
+      {
+        text: 'Enviar agradecimento',
+        onPress: () => {
+          setFicha(cliente);
+          pedirImagem(dadosAgradecimento(cliente, valor, config));
+        },
+      },
+    ]);
   }
 
   async function enviar(tipo: 'imagem' | 'texto') {
@@ -186,9 +204,7 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
       }
       return;
     }
-    setEnviando(true);
-    if (webPronta) gerarImagem();
-    else pedidoImagem.current = true; // gera assim que a página do desenho carregar
+    pedirImagem(dadosCobranca(ficha, pendFicha, config));
   }
 
   async function aoMensagemImagem(ev: { nativeEvent: { data: string } }) {
@@ -200,7 +216,7 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
     }
     if (m.tipo === 'carregado') {
       setWebPronta(true);
-      if (pedidoImagem.current) gerarImagem();
+      if (pedidoImagem.current) gerarImagem(pedidoImagem.current);
     }
     if (m.tipo === 'erro') {
       setEnviando(false);
@@ -211,7 +227,7 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
         const FileSystem = await import('expo-file-system/legacy');
         const Sharing = await import('expo-sharing');
         const nome = normalizar(ficha ?? 'cliente').replace(/[^a-z0-9]+/g, '-') || 'cliente';
-        const caminho = `${FileSystem.cacheDirectory}cobranca-${nome}-${Date.now()}.jpg`;
+        const caminho = `${FileSystem.cacheDirectory}sabores-da-pri-${nome}-${Date.now()}.jpg`;
         await FileSystem.writeAsStringAsync(caminho, m.base64, { encoding: FileSystem.EncodingType.Base64 });
         await Sharing.shareAsync(caminho, { mimeType: 'image/jpeg', dialogTitle: 'Compartilhar com a cliente', UTI: 'public.jpeg' });
       } catch (e: any) {
@@ -229,11 +245,13 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
       `Marca ${reais(totalFicha)} como recebido.`,
       async () => {
         try {
+          const pago = totalFicha;
           await marcarRecebidoVarios(
             pendFicha.map((v) => v.id),
             true,
           );
           await onRecarregar();
+          oferecerAgradecimento(ficha, pago);
         } catch (e: any) {
           Alert.alert('Erro', e?.message ?? '');
         }
@@ -332,6 +350,8 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
                   <Botao texto={enviando ? 'Gerando…' : 'Compartilhar dívida'} icone="image" tipo="claro" onPress={() => enviar('imagem')} desativado={enviando} style={{ flex: 1 }} />
                   <Botao texto="Mensagem" icone="message-circle" tipo="claro" onPress={() => enviar('texto')} desativado={enviando} style={{ flex: 0.8 }} />
                 </View>
+              ) : ficha !== 'Sem nome' ? (
+                <Botao texto={enviando ? 'Gerando…' : 'Enviar agradecimento'} icone="heart" tipo="claro" onPress={() => pedirImagem(dadosAgradecimento(ficha, null, config))} desativado={enviando} />
               ) : null}
             </>
           ) : null
