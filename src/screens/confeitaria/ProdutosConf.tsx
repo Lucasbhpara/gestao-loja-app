@@ -306,7 +306,7 @@ export default function ProdutosConf({ produtos, config, onVoltar, onRecarregar 
 
   return (
     <View style={s.tela}>
-      <Topo titulo="Produtos e receitas" sub={`${produtos.length} fichas técnicas`} onVoltar={onVoltar} icone="book-open" />
+      <Topo titulo="Produtos e receitas" sub={`${produtos.length} fichas técnicas · toque para editar`} onVoltar={onVoltar} icone="book-open" />
       <ScrollView
         contentContainerStyle={{ padding: 16, gap: 12, paddingBottom: 110 }}
         refreshControl={<RefreshControl refreshing={atualizando} onRefresh={async () => { setAtualizando(true); await onRecarregar(); setAtualizando(false); }} />}
@@ -329,9 +329,12 @@ export default function ProdutosConf({ produtos, config, onVoltar, onRecarregar 
                 </View>
               )}
               <View style={{ flex: 1, gap: 2 }}>
-                <Text style={s.titulo} numberOfLines={1}>
-                  {p.nome}
-                </Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                  <Text style={[s.titulo, { flexShrink: 1 }]} numberOfLines={1}>
+                    {p.nome}
+                  </Text>
+                  <Feather name="edit-2" size={13} color={C.rosa} />
+                </View>
                 {p.sabor ? (
                   <Text style={s.sub} numberOfLines={1}>
                     {p.sabor}

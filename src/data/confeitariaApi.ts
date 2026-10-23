@@ -309,6 +309,11 @@ export async function salvarProduto(p: Omit<Produto, 'id' | 'atualizadoEm'> & { 
     if (error) throw error;
     const { error: e2 } = await supabase.from('conf_produto_itens').delete().eq('produto_id', id);
     if (e2) throw e2;
+    // Nome novo vale também nas vendas e na produção já lançadas desse produto
+    // (ficha da cliente, cobrança, mais vendidos). Se falhar, não trava o salvar.
+    const nomeNovo = nomeCompleto({ nome: linha.nome, sabor: linha.sabor ?? '' });
+    await supabase.from('conf_vendas').update({ produto: nomeNovo }).eq('produto_id', id).neq('produto', nomeNovo);
+    await supabase.from('conf_producao').update({ produto: nomeNovo }).eq('produto_id', id).neq('produto', nomeNovo);
   } else {
     const { data, error } = await supabase.from('conf_produtos').insert(linha).select('id').single();
     if (error) throw error;
