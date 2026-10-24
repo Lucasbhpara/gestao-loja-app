@@ -23,6 +23,7 @@ import PontasExtrasScreen from './PontasExtrasScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
 import ChecklistHubScreen from './ChecklistHubScreen';
 import VisitaTecnicaScreen from './VisitaTecnicaScreen';
+import VisitaSupervisorScreen from './VisitaSupervisorScreen';
 import GiroProdutosScreen from './GiroProdutosScreen';
 import VendasLojaScreen from './VendasLojaScreen';
 import PesquisaPrecoScreen from './PesquisaPrecoScreen';
@@ -77,6 +78,7 @@ export default function HomeAdminScreen() {
     | 'jornalOfertas'
     | 'checklist'
     | 'visitaTecnica'
+    | 'visitaSupervisor'
     | 'colaboradores'
     | 'escalaFaltas'
     | 'precificacao'
@@ -256,6 +258,15 @@ export default function HomeAdminScreen() {
       />
     );
   }
+  if (tela === 'visitaSupervisor') {
+    return (
+      <VisitaSupervisorScreen
+        usuarioNome={usuarioAtual?.nome ?? ''}
+        usuarioMatricula={usuarioAtual?.matricula ?? null}
+        onVoltar={() => setTela('home')}
+      />
+    );
+  }
   if (tela === 'colaboradores') {
     return <ColaboradoresScreen onVoltar={() => setTela('home')} />;
   }
@@ -396,6 +407,7 @@ export default function HomeAdminScreen() {
             // veterinário cai direto nessa tela ao logar; aqui é o acesso do
             // administrador pra acompanhar/testar.
             { label: 'Visita Técnica', icone: 'shield' as const, onPress: () => setTela('visitaTecnica') },
+            { label: 'Visita Supervisor', icone: 'user-check' as const, onPress: () => setTela('visitaSupervisor') },
             // "Colaboradores" agora abre a tela de presença/falta por dia
             // (antiga "Faltas e Atestados"); a tela antiga de cadastro
             // (ColaboradoresScreen) ficou sem tile por enquanto — inativa,

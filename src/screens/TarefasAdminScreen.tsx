@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   RefreshControl,
   Alert,
+  Image,
 } from 'react-native';
 import { colors, radius, spacing } from '../theme/colors';
 import { setores, SetorKey } from '../data/employees';
@@ -253,6 +254,13 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
                 </View>
               </View>
               {!!t.descricao && <Text style={styles.tarefaDescricao}>{t.descricao}</Text>}
+              {t.fotosReferencia?.length ? (
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                  {t.fotosReferencia.map((u) => (
+                    <Image key={u} source={{ uri: u }} style={{ width: 96, height: 72, borderRadius: 8, backgroundColor: '#E7E9F2' }} />
+                  ))}
+                </View>
+              ) : null}
               <Text style={styles.tarefaMeta}>
                 {nomeSetor(t.setor)}
                 {t.prazo ? ` · prazo ${t.prazo}` : ''}

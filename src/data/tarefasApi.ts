@@ -18,6 +18,10 @@ export interface Tarefa {
   avaliacaoId: string | null;
   // Tarefa gerada por uma Visita Técnica (veterinário) — ver visitaTecnicaApi.ts.
   visitaTecnicaId: string | null;
+  // Tarefa gerada por uma Visita Supervisor — ver visitaSupervisorApi.ts.
+  // fotosReferencia: fotos que o supervisor tirou do que precisa mudar.
+  visitaSupervisorId: string | null;
+  fotosReferencia: string[];
   // Correção de checklist (ver correcaoApi.ts): null = tarefa comum.
   correcaoStatus: 'pendente' | 'enviada' | 'devolvida' | 'aprovada' | null;
   correcaoEnviadaPor: string | null;
@@ -41,6 +45,8 @@ function linhaParaTarefa(linha: any): Tarefa {
     prioridade: linha.prioridade ?? 'normal',
     avaliacaoId: linha.avaliacao_id,
     visitaTecnicaId: linha.visita_tecnica_id ?? null,
+    visitaSupervisorId: linha.visita_supervisor_id ?? null,
+    fotosReferencia: linha.fotos_referencia ?? [],
     correcaoStatus: linha.correcao_status ?? null,
     correcaoEnviadaPor: linha.correcao_enviada_por ?? null,
     correcaoAvaliadaPor: linha.correcao_avaliada_por ?? null,
