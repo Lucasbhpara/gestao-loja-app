@@ -3176,15 +3176,68 @@ function abrirImportarConferencia() {
   abrirModal('Nova conferência a partir de uma NF',
     '<div class="form-linha"><label class="campo-label">Setor</label><select class="campo-input" id="ic-setor" style="margin-bottom:0">' + opcoesSetor + '</select></div>' +
     '<label class="form-check" id="ic-filtrar-linha" style="display:none"><input type="checkbox" id="ic-filtrar-catalogo" checked /><span class="txt">Usar só os itens que já existem no catálogo de Inventário desse setor</span></label>' +
-    '<div id="import-conf-corpo">' + zonaArrastarSoltarHtml('ic-arquivo', 'Nota fiscal (DANFE) em PDF') + '</div>',
-    'Ler PDF', () => {});
+    '<div id="import-conf-corpo">' + zonaArrastarSoltarHtml('ic-arquivo', 'Nota fiscal (DANFE) em PDF ou planilha de NF de entrada (.xlsx)')
+      .replace('accept="application/pdf"', 'accept="application/pdf,.pdf,.xlsx,.xls,.csv"')
+      .replace('arraste o arquivo PDF', 'arraste o PDF ou a planilha') + '</div>' +
+    '<div style="font-size:12px;color:var(--text-muted);margin-top:8px;">Planilha: a exportação “NFs de entrada das lojas” (aba de produtos), com as colunas PRODUTO (“código - nome”), VALOR e QUANT.</div>',
+    'Ler arquivo', () => {});
   document.getElementById('modal-btn-salvar').style.display = 'none';
   const selSetor = document.getElementById('ic-setor');
   const linhaFiltro = document.getElementById('ic-filtrar-linha');
   function atualizarFiltro() { linhaFiltro.style.display = SORTIMENTOS.some((s) => s.key === selSetor.value) ? 'flex' : 'none'; }
   selSetor.addEventListener('change', atualizarFiltro);
   atualizarFiltro();
-  ligarZonaArrastarSoltar('ic-arquivo', processarArquivoConferencia);
+  // Aceita o PDF da nota (DANFE) ou a planilha de NF de entrada.
+  const input = document.getElementById('ic-arquivo');
+  const zona = document.getElementById('zona-ic-arquivo');
+  const nomeEl = document.getElementById('zona-ic-arquivo-nome');
+  function escolher(file) {
+    if (!file) return;
+    if (!/\.(pdf|xlsx|xls|csv)$/i.test(file.name) && file.type !== 'application/pdf') { mostrarToast('Escolha o PDF da nota ou a planilha (.xlsx).', 'erro'); return; }
+    nomeEl.textContent = file.name;
+    processarArquivoConferencia(file);
+  }
+  input.addEventListener('change', (ev) => escolher(ev.target.files[0]));
+  zona.addEventListener('dragover', (ev) => { ev.preventDefault(); zona.classList.add('sobre'); });
+  zona.addEventListener('dragleave', () => zona.classList.remove('sobre'));
+  zona.addEventListener('drop', (ev) => { ev.preventDefault(); zona.classList.remove('sobre'); escolher(ev.dataTransfer.files[0]); });
+}
+
+// Planilha de NF de entrada (dashboard "NFs de entrada das lojas" → aba
+// produtos): PRODUTO = "código - nome", VALOR (R$ total do produto) e QUANT.
+// A última linha, sem produto, é o total — usada para conferir a soma.
+async function lerPlanilhaConferencia(file) {
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: null });
+  const num = (v) => (typeof v === 'number' ? v : numeroBR(v)); // célula numérica já vem certa (549.9)
+  const norm = (v) => String(v == null ? '' : v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  let iCab = -1, cProd = -1, cQtd = -1, cVal = -1;
+  for (let i = 0; i < Math.min(linhas.length, 20) && iCab < 0; i++) {
+    const l = (linhas[i] || []).map(norm);
+    const p = l.findIndex((c) => c === 'PRODUTO' || c === 'PRODUTOS' || c === 'DESCRICAO');
+    const q = l.findIndex((c) => /^(QUANT|QTD|QTDE|QUANTIDADE)/.test(c));
+    if (p >= 0 && q >= 0) { iCab = i; cProd = p; cQtd = q; cVal = l.findIndex((c) => /^VALOR/.test(c)); }
+  }
+  if (iCab < 0) throw new Error('Não achei as colunas PRODUTO e QUANT na planilha.');
+  const porCodigo = new Map();
+  let valorTotalPlanilha = null;
+  for (let i = iCab + 1; i < linhas.length; i++) {
+    const l = linhas[i] || [];
+    const prod = String(l[cProd] == null ? '' : l[cProd]).trim();
+    const valor = cVal >= 0 ? num(l[cVal]) : null;
+    if (!prod) { if (valor != null) valorTotalPlanilha = valor; continue; } // linha de total
+    const m = prod.match(/^(\d+)\s*-\s*(.+)$/);
+    const codigo = m ? m[1].replace(/^0+(?=\d)/, '') : '';
+    const nome = (m ? m[2] : prod).replace(/\s+/g, ' ').trim();
+    const qtd = num(l[cQtd]) || 0;
+    const chave = codigo || normalizarProdutoParaMatch(nome);
+    const atual = porCodigo.get(chave);
+    if (atual) { atual.quantidade += qtd; atual.valorTotal = (atual.valorTotal || 0) + (valor || 0); }
+    else porCodigo.set(chave, { codigo, produto: nome, quantidade: qtd, valorTotal: valor || 0 });
+  }
+  const itens = Array.from(porCodigo.values());
+  const somaValorTotal = itens.reduce((s, i) => s + (i.valorTotal || 0), 0);
+  return { itens, somaValorTotal, valorTotal: valorTotalPlanilha };
 }
 
 async function processarArquivoConferencia(file) {
@@ -3193,11 +3246,20 @@ async function processarArquivoConferencia(file) {
   try {
     const setor = document.getElementById('ic-setor').value;
     const filtrarCatalogo = SORTIMENTOS.some((s) => s.key === setor) && document.getElementById('ic-filtrar-catalogo').checked;
-    const paginas = await extrairLinhasPDF(file);
-    let { itens, somaValorTotal } = parseConferenciaNFPaginas(paginas);
-    if (itens.length === 0) throw new Error('Não encontrei nenhuma linha de produto nesse PDF. É mesmo uma nota fiscal (DANFE)?');
-    const valorTotalPdf = acharValorTotalProdutos(paginas);
-    const info = acharInfoNF(paginas);
+    const ehPlanilha = /\.(xlsx|xls|csv)$/i.test(file.name);
+    let itens, somaValorTotal, valorTotalPdf, info;
+    if (ehPlanilha) {
+      const p = await lerPlanilhaConferencia(file);
+      itens = p.itens; somaValorTotal = p.somaValorTotal; valorTotalPdf = p.valorTotal;
+      if (itens.length === 0) throw new Error('Não encontrei nenhum produto nessa planilha.');
+      info = { numero: null, dataEmissao: new Date().toLocaleDateString('pt-BR'), planilha: true };
+    } else {
+      const paginas = await extrairLinhasPDF(file);
+      ({ itens, somaValorTotal } = parseConferenciaNFPaginas(paginas));
+      if (itens.length === 0) throw new Error('Não encontrei nenhuma linha de produto nesse PDF. É mesmo uma nota fiscal (DANFE)?');
+      valorTotalPdf = acharValorTotalProdutos(paginas);
+      info = acharInfoNF(paginas);
+    }
 
     let itensCatalogoNaoAchados = [];
     if (filtrarCatalogo) {
@@ -3207,12 +3269,13 @@ async function processarArquivoConferencia(file) {
         mostrarToast('Não achei nenhum item de "' + nomeSetor(setor) + '" no catálogo de Inventário — importando todos os itens da NF sem filtrar.', 'erro');
       } else {
         const porChave = new Map(catalogo.map((c) => [normalizarProdutoParaMatch(c.produto), c]));
+        const porCod = new Map(catalogo.filter((c) => c.codigo_interno).map((c) => [String(c.codigo_interno).replace(/^0+(?=\d)/, ''), c]));
         const chavesAchadas = new Set();
         const filtrados = [];
         for (const item of itens) {
-          const chave = normalizarProdutoParaMatch(item.produto);
-          const cat = porChave.get(chave);
-          if (cat) { filtrados.push({ ...item, codigo: cat.codigo_interno || item.codigo }); chavesAchadas.add(chave); }
+          // planilha traz o código interno: casa por código; senão, pelo nome
+          const cat = (info.planilha && item.codigo && porCod.get(item.codigo)) || porChave.get(normalizarProdutoParaMatch(item.produto));
+          if (cat) { filtrados.push({ ...item, codigo: cat.codigo_interno || item.codigo }); chavesAchadas.add(normalizarProdutoParaMatch(cat.produto)); }
         }
         itensCatalogoNaoAchados = catalogo.filter((c) => !chavesAchadas.has(normalizarProdutoParaMatch(c.produto)));
         itens = filtrados;
@@ -3224,7 +3287,7 @@ async function processarArquivoConferencia(file) {
     renderRevisaoConferencia();
   } catch (e) {
     corpo.querySelector('.carregando')?.remove();
-    mostrarToast('Não consegui ler esse PDF: ' + e.message, 'erro');
+    mostrarToast('Não consegui ler esse arquivo: ' + e.message, 'erro');
   }
 }
 
@@ -3247,8 +3310,8 @@ function renderRevisaoConferencia() {
   const corpo =
     '<div class="form-linha"><label class="campo-label">Título da conferência</label><input class="campo-input" id="rc-titulo" style="margin-bottom:0" value="' + tituloSugerido.replace(/"/g, '&quot;') + '" /></div>' +
     '<div class="faixa-checagem ' + (confere ? 'ok' : 'erro') + '">' +
-      '<span>' + (confere ? '✓ Confere com o valor total da NF' : (valorTotalPdf == null ? '⚠ Não achei o valor total no rodapé da NF' : '⚠ NÃO confere com o valor total da NF')) + '</span>' +
-      '<span class="sub">Soma das linhas: R$ ' + somaValorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + (valorTotalPdf != null ? ' / NF R$ ' + valorTotalPdf.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '') + '</span>' +
+      '<span>' + (confere ? '✓ Confere com o valor total ' + (info.planilha ? 'da planilha' : 'da NF') : (valorTotalPdf == null ? '⚠ Não achei o valor total ' + (info.planilha ? 'na planilha' : 'no rodapé da NF') : '⚠ NÃO confere com o valor total ' + (info.planilha ? 'da planilha' : 'da NF'))) + '</span>' +
+      '<span class="sub">Soma das linhas: R$ ' + somaValorTotal.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) + (valorTotalPdf != null ? ' / ' + (info.planilha ? 'Total' : 'NF') + ' R$ ' + valorTotalPdf.toLocaleString('pt-BR', { minimumFractionDigits: 2 }) : '') + '</span>' +
     '</div>' +
     avisoCatalogo +
     '<div class="tabela-revisao"><table><thead><tr><th>Código</th><th>Produto</th><th>Qtd. esperada</th></tr></thead><tbody>' + linhas + '</tbody></table></div>';
