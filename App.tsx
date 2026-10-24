@@ -15,6 +15,8 @@ import { SETOR_CONFEITARIA } from './src/data/confeitariaApi';
 import PrecificacaoScreen from './src/screens/PrecificacaoScreen';
 import VisitaTecnicaScreen from './src/screens/VisitaTecnicaScreen';
 import { ehTecnicoVeterinario } from './src/data/visitaTecnicaApi';
+import HomeSupervisorScreen from './src/screens/HomeSupervisorScreen';
+import { ehSupervisor } from './src/data/visitaSupervisorApi';
 import JornalOfertasFlutuante from './src/components/JornalOfertasFlutuante';
 import Rodape from './src/components/Rodape';
 import LimiteDeErro from './src/components/LimiteDeErro';
@@ -129,6 +131,17 @@ function AppInterno() {
     conteudo = (
       <>
         <VisitaTecnicaScreen usuarioNome={usuarioAtual.nome} usuarioMatricula={usuarioAtual.matricula} onSair={logout} />
+        <Rodape />
+      </>
+    );
+  } else if (!usuarioAtual.isAdmin && ehSupervisor(usuarioAtual.funcao)) {
+    // Supervisor (função cadastrada no portal contendo "Supervisor"): Início
+    // próprio com Visita Supervisor, vendas, estoque, quebras, checklist,
+    // visita técnica e giro. Ver HomeSupervisorScreen.tsx.
+    conteudo = (
+      <>
+        <HomeSupervisorScreen />
+        <JornalOfertasFlutuante />
         <Rodape />
       </>
     );

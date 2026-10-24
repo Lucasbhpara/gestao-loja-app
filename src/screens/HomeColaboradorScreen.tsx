@@ -405,6 +405,13 @@ export default function HomeColaboradorScreen() {
                 <Text style={styles.tarefaPrazo}>Setor: {setores.find((x) => x.key === t.setor)?.nome ?? t.setor}</Text>
               ) : null}
               {!!t.descricao && <Text style={styles.tarefaDescricao}>{t.descricao}</Text>}
+              {t.fotosReferencia?.length ? (
+                <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                  {t.fotosReferencia.map((u) => (
+                    <Image key={u} source={{ uri: u }} style={{ width: 96, height: 72, borderRadius: 8, backgroundColor: '#E7E9F2' }} />
+                  ))}
+                </View>
+              ) : null}
               {!!t.prazo && <Text style={styles.tarefaPrazo}>Prazo: {t.prazo}</Text>}
               {origemDaTarefa(t) && t.correcaoStatus ? (
                 // Tarefa de checklist: em vez de "concluir com foto", abre a

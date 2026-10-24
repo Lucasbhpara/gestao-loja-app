@@ -11,7 +11,7 @@ import { Feather } from '@expo/vector-icons';
 type Icone = React.ComponentProps<typeof Feather>['name'];
 
 export type TelaFerramenta =
-  | 'checklist' | 'visitaTecnica' | 'tarefas' | 'avisos' | 'ocorrencias'
+  | 'checklist' | 'visitaTecnica' | 'visitaSupervisor' | 'tarefas' | 'avisos' | 'ocorrencias'
   | 'ofertas' | 'precificacao' | 'pesquisaPreco' | 'mapaLoja' | 'pontasExtras'
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
@@ -29,6 +29,7 @@ export const GRUPOS_ULVA2: Grupo[] = [
     ferramentas: [
       { nome: 'Checklist', desc: 'Rotina do dia e avaliação de setor', icone: 'check-square', tela: 'checklist' },
       { nome: 'Visita Técnica', desc: 'Checklist do técnico veterinário', icone: 'shield', tela: 'visitaTecnica' },
+      { nome: 'Visita Supervisor', desc: 'Orientações do supervisor por setor', icone: 'user-check', tela: 'visitaSupervisor' },
       { nome: 'Criar tarefa', desc: 'Tarefas para os encarregados', icone: 'edit-3', tela: 'tarefas' },
       { nome: 'Mural de Avisos', desc: 'Comunicados para a equipe', icone: 'bell', tela: 'avisos' },
       { nome: 'Ocorrências', desc: 'Registros do dia a dia da loja', icone: 'alert-triangle', tela: 'ocorrencias' },
