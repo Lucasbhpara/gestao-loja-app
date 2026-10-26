@@ -70,6 +70,9 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
   const [caminho, setCaminho] = useState<string[]>([]);
   const [dias, setDias] = useState(FAIXA_MAIS_30);
   const [soComEstoque, setSoComEstoque] = useState(true);
+  // Só negativos: lista todos os produtos com estoque negativo (para corrigir),
+  // sem olhar a faixa de dias sem venda. O mais negativo aparece primeiro.
+  const [soNegativos, setSoNegativos] = useState(false);
   const [mostrarOcultos, setMostrarOcultos] = useState(false);
   const [ocultos, setOcultos] = useState<Set<string>>(new Set());
   const [crescente, setCrescente] = useState(false);
@@ -245,6 +248,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
     setBusca('');
     setDias(FAIXA_MAIS_30);
     setSoComEstoque(true);
+    setSoNegativos(false);
     setMostrarOcultos(false);
     setLimite(POR_PAGINA);
   }
@@ -258,12 +262,12 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
   }
 
   const semCaminho = useMemo(
-    () => (base ? filtrar(base.produtos, { caminho: [], soComEstoque, dias, mostrarOcultos, ocultos }) : []),
-    [base, soComEstoque, dias, mostrarOcultos, ocultos]
+    () => (base ? filtrar(base.produtos, { caminho: [], soComEstoque, dias, mostrarOcultos, ocultos, soNegativos }) : []),
+    [base, soComEstoque, dias, mostrarOcultos, ocultos, soNegativos]
   );
   const doEscopo = useMemo(
-    () => (base ? filtrar(base.produtos, { caminho, soComEstoque, dias, mostrarOcultos, ocultos }) : []),
-    [base, caminho, soComEstoque, dias, mostrarOcultos, ocultos]
+    () => (base ? filtrar(base.produtos, { caminho, soComEstoque, dias, mostrarOcultos, ocultos, soNegativos }) : []),
+    [base, caminho, soComEstoque, dias, mostrarOcultos, ocultos, soNegativos]
   );
   const resumo = useMemo(() => resumir(doEscopo, dias), [doEscopo, dias]);
   // Chegou parado: mesmo filtro de setor/ocultos/busca, sempre só com estoque
@@ -276,22 +280,33 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
   const produtos = useMemo(() => {
     const termo = busca.trim().toUpperCase();
     const lista = termo ? doEscopo.filter((p) => p.nome.toUpperCase().includes(termo) || p.codigo.includes(termo)) : doEscopo;
-    return ordenarPorEstoque(lista, dias, crescente);
-  }, [doEscopo, busca, dias, crescente]);
+    // Negativos: o mais negativo primeiro (a ordem "menor → maior" vira o padrão).
+    return ordenarPorEstoque(lista, dias, soNegativos ? !crescente : crescente, soNegativos);
+  }, [doEscopo, busca, dias, crescente, soNegativos]);
+  const resumoNegativos = useMemo(() => {
+    let unidades = 0;
+    let custo = 0;
+    for (const p of produtos) {
+      unidades += p.estoque;
+      custo += Math.abs(p.estoque) * (p.custoMedio || 0);
+    }
+    return { qtd: produtos.length, unidades, custo };
+  }, [produtos]);
 
   // Opções de cada nível do filtro, considerando o que já foi escolhido acima.
   const niveisFiltro = useMemo(() => {
     const out: { idx: number; opcoes: { valor: string; qtd: number }[] }[] = [];
     let lista = semCaminho;
     for (let i = 0; i < NIVEIS.length; i++) {
-      out.push({ idx: i, opcoes: opcoesDoNivel(lista, NIVEIS[i], dias) });
+      out.push({ idx: i, opcoes: opcoesDoNivel(lista, NIVEIS[i], dias, soNegativos) });
       if (!caminho[i]) break;
       lista = lista.filter((p) => p[NIVEIS[i]] === caminho[i]);
     }
     return out;
-  }, [semCaminho, caminho, dias]);
+  }, [semCaminho, caminho, dias, soNegativos]);
 
-  const qtdFiltros = caminho.length + (dias !== FAIXA_MAIS_30 ? 1 : 0) + (!soComEstoque ? 1 : 0) + (mostrarOcultos ? 1 : 0);
+  const qtdFiltros =
+    caminho.length + (!soNegativos && dias !== FAIXA_MAIS_30 ? 1 : 0) + (!soNegativos && !soComEstoque ? 1 : 0) + (mostrarOcultos ? 1 : 0) + (soNegativos ? 1 : 0);
   const periodoTexto =
     base?.periodoInicio && base.periodoFim
       ? `Vendas de ${formatarDataCurta(base.periodoInicio)} a ${formatarDataCurta(base.periodoFim)}${base.estoqueData ? ` · estoque de ${formatarDataCurta(base.estoqueData)}` : ''}`
@@ -560,12 +575,18 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                     <Feather name="x" size={12} color={colors.navy700} />
                   </TouchableOpacity>
                 ))}
-                {dias !== FAIXA_MAIS_30 && (
+                {soNegativos && (
+                  <TouchableOpacity style={[styles.ativoChip, { backgroundColor: '#FBDEDC' }]} onPress={() => setSoNegativos(false)}>
+                    <Text style={[styles.ativoTexto, { color: colors.red500 }]}>Só estoque negativo</Text>
+                    <Feather name="x" size={12} color={colors.red500} />
+                  </TouchableOpacity>
+                )}
+                {!soNegativos && dias !== FAIXA_MAIS_30 && (
                   <View style={styles.ativoChip}>
                     <Text style={styles.ativoTexto}>{rotuloFaixa(dias)}</Text>
                   </View>
                 )}
-                {!soComEstoque && (
+                {!soNegativos && !soComEstoque && (
                   <View style={styles.ativoChip}>
                     <Text style={styles.ativoTexto}>Inclui sem estoque</Text>
                   </View>
@@ -583,6 +604,21 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
             )}
 
             {/* Resumo */}
+            {soNegativos ? (
+              <View style={styles.statsCard}>
+                <View style={styles.stat}>
+                  <Text style={[styles.statValor, { color: colors.red500 }]}>{resumoNegativos.qtd.toLocaleString('pt-BR')}</Text>
+                  <Text style={styles.statRotulo}>com estoque negativo</Text>
+                </View>
+                <View style={styles.statDivisor} />
+                <View style={styles.stat}>
+                  <Text style={[styles.statValor, { fontSize: 17, color: colors.red500 }]} numberOfLines={1} adjustsFontSizeToFit>
+                    {formatarReaisCurto(resumoNegativos.custo)}
+                  </Text>
+                  <Text style={styles.statRotulo}>negativo no custo</Text>
+                </View>
+              </View>
+            ) : (
             <View style={styles.statsCard}>
               <View style={styles.stat}>
                 <Text style={[styles.statValor, { color: colors.red500 }]}>{resumo.semVenda.toLocaleString('pt-BR')}</Text>
@@ -602,11 +638,25 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
               </View>
             </View>
 
+            )}
+
+            <TouchableOpacity
+              style={[styles.chipNegativo, soNegativos && styles.chipNegativoAtivo]}
+              onPress={() => {
+                setSoNegativos((v) => !v);
+                setLimite(POR_PAGINA);
+              }}
+              activeOpacity={0.8}
+            >
+              <Feather name={soNegativos ? 'check-square' : 'square'} size={15} color={soNegativos ? colors.white : colors.red500} />
+              <Text style={[styles.chipNegativoTexto, soNegativos && { color: colors.white }]}>Só estoque negativo (para corrigir)</Text>
+            </TouchableOpacity>
+
             <View style={styles.listaTopo}>
               <Text style={styles.secaoTitulo}>{produtos.length.toLocaleString('pt-BR')} produtos</Text>
               <TouchableOpacity style={styles.ordemBotao} onPress={() => setCrescente((v) => !v)}>
-                <Text style={styles.ordemTexto}>Estoque: {crescente ? 'menor → maior' : 'maior → menor'}</Text>
-                <Feather name={crescente ? 'arrow-up' : 'arrow-down'} size={13} color={colors.navy700} />
+                <Text style={styles.ordemTexto}>Estoque: {(soNegativos ? !crescente : crescente) ? 'menor → maior' : 'maior → menor'}</Text>
+                <Feather name={(soNegativos ? !crescente : crescente) ? 'arrow-up' : 'arrow-down'} size={13} color={colors.navy700} />
               </TouchableOpacity>
             </View>
 
@@ -804,6 +854,10 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                   <Feather name={soComEstoque ? 'check-square' : 'square'} size={13} color={soComEstoque ? colors.white : colors.gray600} />
                   <Text style={[styles.chipTexto, soComEstoque && styles.chipTextoAtivo]}>Só com estoque</Text>
                 </TouchableOpacity>
+                <TouchableOpacity style={[styles.chip, soNegativos && styles.chipAtivo]} onPress={() => setSoNegativos((v) => !v)}>
+                  <Feather name={soNegativos ? 'check-square' : 'square'} size={13} color={soNegativos ? colors.white : colors.gray600} />
+                  <Text style={[styles.chipTexto, soNegativos && styles.chipTextoAtivo]}>Só estoque negativo</Text>
+                </TouchableOpacity>
                 <TouchableOpacity style={[styles.chip, mostrarOcultos && styles.chipAtivo]} onPress={() => setMostrarOcultos((v) => !v)}>
                   <Feather name={mostrarOcultos ? 'eye' : 'eye-off'} size={13} color={mostrarOcultos ? colors.white : colors.gray600} />
                   <Text style={[styles.chipTexto, mostrarOcultos && styles.chipTextoAtivo]}>Mostrar ocultos</Text>
@@ -823,6 +877,21 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.gray50 },
+  chipNegativo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    alignSelf: 'flex-start',
+    paddingVertical: 9,
+    paddingHorizontal: 14,
+    borderRadius: 999,
+    borderWidth: 1.5,
+    borderColor: colors.red500,
+    backgroundColor: '#FFF5F4',
+    marginTop: spacing.md,
+  },
+  chipNegativoAtivo: { backgroundColor: colors.red500 },
+  chipNegativoTexto: { color: colors.red500, fontWeight: '700', fontSize: 13 },
   hero: {
     backgroundColor: colors.navy700,
     paddingTop: 52,
