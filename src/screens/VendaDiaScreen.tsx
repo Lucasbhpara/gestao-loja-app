@@ -60,9 +60,11 @@ function CardMeta({ m }: { m: ResumoMeta }) {
               </Text>
             )}
           </Text>
-          <View style={styles.divisor} />
+          {m.temMes && <View style={styles.divisor} />}
         </>
       )}
+      {m.temMes && (
+      <>
       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
         <Text style={styles.rotulo}>META DO MÊS</Text>
         <Text style={[styles.selo, { backgroundColor: bateuMes ? '#DFF3E8' : colors.gray100, color: bateuMes ? VERDE : colors.gray600 }]}>
@@ -87,6 +89,8 @@ function CardMeta({ m }: { m: ResumoMeta }) {
       <Text style={[styles.legenda, { marginTop: 2 }]}>
         Até {diaMesCurto(m.dia)}: {pctTexto(m.pctAteDia)} da meta acumulada ({reais(m.metaAteDia, 0)})
       </Text>
+      </>
+      )}
     </View>
   );
 }
