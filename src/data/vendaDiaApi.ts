@@ -203,9 +203,12 @@ export function htmlVendaDia(d: DadosVendaDia, meta?: ResumoMeta | null): string
               meta.pctDia >= 100 ? 'meta batida (+' + reais(meta.vendaDia - meta.metaDia, 0) + ')' : 'faltou ' + reais(meta.metaDia - meta.vendaDia, 0)
             }</div></div>`
           : '') +
-        `<div class="card"><div class="r">Meta do mês</div><div class="v">${pct(meta.pctMes)}</div>${barra(meta.pctMes)}<div class="l">${reais(meta.vendaMes, 0)} de ${reais(meta.metaMes, 0)}${
-          meta.faltaMes > 0 ? ' · falta ' + reais(meta.faltaMes, 0) + (meta.precisaPorDia != null ? ' (' + reais(meta.precisaPorDia, 0) + '/dia em ' + meta.diasRestantes + ' dias)' : '') : ' · meta batida'
-        }</div></div></div>`
+        (!meta.temMes
+          ? ''
+          : `<div class="card"><div class="r">Meta do mês</div><div class="v">${pct(meta.pctMes)}</div>${barra(meta.pctMes)}<div class="l">${reais(meta.vendaMes, 0)} de ${reais(meta.metaMes, 0)}${
+              meta.faltaMes > 0 ? ' · falta ' + reais(meta.faltaMes, 0) + (meta.precisaPorDia != null ? ' (' + reais(meta.precisaPorDia, 0) + '/dia em ' + meta.diasRestantes + ' dias)' : '') : ' · meta batida'
+            }</div></div>`) +
+        `</div>`
       : '';
   const logo = '<svg width="34" height="34" viewBox="0 0 160 160"><rect width="160" height="160" rx="36" fill="#0E1B2C"/><path d="M42 36 V84 A38 38 0 0 0 118 84 V36" fill="none" stroke="#F4F5F7" stroke-width="20" stroke-linecap="round"/><circle cx="80" cy="74" r="15" fill="#2F7BFF"/></svg>';
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Venda do dia ${diaMesCurto(d.dia)}</title><style>
