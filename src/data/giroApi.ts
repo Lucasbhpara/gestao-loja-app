@@ -207,6 +207,7 @@ export interface FiltroGiro {
   mostrarOcultos: boolean;
   ocultos: Set<string>;
   busca?: string;
+  soNegativos?: boolean; // só estoque negativo (para correção) — ignora "só com estoque" e a faixa de dias
 }
 
 export const ehSemVenda = (p: ProdutoGiro) => p.ultimaVenda === null;
@@ -229,7 +230,9 @@ export function filtrar(base: ProdutoGiro[], f: FiltroGiro): ProdutoGiro[] {
   const busca = (f.busca ?? '').trim().toUpperCase();
   return base.filter((p) => {
     if (!f.mostrarOcultos && (p.ocultoPorSetor || f.ocultos.has(p.codigo))) return false;
-    if (f.soComEstoque && !(p.estoque > 0)) return false;
+    if (f.soNegativos) {
+      if (!(p.estoque < 0)) return false;
+    } else if (f.soComEstoque && !(p.estoque > 0)) return false;
     for (let i = 0; i < f.caminho.length; i++) if (p[NIVEIS[i]] !== f.caminho[i]) return false;
     if (busca && !p.nome.toUpperCase().includes(busca) && !p.codigo.includes(busca)) return false;
     return true;
@@ -292,17 +295,17 @@ export function diasSemVendaTexto(p: ProdutoGiro, base: Pick<BaseGiro, 'periodoI
 
 // Lista da tela inicial: só sem venda/parados, por quantidade em estoque
 // (maior primeiro, ou menor primeiro se "crescente"); empate → mais parado.
-export function ordenarPorEstoque(lista: ProdutoGiro[], dias: number, crescente: boolean): ProdutoGiro[] {
+export function ordenarPorEstoque(lista: ProdutoGiro[], dias: number, crescente: boolean, todos = false): ProdutoGiro[] {
   const dp = (p: ProdutoGiro) => p.diasParado ?? Number.POSITIVE_INFINITY;
   return lista
-    .filter((p) => ehProblema(p, dias))
+    .filter((p) => todos || ehProblema(p, dias))
     .sort((a, b) => (crescente ? a.estoque - b.estoque : b.estoque - a.estoque) || dp(b) - dp(a));
 }
 
 // Opções de um nível do filtro (com quantos produtos problemáticos cada uma tem).
-export function opcoesDoNivel(lista: ProdutoGiro[], nivel: NivelGiro, dias: number): { valor: string; qtd: number }[] {
+export function opcoesDoNivel(lista: ProdutoGiro[], nivel: NivelGiro, dias: number, todos = false): { valor: string; qtd: number }[] {
   const mapa = new Map<string, number>();
-  for (const p of lista) if (ehProblema(p, dias)) mapa.set(p[nivel], (mapa.get(p[nivel]) ?? 0) + 1);
+  for (const p of lista) if (todos || ehProblema(p, dias)) mapa.set(p[nivel], (mapa.get(p[nivel]) ?? 0) + 1);
   return [...mapa.entries()].map(([valor, qtd]) => ({ valor, qtd })).sort((a, b) => b.qtd - a.qtd);
 }
 
