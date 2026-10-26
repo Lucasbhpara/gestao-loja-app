@@ -17,12 +17,79 @@ import {
   variacao,
   htmlVendaDia,
 } from '../data/vendaDiaApi';
+import { carregarResumoMeta, ResumoMeta, pctTexto } from '../data/metaVendaApi';
 
 // Venda do dia: escolhe um dia e vê a venda total, por setor e o top 10 em
 // valor e em volume. Exporta o PDF pela tela de compartilhar do celular.
 const CORES = ['#2F7BFF', '#1FA56A', '#8B6CFF', '#F2A600', '#E14337', '#14A3B5', '#E8710A', '#5B6577'];
 const VERDE = '#1E8E5A';
 const VERMELHO = '#C0392B';
+
+// Barra de progresso da meta (verde quando bate, laranja quando falta).
+function BarraMeta({ pct }: { pct: number }) {
+  const bateu = pct >= 100;
+  return (
+    <View style={styles.trilhoMeta}>
+      <View style={{ width: `${Math.min(100, Math.max(0, pct))}%`, height: '100%', borderRadius: 6, backgroundColor: bateu ? VERDE : '#E8710A' }} />
+    </View>
+  );
+}
+
+function CardMeta({ m }: { m: ResumoMeta }) {
+  const bateuDia = m.pctDia != null && m.pctDia >= 100;
+  const bateuMes = m.faltaMes <= 0;
+  return (
+    <View style={styles.card}>
+      {m.metaDia != null && m.pctDia != null && (
+        <>
+          <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Text style={styles.rotulo}>META DO DIA</Text>
+            <Text style={[styles.selo, { backgroundColor: bateuDia ? '#DFF3E8' : '#FBEBD4', color: bateuDia ? VERDE : '#B4650E' }]}>
+              {bateuDia ? '✓ Meta batida' : 'Abaixo da meta'}
+            </Text>
+          </View>
+          <Text style={styles.kpi}>{pctTexto(m.pctDia)}</Text>
+          <BarraMeta pct={m.pctDia} />
+          <Text style={[styles.legenda, { marginTop: 6 }]}>
+            Venda {reais(m.vendaDia, 0)} de {reais(m.metaDia, 0)} ·{' '}
+            {bateuDia ? (
+              <Text style={{ color: VERDE, fontWeight: '800' }}>passou {reais(m.vendaDia - m.metaDia, 0)}</Text>
+            ) : (
+              <Text style={{ color: VERMELHO, fontWeight: '800' }}>
+                faltou {reais(m.metaDia - m.vendaDia, 0)} ({pctTexto(100 - m.pctDia)})
+              </Text>
+            )}
+          </Text>
+          <View style={styles.divisor} />
+        </>
+      )}
+      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+        <Text style={styles.rotulo}>META DO MÊS</Text>
+        <Text style={[styles.selo, { backgroundColor: bateuMes ? '#DFF3E8' : colors.gray100, color: bateuMes ? VERDE : colors.gray600 }]}>
+          {bateuMes ? '✓ Meta do mês batida' : `faltam ${pctTexto(100 - m.pctMes)}`}
+        </Text>
+      </View>
+      <Text style={styles.kpi}>{pctTexto(m.pctMes)}</Text>
+      <BarraMeta pct={m.pctMes} />
+      <Text style={[styles.legenda, { marginTop: 6 }]}>
+        Vendido {reais(m.vendaMes, 0)} de {reais(m.metaMes, 0)}
+      </Text>
+      {!bateuMes && (
+        <Text style={[styles.legenda, { marginTop: 2 }]}>
+          Falta <Text style={{ fontWeight: '800', color: '#0E1B2C' }}>{reais(m.faltaMes, 0)}</Text>
+          {m.precisaPorDia != null ? (
+            <>
+              {' '}· precisa de <Text style={{ fontWeight: '800', color: '#0E1B2C' }}>{reais(m.precisaPorDia, 0)}</Text> por dia nos próximos {m.diasRestantes} dias
+            </>
+          ) : null}
+        </Text>
+      )}
+      <Text style={[styles.legenda, { marginTop: 2 }]}>
+        Até {diaMesCurto(m.dia)}: {pctTexto(m.pctAteDia)} da meta acumulada ({reais(m.metaAteDia, 0)})
+      </Text>
+    </View>
+  );
+}
 
 function Selo({ pct }: { pct: number | null }) {
   if (pct == null) return <Text style={[styles.selo, { backgroundColor: colors.gray100, color: colors.gray600 }]}>novo</Text>;
@@ -43,6 +110,7 @@ export default function VendaDiaScreen({ onVoltar }: { onVoltar: () => void }) {
   const [erro, setErro] = useState<string | null>(null);
   const [aba, setAba] = useState<'valor' | 'volume'>('valor');
   const [gerando, setGerando] = useState(false);
+  const [meta, setMeta] = useState<ResumoMeta | null>(null);
 
   const carregar = useCallback(
     (forcar = false) => {
@@ -52,6 +120,11 @@ export default function VendaDiaScreen({ onVoltar }: { onVoltar: () => void }) {
           if (!d) setErro('Ainda não há vendas no banco. Suba as vendas pelo “Importar vendas (Falcon)” no portal.');
           setDados(d);
           if (d && d.dia !== dia) setDia(d.dia);
+          setMeta(null);
+          if (d)
+            carregarResumoMeta(d.dia, d.total, forcar)
+              .then(setMeta)
+              .catch(() => setMeta(null));
         })
         .catch(() => setErro('Não consegui carregar as vendas. Puxe a tela para baixo para tentar de novo.'))
         .finally(() => {
@@ -77,7 +150,7 @@ export default function VendaDiaScreen({ onVoltar }: { onVoltar: () => void }) {
     if (!dados) return;
     setGerando(true);
     try {
-      await compartilharPdf(htmlVendaDia(dados), `venda-do-dia-${dados.dia.split('-').reverse().join('-')}`);
+      await compartilharPdf(htmlVendaDia(dados, meta), `venda-do-dia-${dados.dia.split('-').reverse().join('-')}`);
     } catch (e: any) {
       Alert.alert('Não deu certo', e?.message ?? 'Não consegui gerar o PDF.');
     } finally {
@@ -140,6 +213,7 @@ export default function VendaDiaScreen({ onVoltar }: { onVoltar: () => void }) {
                 </Text>
               </View>
             </View>
+            {meta && meta.dia === dados.dia && <CardMeta m={meta} />}
             <View style={styles.card}>
               <Text style={styles.rotulo}>
                 ACUMULADO DO MÊS ({diaMesCurto(dados.acum.ini)} A {diaMesCurto(dados.acum.fim)})
@@ -240,6 +314,8 @@ const styles = StyleSheet.create({
   setorLinha: { paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.gray100 },
   setorNome: { flex: 1, fontSize: 13.5, fontWeight: '700', color: '#0E1B2C' },
   setorValor: { fontSize: 13.5, fontWeight: '800', color: '#0E1B2C' },
+  trilhoMeta: { height: 10, borderRadius: 6, backgroundColor: '#EEF1F6', marginTop: 8, overflow: 'hidden' },
+  divisor: { height: 1, backgroundColor: colors.gray100, marginVertical: 12 },
   trilho: { height: 8, borderRadius: 5, backgroundColor: '#EEF1F6', marginTop: 6, overflow: 'hidden' },
   pct: { fontSize: 11, color: colors.gray600, marginTop: 3 },
   abas: { flexDirection: 'row', backgroundColor: '#EEF1F6', borderRadius: 12, padding: 3, marginBottom: 6 },
