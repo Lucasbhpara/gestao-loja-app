@@ -8,6 +8,8 @@ import { somarDiasIso } from './vendaDiaApi';
 //   meta_acumulada_base    — meta somada do dia 1 até base_ate
 //   venda_acumulada_base   — venda oficial somada do dia 1 até base_ate
 //   diarias                — { 'AAAA-MM-DD': meta do dia } dos dias seguintes
+//   diarias_anteriores     — (opcional) metas dos dias até base_ate, só para
+//                            mostrar se o dia bateu; não somam na meta do mês
 // A venda dos dias depois de base_ate vem das vendas subidas no ULVA.
 
 type ConfigMeta = {
@@ -15,6 +17,7 @@ type ConfigMeta = {
   meta_acumulada_base: number;
   venda_acumulada_base: number;
   diarias: Record<string, number>;
+  diarias_anteriores?: Record<string, number>;
 };
 
 export type ResumoMeta = {
@@ -22,6 +25,7 @@ export type ResumoMeta = {
   metaDia: number | null;
   vendaDia: number;
   pctDia: number | null; // venda ÷ meta do dia × 100
+  temMes: boolean; // false em dias antes de base_ate (só a meta do dia)
   metaMes: number;
   vendaMes: number; // acumulada até o dia escolhido
   pctMes: number;
@@ -50,7 +54,30 @@ async function configDoMes(mes: string, forcar = false): Promise<ConfigMeta | nu
 
 export async function carregarResumoMeta(dia: string, vendaDia: number, forcar = false): Promise<ResumoMeta | null> {
   const cfg = await configDoMes(dia.slice(0, 7), forcar);
-  if (!cfg || dia < cfg.base_ate) return null;
+  if (!cfg) return null;
+  const metaDiaDe = (d: string) => {
+    const v = cfg.diarias[d] ?? cfg.diarias_anteriores?.[d];
+    return v != null ? Number(v) : null;
+  };
+  if (dia < cfg.base_ate) {
+    const md = metaDiaDe(dia);
+    if (md == null) return null;
+    return {
+      dia,
+      metaDia: md,
+      vendaDia,
+      pctDia: (vendaDia / md) * 100,
+      temMes: false,
+      metaMes: 0,
+      vendaMes: 0,
+      pctMes: 0,
+      faltaMes: 0,
+      metaAteDia: 0,
+      pctAteDia: 0,
+      diasRestantes: 0,
+      precisaPorDia: null,
+    };
+  }
   const metaMes = cfg.meta_acumulada_base + Object.values(cfg.diarias).reduce((a, x) => a + Number(x), 0);
   let vendaDepois = 0;
   if (dia > cfg.base_ate) {
@@ -66,12 +93,13 @@ export async function carregarResumoMeta(dia: string, vendaDia: number, forcar =
       .reduce((a, [, v]) => a + Number(v), 0);
   const restantes = Object.keys(cfg.diarias).filter((d) => d > dia).length;
   const faltaMes = Math.max(0, metaMes - vendaMes);
-  const metaDia = cfg.diarias[dia] != null ? Number(cfg.diarias[dia]) : null;
+  const metaDia = metaDiaDe(dia);
   return {
     dia,
     metaDia,
     vendaDia,
     pctDia: metaDia ? (vendaDia / metaDia) * 100 : null,
+    temMes: true,
     metaMes,
     vendaMes,
     pctMes: (vendaMes / metaMes) * 100,
