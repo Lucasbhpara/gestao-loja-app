@@ -1,5 +1,6 @@
 import { supabase } from '../lib/supabase';
 import { rpcTudo } from '../lib/rpcTudo';
+import type { ResumoMeta } from './metaVendaApi';
 
 // Venda do dia: um dia escolhido — total, por setor e top 10 em valor/volume.
 // Mesmas consultas da "Vendas da Loja" (vendas_loja_grupos). A planilha do
@@ -168,7 +169,7 @@ export function variacao(a: number, b: number): number | null {
 }
 
 // ---------- PDF (mesmo modelo do portal) ----------
-export function htmlVendaDia(d: DadosVendaDia): string {
+export function htmlVendaDia(d: DadosVendaDia, meta?: ResumoMeta | null): string {
   const esc = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
   const varTxt = (a: number, b: number) => {
     const p = variacao(a, b);
@@ -191,6 +192,21 @@ export function htmlVendaDia(d: DadosVendaDia): string {
       )
       .join('');
   const s0 = d.setores[0];
+  const pct = (p: number) => p.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
+  const barra = (p: number) =>
+    `<div style="height:7px;background:#EEF1F6;border-radius:4px;margin-top:5px;overflow:hidden"><div style="height:100%;width:${Math.min(100, Math.max(0, p))}%;background:${p >= 100 ? '#1E8E5A' : '#E8710A'}"></div></div>`;
+  const blocoMeta =
+    meta && meta.dia === d.dia
+      ? `<div class="cards">` +
+        (meta.metaDia != null && meta.pctDia != null
+          ? `<div class="card"><div class="r">Meta do dia</div><div class="v" style="color:${meta.pctDia >= 100 ? '#1E8E5A' : '#C0392B'}">${pct(meta.pctDia)}</div>${barra(meta.pctDia)}<div class="l">${reais(meta.vendaDia, 0)} de ${reais(meta.metaDia, 0)} · ${
+              meta.pctDia >= 100 ? 'meta batida (+' + reais(meta.vendaDia - meta.metaDia, 0) + ')' : 'faltou ' + reais(meta.metaDia - meta.vendaDia, 0)
+            }</div></div>`
+          : '') +
+        `<div class="card"><div class="r">Meta do mês</div><div class="v">${pct(meta.pctMes)}</div>${barra(meta.pctMes)}<div class="l">${reais(meta.vendaMes, 0)} de ${reais(meta.metaMes, 0)}${
+          meta.faltaMes > 0 ? ' · falta ' + reais(meta.faltaMes, 0) + (meta.precisaPorDia != null ? ' (' + reais(meta.precisaPorDia, 0) + '/dia em ' + meta.diasRestantes + ' dias)' : '') : ' · meta batida'
+        }</div></div></div>`
+      : '';
   const logo = '<svg width="34" height="34" viewBox="0 0 160 160"><rect width="160" height="160" rx="36" fill="#0E1B2C"/><path d="M42 36 V84 A38 38 0 0 0 118 84 V36" fill="none" stroke="#F4F5F7" stroke-width="20" stroke-linecap="round"/><circle cx="80" cy="74" r="15" fill="#2F7BFF"/></svg>';
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Venda do dia ${diaMesCurto(d.dia)}</title><style>
 @page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#0E1B2C;margin:0;font-size:10px}
@@ -204,6 +220,7 @@ h2{font-size:12.5px;margin:12px 0 4px}table{width:100%;border-collapse:collapse}
 <div class="card"><div class="r">Acumulado do mês</div><div class="v">${reais(d.acum.total, 0)}</div><div class="l" style="color:${cor(d.acum.total, d.acum.totalAnt)}">${varTxt(d.acum.total, d.acum.totalAnt)} vs ${diaMesCurto(d.acum.antIni)}–${diaMesCurto(d.acum.antFim)} · ${diaMesCurto(d.acum.ini)}–${diaMesCurto(d.acum.fim)}</div></div>
 <div class="card"><div class="r">Produtos vendidos</div><div class="v">${d.itens.toLocaleString('pt-BR')}</div><div class="l">itens diferentes</div></div>
 <div class="card"><div class="r">Setor que mais vendeu</div><div class="v" style="font-size:15px">${s0 ? esc(s0.nome) : '—'}</div><div class="l">${s0 ? reais(s0.venda) : ''}</div></div></div>
+${blocoMeta}
 <h2>Venda por setor</h2><table><thead><tr><th>Setor</th><th class="n">Venda</th><th class="n">% do dia</th><th class="n">vs ${diaMesCurto(d.ant)}</th></tr></thead><tbody>${linhasSetor}</tbody></table>
 <div class="duas"><div><h2>Top 10 em valor</h2><table><thead><tr><th></th><th>Produto</th><th class="n">Venda</th><th class="n">Volume*</th></tr></thead><tbody>${top(d.topValor, 'valor')}</tbody></table></div>
 <div><h2>Top 10 em volume*</h2><table><thead><tr><th></th><th>Produto</th><th class="n">Volume*</th><th class="n">Venda</th></tr></thead><tbody>${top(d.topVolume, 'volume')}</tbody></table></div></div>
