@@ -253,7 +253,7 @@ export default function TarefasAdminScreen({ onVoltar }: { onVoltar: () => void 
                   <Text style={styles.chipStatusTexto}>{t.concluida ? 'Concluída' : 'Pendente'}</Text>
                 </View>
               </View>
-              {!!t.descricao && <Text style={styles.tarefaDescricao}>{t.descricao}</Text>}
+              {!!t.descricao && <Text style={styles.tarefaDescricao}>{t.descricao.replace(/\n?ref giro:\S+/, '')}</Text>}
               {t.fotosReferencia?.length ? (
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
                   {t.fotosReferencia.map((u) => (
