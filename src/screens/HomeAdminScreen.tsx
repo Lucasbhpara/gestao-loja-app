@@ -36,7 +36,9 @@ import ChegadasScreen from './ChegadasScreen';
 import OlhoValidadeScreen from './OlhoValidadeScreen';
 import VendaDiaScreen from './VendaDiaScreen';
 import ResultadosInventarioScreen from './ResultadosInventarioScreen';
-import InicioUlva2, { GrupoId } from './InicioUlva2';
+import InicioUlva2, { GrupoId, GRUPOS_ULVA2 } from './InicioUlva2';
+import RelatorioDiarioScreen from './RelatorioDiarioScreen';
+import * as Notifications from 'expo-notifications';
 import {
   podeTestarUlva2,
   buscarUlva2Liberado,
@@ -79,6 +81,7 @@ export default function HomeAdminScreen() {
     | 'checklist'
     | 'visitaTecnica'
     | 'visitaSupervisor'
+    | 'relatorioDiario'
     | 'colaboradores'
     | 'escalaFaltas'
     | 'precificacao'
@@ -89,6 +92,34 @@ export default function HomeAdminScreen() {
     | 'vendaDia'
     | 'resultadosInventario'
   >('home');
+
+  // Relatório diário (só do Lucas): a notificação "Relatório pronto" traz
+  // { tela: 'relatorioDiario', dia } — tocar nela abre o relatório e já
+  // a tela de compartilhar o PDF.
+  const [diaRelatorio, setDiaRelatorio] = useState<string | null>(null);
+  const [relatorioPelaNotificacao, setRelatorioPelaNotificacao] = useState(false);
+  const ehDono = String(usuarioAtual?.matricula ?? '') === MATRICULA_DONO_DA_ABA_IA;
+  useEffect(() => {
+    if (!ehDono) return;
+    const abrir = (resp: Notifications.NotificationResponse | null) => {
+      const dados: any = resp?.notification?.request?.content?.data;
+      if (dados?.tela === 'relatorioDiario') {
+        setDiaRelatorio(typeof dados.dia === 'string' ? dados.dia : null);
+        setRelatorioPelaNotificacao(true);
+        setTela('relatorioDiario');
+      }
+    };
+    Notifications.getLastNotificationResponseAsync()
+      .then((r) => {
+        if (r) {
+          abrir(r);
+          Notifications.clearLastNotificationResponseAsync?.().catch(() => {});
+        }
+      })
+      .catch(() => {});
+    const sub = Notifications.addNotificationResponseReceivedListener(abrir);
+    return () => sub.remove();
+  }, [ehDono]);
 
   // ULVA 2.0: ferramentas agrupadas. Até ser liberado (system_config
   // 'ulva2_liberado'), só quem está em MATRICULAS_TESTE_ULVA2 vê.
@@ -258,6 +289,19 @@ export default function HomeAdminScreen() {
       />
     );
   }
+  if (tela === 'relatorioDiario') {
+    return (
+      <RelatorioDiarioScreen
+        diaInicial={diaRelatorio}
+        compartilharAoAbrir={relatorioPelaNotificacao}
+        onVoltar={() => {
+          setRelatorioPelaNotificacao(false);
+          setDiaRelatorio(null);
+          setTela('home');
+        }}
+      />
+    );
+  }
   if (tela === 'visitaSupervisor') {
     return (
       <VisitaSupervisorScreen
@@ -301,6 +345,15 @@ export default function HomeAdminScreen() {
         nome={usuarioAtual.nome}
         usandoNuvem={usandoNuvem}
         podeVerDono={MATRICULAS_GIRO.includes(String(usuarioAtual.matricula))}
+        grupos={
+          ehDono
+            ? GRUPOS_ULVA2.map((g) =>
+                g.id === 'resultados'
+                  ? { ...g, ferramentas: [{ nome: 'Relatório diário', desc: 'Venda, meta, folgas e quebra — PDF', icone: 'file-text', tela: 'relatorioDiario' }, ...g.ferramentas] }
+                  : g,
+              )
+            : undefined
+        }
         podeUsarIA={podeUsarChatIA}
         qtdVencendo={carregandoValidades ? null : validades.length}
         qtdUrgentes={qtdUrgentes}
