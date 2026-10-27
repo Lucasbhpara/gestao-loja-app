@@ -114,3 +114,20 @@ export async function carregarResumoMeta(dia: string, vendaDia: number, forcar =
 export function pctTexto(p: number): string {
   return p.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
 }
+
+// Lista de metas do mês (todos os dias com meta cadastrada), com a venda de
+// cada dia quando já foi subida — para ver as metas mesmo sem venda.
+export type LinhaMetaMes = { dia: string; meta: number; venda: number | null };
+
+export async function listarMetasMes(mes: string, forcar = false): Promise<LinhaMetaMes[]> {
+  const cfg = await configDoMes(mes, forcar);
+  if (!cfg) return [];
+  const metas: Record<string, number> = { ...(cfg.diarias_anteriores ?? {}), ...cfg.diarias };
+  const dias = Object.keys(metas).sort();
+  if (!dias.length) return [];
+  const { data, error } = await supabase.rpc('vendas_loja_dias', { p_ini: dias[0], p_fim: dias[dias.length - 1] });
+  if (error) throw error;
+  const venda: Record<string, number> = {};
+  ((data as any[]) || []).forEach((x) => (venda[String(x.dia).slice(0, 10)] = Number(x.venda)));
+  return dias.map((d) => ({ dia: d, meta: Number(metas[d]), venda: venda[d] ?? null }));
+}

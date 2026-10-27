@@ -17,7 +17,7 @@ import {
   variacao,
   htmlVendaDia,
 } from '../data/vendaDiaApi';
-import { carregarResumoMeta, ResumoMeta, pctTexto } from '../data/metaVendaApi';
+import { carregarResumoMeta, ResumoMeta, pctTexto, listarMetasMes, LinhaMetaMes } from '../data/metaVendaApi';
 
 // Venda do dia: escolhe um dia e vê a venda total, por setor e o top 10 em
 // valor e em volume. Exporta o PDF pela tela de compartilhar do celular.
@@ -95,6 +95,51 @@ function CardMeta({ m }: { m: ResumoMeta }) {
   );
 }
 
+const DIA_SEMANA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+function diaSemana(iso: string) {
+  const [a, m, d] = iso.split('-').map(Number);
+  return DIA_SEMANA[new Date(Date.UTC(a, m - 1, d)).getUTCDay()];
+}
+
+// Todas as metas do mês, com ou sem venda. Toque num dia com venda para abrir.
+function CardMetasMes({ linhas, diaAtual, onAbrir }: { linhas: LinhaMetaMes[]; diaAtual: string; onAbrir: (d: string) => void }) {
+  return (
+    <View style={styles.card}>
+      <Text style={styles.titulo}>Metas do mês</Text>
+      <Text style={[styles.legenda, { marginBottom: 6 }]}>toque num dia com venda para ver o detalhe</Text>
+      {linhas.map((l) => {
+        const pct = l.venda != null ? (l.venda / l.meta) * 100 : null;
+        const bateu = pct != null && pct >= 100;
+        const atual = l.dia === diaAtual;
+        return (
+          <TouchableOpacity
+            key={l.dia}
+            disabled={l.venda == null}
+            onPress={() => onAbrir(l.dia)}
+            style={[styles.metaLinha, atual && { backgroundColor: '#F1F5FF' }]}
+          >
+            <Text style={styles.metaDia}>
+              {diaSemana(l.dia)} {diaMesCurto(l.dia)}
+            </Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.metaValor}>{reais(l.meta, 0)}</Text>
+              <Text style={styles.prodSub}>{l.venda != null ? `vendeu ${reais(l.venda, 0)}` : 'sem venda ainda'}</Text>
+            </View>
+            {pct != null ? (
+              <Text style={[styles.selo, { backgroundColor: bateu ? '#DFF3E8' : '#FBEBD4', color: bateu ? VERDE : '#B4650E' }]}>
+                {bateu ? '✓ ' : ''}
+                {pctTexto(pct)}
+              </Text>
+            ) : (
+              <Text style={[styles.selo, { backgroundColor: colors.gray100, color: colors.gray600 }]}>a vender</Text>
+            )}
+          </TouchableOpacity>
+        );
+      })}
+    </View>
+  );
+}
+
 function Selo({ pct }: { pct: number | null }) {
   if (pct == null) return <Text style={[styles.selo, { backgroundColor: colors.gray100, color: colors.gray600 }]}>novo</Text>;
   const sobe = pct >= 0.05, desce = pct <= -0.05;
@@ -115,6 +160,7 @@ export default function VendaDiaScreen({ onVoltar }: { onVoltar: () => void }) {
   const [aba, setAba] = useState<'valor' | 'volume'>('valor');
   const [gerando, setGerando] = useState(false);
   const [meta, setMeta] = useState<ResumoMeta | null>(null);
+  const [metasMes, setMetasMes] = useState<LinhaMetaMes[]>([]);
 
   const carregar = useCallback(
     (forcar = false) => {
@@ -125,10 +171,14 @@ export default function VendaDiaScreen({ onVoltar }: { onVoltar: () => void }) {
           setDados(d);
           if (d && d.dia !== dia) setDia(d.dia);
           setMeta(null);
-          if (d)
+          if (d) {
             carregarResumoMeta(d.dia, d.total, forcar)
               .then(setMeta)
               .catch(() => setMeta(null));
+            listarMetasMes(d.dia.slice(0, 7), forcar)
+              .then(setMetasMes)
+              .catch(() => setMetasMes([]));
+          }
         })
         .catch(() => setErro('Não consegui carregar as vendas. Puxe a tela para baixo para tentar de novo.'))
         .finally(() => {
@@ -218,6 +268,8 @@ export default function VendaDiaScreen({ onVoltar }: { onVoltar: () => void }) {
               </View>
             </View>
             {meta && meta.dia === dados.dia && <CardMeta m={meta} />}
+            {metasMes.length > 0 && <CardMetasMes linhas={metasMes} diaAtual={dados.dia} onAbrir={(d) => setDia(d)} />}
+
             <View style={styles.card}>
               <Text style={styles.rotulo}>
                 ACUMULADO DO MÊS ({diaMesCurto(dados.acum.ini)} A {diaMesCurto(dados.acum.fim)})
@@ -319,6 +371,9 @@ const styles = StyleSheet.create({
   setorNome: { flex: 1, fontSize: 13.5, fontWeight: '700', color: '#0E1B2C' },
   setorValor: { fontSize: 13.5, fontWeight: '800', color: '#0E1B2C' },
   trilhoMeta: { height: 10, borderRadius: 6, backgroundColor: '#EEF1F6', marginTop: 8, overflow: 'hidden' },
+  metaLinha: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, paddingHorizontal: 6, borderTopWidth: 1, borderTopColor: colors.gray100, borderRadius: 8 },
+  metaDia: { width: 72, fontSize: 13, fontWeight: '800', color: '#0E1B2C' },
+  metaValor: { fontSize: 13.5, fontWeight: '700', color: '#0E1B2C' },
   divisor: { height: 1, backgroundColor: colors.gray100, marginVertical: 12 },
   trilho: { height: 8, borderRadius: 5, backgroundColor: '#EEF1F6', marginTop: 6, overflow: 'hidden' },
   pct: { fontSize: 11, color: colors.gray600, marginTop: 3 },
