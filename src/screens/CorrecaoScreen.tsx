@@ -30,6 +30,7 @@ import {
   salvarItemCorrecao,
 } from '../data/correcaoApi';
 import { compartilharCorrecao } from '../lib/correcaoPdf';
+import AreaTeclado from '../components/AreaTeclado';
 
 // =============================================================================
 // Correção de checklist — ver src/data/correcaoApi.ts.
@@ -244,7 +245,7 @@ export default function CorrecaoScreen({
   const aguardando = modo === 'corrigir' && tarefa.correcaoStatus === 'enviada';
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <AreaTeclado style={styles.flex}>
       <View style={styles.hero}>
         <TouchableOpacity onPress={() => onVoltar(false)} style={styles.heroBotao} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Feather name="chevron-left" size={18} color={colors.white} />
@@ -529,7 +530,7 @@ export default function CorrecaoScreen({
           {fotoAmpliada ? <Image source={{ uri: fotoAmpliada }} style={styles.modalFoto} resizeMode="contain" /> : null}
         </TouchableOpacity>
       </Modal>
-    </KeyboardAvoidingView>
+    </AreaTeclado>
   );
 }
 

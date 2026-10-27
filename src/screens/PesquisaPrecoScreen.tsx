@@ -49,6 +49,7 @@ import {
   resumoPesquisa,
   salvarPesquisaAtual,
 } from '../data/pesquisaPrecoApi';
+import AreaTeclado from '../components/AreaTeclado';
 
 // Pesquisa de preço nos concorrentes (só administradores). Ver
 // src/data/pesquisaPrecoApi.ts.
@@ -296,7 +297,7 @@ function EscolherConcorrente({ visivel, onFechar, onEscolher }: { visivel: boole
 
   return (
     <Modal visible={visivel} animationType="slide" transparent onRequestClose={onFechar}>
-      <KeyboardAvoidingView style={styles.modalFundo} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <AreaTeclado style={styles.modalFundo}>
         <View style={styles.folha}>
           <View style={styles.folhaTopo}>
             <Text style={styles.folhaTitulo}>Em qual concorrente?</Text>
@@ -325,7 +326,7 @@ function EscolherConcorrente({ visivel, onFechar, onEscolher }: { visivel: boole
             </TouchableOpacity>
           </ScrollView>
         </View>
-      </KeyboardAvoidingView>
+      </AreaTeclado>
     </Modal>
   );
 }
@@ -604,7 +605,7 @@ function EditorItem({
 
   return (
     <Modal visible animationType="slide" onRequestClose={onFechar}>
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <AreaTeclado style={styles.flex}>
         <View style={styles.editorTopo}>
           <TouchableOpacity onPress={onFechar} hitSlop={12} style={styles.editorFechar} accessibilityLabel="Fechar">
             <Feather name="x" size={22} color={colors.navy900} />
@@ -739,7 +740,7 @@ function EditorItem({
             )}
           </ScrollView>
         )}
-      </KeyboardAvoidingView>
+      </AreaTeclado>
     </Modal>
   );
 }

@@ -28,6 +28,7 @@ import {
 import SeletorDataValidade from '../components/SeletorDataValidade';
 import HistoricoFaltasScreen from './HistoricoFaltasScreen';
 import CabecalhoTela from '../components/CabecalhoTela';
+import AreaTeclado from '../components/AreaTeclado';
 
 // Tela "Colaboradores" (antiga "Faltas e Atestados") — Escala de Folgas +
 // Faltas/Atestados. Aberta pra QUALQUER colaborador logado, não só
@@ -448,7 +449,7 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
         transparent
         onRequestClose={() => setColaboradorAtivo(null)}
       >
-        <View style={styles.modalFundo}>
+        <AreaTeclado style={styles.modalFundo}>
           <View style={styles.modalCartao}>
             <ScrollView contentContainerStyle={{ padding: spacing.xl }} keyboardShouldPersistTaps="handled">
               {colaboradorAtivo && (
@@ -544,7 +545,7 @@ export default function EscalaFaltaAtestadoScreen({ onVoltar }: { onVoltar: () =
               )}
             </ScrollView>
           </View>
-        </View>
+        </AreaTeclado>
       </Modal>
     </View>
   );

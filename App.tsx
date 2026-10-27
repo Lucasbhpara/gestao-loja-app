@@ -20,6 +20,7 @@ import { ehSupervisor } from './src/data/visitaSupervisorApi';
 import JornalOfertasFlutuante from './src/components/JornalOfertasFlutuante';
 import Rodape from './src/components/Rodape';
 import LimiteDeErro from './src/components/LimiteDeErro';
+import AreaTeclado from './src/components/AreaTeclado';
 import { colors } from './src/theme/colors';
 
 type TelaPublica = 'login' | 'recuperarSenha';
@@ -160,9 +161,10 @@ function AppInterno() {
   return (
     <>
       <StatusBar style={tocandoIntro ? 'light' : 'dark'} />
-      <View style={{ flex: 1 }}>
+      {/* AreaTeclado: o teclado não cobre mais os campos (Android de ponta a ponta) */}
+      <AreaTeclado>
         <LimiteDeErro>{conteudo}</LimiteDeErro>
-      </View>
+      </AreaTeclado>
     </>
   );
 }

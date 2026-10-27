@@ -15,6 +15,7 @@ import {
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
+import { supabase } from '../lib/supabase';
 import {
   AjusteEstoque,
   MOTIVOS_AJUSTE,
@@ -54,6 +55,7 @@ import {
   resumir,
   salvarOcultos,
 } from '../data/giroApi';
+import AreaTeclado from '../components/AreaTeclado';
 
 // Giro de Produtos: já abre com a lista de produtos sem venda/parados, do
 // maior estoque pro menor. O botão "Filtro" vai afunilando: setor → subsetor
@@ -126,6 +128,35 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
     setContada(a ? String(a.quantidadeContada).replace('.', ',') : '');
     setMotivo(a?.motivo ?? MOTIVOS_AJUSTE[0]);
     setObs(a?.observacao ?? '');
+  }
+
+  // --- Gaveta do produto (toque em qualquer produto, em qualquer aba) -------
+  const [detalhe, setDetalhe] = useState<ProdutoGiro | null>(null);
+  const [detalheExtra, setDetalheExtra] = useState<{ barras: string[]; preco: number | null } | null>(null);
+
+  function abrirDetalhe(codigo: string) {
+    const p = base?.produtos.find((x) => x.codigo === codigo);
+    if (!p) {
+      Alert.alert('Produto', base ? 'Não achei esse produto na base do Giro.' : 'Aguarde a lista de produtos terminar de carregar.');
+      return;
+    }
+    setDetalhe(p);
+    setDetalheExtra(null);
+    Promise.all([
+      supabase.from('estoque_loja_itens').select('codigo_barras,preco_venda').eq('codigo_interno', codigo),
+      supabase.from('produtos_catalogo').select('codigo_barras').eq('codigo_interno', codigo),
+    ])
+      .then(([e, c]) => {
+        const barras = new Set<string>();
+        let preco: number | null = null;
+        ((e.data as any[]) || []).forEach((x) => {
+          if (x.codigo_barras) barras.add(String(x.codigo_barras));
+          if (Number(x.preco_venda) > 0) preco = Number(x.preco_venda);
+        });
+        ((c.data as any[]) || []).forEach((x) => x.codigo_barras && barras.add(String(x.codigo_barras)));
+        setDetalheExtra({ barras: [...barras], preco });
+      })
+      .catch(() => setDetalheExtra({ barras: [], preco: null }));
   }
 
   async function salvarAjusteAtual() {
@@ -228,6 +259,10 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
 
   useEffect(() => {
     const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+      if (detalhe) {
+        setDetalhe(null);
+        return true;
+      }
       if (filtroAberto) {
         setFiltroAberto(false);
         return true;
@@ -236,7 +271,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
       return true;
     });
     return () => sub.remove();
-  }, [filtroAberto, onVoltar]);
+  }, [filtroAberto, onVoltar, detalhe]);
 
   function escolher(nivelIdx: number, valor: string) {
     setCaminho((c) => (c[nivelIdx] === valor ? c.slice(0, nivelIdx) : [...c.slice(0, nivelIdx), valor]));
@@ -432,7 +467,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                   </View>
                 ) : (
                   chegados.slice(0, limite).map((c) => (
-                    <View key={c.codigo} style={styles.prodCard}>
+                    <TouchableOpacity key={c.codigo} style={styles.prodCard} activeOpacity={0.85} onPress={() => abrirDetalhe(c.codigo)}>
                       <View style={styles.prodTopo}>
                         <Text style={styles.prodNome}>{c.nome}</Text>
                         <View style={[styles.pill, { backgroundColor: c.tipo === 'apareceu' ? '#E3ECFF' : '#EEF1F6' }]}>
@@ -465,7 +500,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                       {!c.vendasAtualizadas ? (
                         <Text style={styles.ajustePendente}>⏳ As vendas desde a chegada ainda não foram importadas — confira de novo depois da próxima importação.</Text>
                       ) : null}
-                    </View>
+                    </TouchableOpacity>
                   ))
                 )}
                 {chegados.length > limite && (
@@ -510,7 +545,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                 {ajustes.map((a) => {
                   const dif = diferencaAjuste(a);
                   return (
-                    <View key={a.id} style={[styles.prodCard, { marginTop: spacing.sm }]}>
+                    <TouchableOpacity key={a.id} style={[styles.prodCard, { marginTop: spacing.sm }]} activeOpacity={0.85} onPress={() => abrirDetalhe(a.codigoProduto)}>
                       <View style={styles.prodTopo}>
                         <Text style={styles.prodNome}>{a.produto}</Text>
                         <TouchableOpacity onPress={() => removerAjuste(a)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -541,7 +576,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                         </View>
                       </View>
                       {a.observacao ? <Text style={[styles.prodMeta, { marginTop: 6 }]}>{a.observacao}</Text> : null}
-                    </View>
+                    </TouchableOpacity>
                   );
                 })}
               </>
@@ -668,7 +703,12 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
               produtos.slice(0, limite).map((p) => {
                 const oculto = p.ocultoPorSetor || ocultos.has(p.codigo);
                 return (
-                  <View key={p.codigo} style={[styles.prodCard, oculto && { opacity: 0.55 }]}>
+                  <TouchableOpacity
+                    key={p.codigo}
+                    style={[styles.prodCard, oculto && { opacity: 0.55 }]}
+                    activeOpacity={0.85}
+                    onPress={() => abrirDetalhe(p.codigo)}
+                  >
                     <View style={styles.prodTopo}>
                       <Text style={styles.prodNome}>{p.nome}</Text>
                       {ehSemVenda(p) ? (
@@ -717,7 +757,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                         <Text style={styles.ocultarTexto}>{oculto ? 'Voltar a mostrar' : 'Ocultar (insumo / não é de venda)'}</Text>
                       </TouchableOpacity>
                     )}
-                  </View>
+                  </TouchableOpacity>
                 );
               })
             )}
@@ -730,9 +770,121 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
         )}
       </ScrollView>
 
+      {/* Gaveta do produto */}
+      <Modal visible={!!detalhe} transparent animationType="slide" onRequestClose={() => setDetalhe(null)}>
+        <View style={styles.modalFundo}>
+          <TouchableOpacity style={{ flex: 1 }} onPress={() => setDetalhe(null)} />
+          <View style={styles.folha}>
+            <View style={styles.folhaAlca} />
+            {detalhe ? (
+              <ScrollView style={{ maxHeight: 600 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'flex-start', gap: spacing.md }}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.folhaTitulo}>{detalhe.nome}</Text>
+                    <Text style={[styles.prodMeta, { marginTop: 4 }]}>
+                      {nomeBonito(detalhe.setor)} › {nomeBonito(detalhe.subsetor)} › {nomeBonito(detalhe.categoria)} › {nomeBonito(detalhe.subcategoria)}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.lapis}
+                    onPress={() => {
+                      const p = detalhe;
+                      setDetalhe(null);
+                      setTimeout(() => abrirAjuste(p), 250);
+                    }}
+                    hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                  >
+                    <Feather name="edit-2" size={18} color={colors.white} />
+                  </TouchableOpacity>
+                </View>
+
+                <View style={styles.detalheCodigos}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.prodNumRotulo}>Código interno</Text>
+                    <Text style={styles.detalheCodigo} selectable>{detalhe.codigo}</Text>
+                  </View>
+                  <View style={{ flex: 1.6 }}>
+                    <Text style={styles.prodNumRotulo}>Código de barras</Text>
+                    {detalheExtra === null ? (
+                      <ActivityIndicator size="small" color={colors.navy700} style={{ alignSelf: 'flex-start', marginTop: 4 }} />
+                    ) : detalheExtra.barras.length ? (
+                      detalheExtra.barras.map((b) => (
+                        <Text key={b} style={styles.detalheCodigo} selectable>{b}</Text>
+                      ))
+                    ) : (
+                      <Text style={styles.prodMeta}>não cadastrado</Text>
+                    )}
+                  </View>
+                </View>
+
+                <View style={[styles.prodNumeros, { marginTop: spacing.md }]}>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Estoque</Text>
+                    <Text style={[styles.prodNumValor, { fontSize: 17, color: detalhe.estoque < 0 ? colors.red500 : '#0E1B2C' }]}>{fmtQtd(detalhe.estoque)}</Text>
+                  </View>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Dias sem venda</Text>
+                    <Text style={[styles.prodNumValor, { fontSize: 17, color: ehSemVenda(detalhe) ? colors.red500 : '#B4650E' }]}>{diasSemVendaTexto(detalhe, base)}</Text>
+                  </View>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Última venda</Text>
+                    <Text style={[styles.prodNumValor, { fontSize: 15 }]}>{detalhe.ultimaVenda ? formatarDataCurta(detalhe.ultimaVenda) : 'nenhuma'}</Text>
+                  </View>
+                </View>
+                <View style={[styles.prodNumeros, { marginTop: spacing.sm }]}>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Venda no período</Text>
+                    <Text style={styles.prodNumValor}>{formatarReais(detalhe.vendaPeriodo)}</Text>
+                  </View>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Dias com venda</Text>
+                    <Text style={styles.prodNumValor}>{detalhe.diasComVenda}</Text>
+                  </View>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Preço de venda</Text>
+                    <Text style={styles.prodNumValor}>{detalheExtra?.preco ? formatarReais(detalheExtra.preco) : '—'}</Text>
+                  </View>
+                </View>
+                <View style={[styles.prodNumeros, { marginTop: spacing.sm }]}>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Custo médio</Text>
+                    <Text style={styles.prodNumValor}>{detalhe.custoMedio ? formatarReais(detalhe.custoMedio) : '—'}</Text>
+                  </View>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>Estoque no custo</Text>
+                    <Text style={styles.prodNumValor}>{formatarReais(detalhe.estoque * (detalhe.custoMedio || 0))}</Text>
+                  </View>
+                  <View style={styles.prodNum}>
+                    <Text style={styles.prodNumRotulo}>No sistema</Text>
+                    <Text style={styles.prodNumValor}>{fmtQtd(detalhe.estoqueSistema)}</Text>
+                  </View>
+                </View>
+                {detalhe.ajustePaiFilho ? <Text style={[styles.ajusteTexto, { marginTop: spacing.sm }]}>🔗 {detalhe.ajustePaiFilho}</Text> : null}
+                {ajustePorCodigo.get(detalhe.codigo) ? (
+                  <Text style={[styles.ajustePendente, { marginTop: spacing.sm }]}>
+                    📝 Ajuste pendente: contado {fmtQtd(ajustePorCodigo.get(detalhe.codigo)!.quantidadeContada)} ({formatarReais(valorAjuste(ajustePorCodigo.get(detalhe.codigo)!))})
+                  </Text>
+                ) : null}
+                <TouchableOpacity
+                  style={[styles.verBotao, { flexDirection: 'row', justifyContent: 'center', gap: 8 }]}
+                  onPress={() => {
+                    const p = detalhe;
+                    setDetalhe(null);
+                    setTimeout(() => abrirAjuste(p), 250);
+                  }}
+                >
+                  <Feather name="edit-2" size={16} color={colors.white} />
+                  <Text style={styles.verTexto}>{ajustePorCodigo.get(detalhe.codigo) ? 'Editar ajuste' : 'Ajustar estoque'}</Text>
+                </TouchableOpacity>
+              </ScrollView>
+            ) : null}
+          </View>
+        </View>
+      </Modal>
+
       {/* Ajustar estoque de um produto */}
       <Modal visible={!!editando} transparent animationType="slide" onRequestClose={() => setEditando(null)}>
-        <View style={styles.modalFundo}>
+        <AreaTeclado style={styles.modalFundo}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setEditando(null)} />
           <View style={styles.folha}>
             <View style={styles.folhaAlca} />
@@ -799,12 +951,12 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
               </ScrollView>
             ) : null}
           </View>
-        </View>
+        </AreaTeclado>
       </Modal>
 
       {/* Painel de filtro */}
       <Modal visible={filtroAberto} transparent animationType="slide" onRequestClose={() => setFiltroAberto(false)}>
-        <View style={styles.modalFundo}>
+        <AreaTeclado style={styles.modalFundo}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setFiltroAberto(false)} />
           <View style={styles.folha}>
             <View style={styles.folhaAlca} />
@@ -869,7 +1021,7 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
               <Text style={styles.verTexto}>Ver {produtos.length.toLocaleString('pt-BR')} produtos</Text>
             </TouchableOpacity>
           </View>
-        </View>
+        </AreaTeclado>
       </Modal>
     </View>
   );
@@ -877,6 +1029,9 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.gray50 },
+  lapis: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.navy700, alignItems: 'center', justifyContent: 'center' },
+  detalheCodigos: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.gray50 },
+  detalheCodigo: { fontSize: 15, fontWeight: '700', color: '#0E1B2C', marginTop: 2, letterSpacing: 0.5 },
   chipNegativo: {
     flexDirection: 'row',
     alignItems: 'center',

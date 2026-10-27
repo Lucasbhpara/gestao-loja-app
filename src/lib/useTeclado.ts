@@ -37,8 +37,9 @@ export function useTeclado() {
     setTimeout(() => scrollRef.current?.scrollToEnd({ animated: true }), 300);
   }
 
-  // No iOS o KeyboardAvoidingView já empurra a tela; o espaço extra é só pro Android.
-  const espacoExtra = Platform.OS === 'android' ? altura : 0;
+  // O espaço do teclado agora é dado pela AreaTeclado na raiz do app (App.tsx)
+  // nas duas plataformas; aqui não precisa mais somar espaço extra.
+  const espacoExtra = 0;
 
   return { scrollRef, focarNoFim, espacoExtra, aberto: altura > 0 };
 }

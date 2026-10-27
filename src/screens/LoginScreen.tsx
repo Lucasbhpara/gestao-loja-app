@@ -15,6 +15,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Feather } from '@expo/vector-icons';
 import { useAuth } from '../context/AuthContext';
+import AreaTeclado from '../components/AreaTeclado';
 
 // Tela de entrada no visual do ULVA 2.0: fundo azul-marinho com o "U" da
 // logo nova grande ao fundo. "Lembrar meu login" guarda nome e senha neste
@@ -142,7 +143,7 @@ export default function LoginScreen({ onIrParaRecuperarSenha }: Props) {
         </View>
       </View>
 
-      <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <AreaTeclado style={styles.flex}>
         <ScrollView contentContainerStyle={styles.container} keyboardShouldPersistTaps="handled">
           <View style={styles.marca}>
             <View style={styles.iconeLogo}>
@@ -207,7 +208,7 @@ export default function LoginScreen({ onIrParaRecuperarSenha }: Props) {
 
           <Text style={styles.assinatura}>Idealizado por Lucas Alberto</Text>
         </ScrollView>
-      </KeyboardAvoidingView>
+      </AreaTeclado>
     </View>
   );
 }

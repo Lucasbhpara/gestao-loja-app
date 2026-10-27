@@ -43,6 +43,7 @@ import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
 import { Tarefa } from '../data/tarefasApi';
 import { useTeclado } from '../lib/useTeclado';
 import { pegarLocalizacaoSegura } from '../lib/localizacao';
+import AreaTeclado from '../components/AreaTeclado';
 
 // =============================================================================
 // Checklist de Setor — avaliação de conformidade feita pela gerência, setor
@@ -654,7 +655,7 @@ function FormularioAvaliacao({
   }
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <AreaTeclado style={styles.flex}>
       <View style={styles.formHeader}>
         <TouchableOpacity onPress={onVoltar} style={styles.formVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }}>
           <Feather name="chevron-left" size={20} color={colors.navy700} />
@@ -814,7 +815,7 @@ function FormularioAvaliacao({
           </View>
         </>
       )}
-    </KeyboardAvoidingView>
+    </AreaTeclado>
   );
 }
 
