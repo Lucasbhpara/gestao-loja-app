@@ -17,6 +17,7 @@ import {
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import AreaTeclado from '../../components/AreaTeclado';
 
 // Visual da Confeitaria: creme + rosa, cantos bem arredondados.
 export const C = {
@@ -149,7 +150,7 @@ export function Folha({ visivel, titulo, onFechar, children, rodape }: { visivel
   const topo = Platform.OS === 'android' ? (StatusBar.currentHeight ?? 24) + 8 : 50;
   return (
     <Modal visible={visivel} animationType="slide" onRequestClose={onFechar}>
-      <KeyboardAvoidingView style={{ flex: 1, backgroundColor: C.fundo }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+      <AreaTeclado style={{ flex: 1, backgroundColor: C.fundo }}>
         <View style={[s.folhaTopo, { paddingTop: topo }]}>
           <Text style={s.folhaTitulo} numberOfLines={1}>
             {titulo}
@@ -162,7 +163,7 @@ export function Folha({ visivel, titulo, onFechar, children, rodape }: { visivel
           {children}
         </ScrollView>
         {rodape ? <View style={s.folhaRodape}>{rodape}</View> : null}
-      </KeyboardAvoidingView>
+      </AreaTeclado>
     </Modal>
   );
 }

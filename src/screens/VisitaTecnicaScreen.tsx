@@ -65,6 +65,7 @@ import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
 import { Tarefa } from '../data/tarefasApi';
 import { useTeclado } from '../lib/useTeclado';
 import { pegarLocalizacaoSegura } from '../lib/localizacao';
+import AreaTeclado from '../components/AreaTeclado';
 
 // =============================================================================
 // Visita Técnica — checklist do Técnico Veterinário (ver visitaTecnicaApi.ts
@@ -250,7 +251,7 @@ function EscolherUnidade({
   }
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <AreaTeclado style={styles.flex}>
       <ScrollView style={styles.flex} contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
         <View style={[styles.hero, styles.heroUnidade]}>
           <View style={styles.heroBarra}>
@@ -319,7 +320,7 @@ function EscolherUnidade({
           </View>
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </AreaTeclado>
   );
 }
 
@@ -1032,7 +1033,7 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
   }
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <AreaTeclado style={styles.flex}>
       <View style={styles.formHeader}>
         <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} style={styles.formVoltar}>
           <Feather name="chevron-left" size={20} color={colors.navy700} />
@@ -1227,7 +1228,7 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
           </Text>
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+    </AreaTeclado>
   );
 }
 

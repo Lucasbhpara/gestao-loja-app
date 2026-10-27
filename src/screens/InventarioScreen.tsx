@@ -31,6 +31,7 @@ import {
 import { exportarContagemXlsx } from '../lib/exportarPlanilha';
 import { camaraDisponivel } from '../lib/plataforma';
 import CabecalhoTela from '../components/CabecalhoTela';
+import AreaTeclado from '../components/AreaTeclado';
 
 type Area = 'venda' | 'deposito';
 type Modo = 'pessoa' | 'sortimento' | 'contagem' | 'scanner' | 'comparar';
@@ -529,7 +530,7 @@ export default function InventarioScreen({ onVoltar }: { onVoltar: () => void })
   const listaAtual = area === 'venda' ? itensVenda : itensDeposito;
 
   return (
-    <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <AreaTeclado style={styles.flex}>
       <CabecalhoTela
         titulo={<>{nomeDoSortimento(sortimento)} · {pessoaNome}</>}
         icone="package"
@@ -706,7 +707,7 @@ export default function InventarioScreen({ onVoltar }: { onVoltar: () => void })
           </View>
         </View>
       )}
-    </KeyboardAvoidingView>
+    </AreaTeclado>
   );
 }
 

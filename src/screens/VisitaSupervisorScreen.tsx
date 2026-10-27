@@ -35,6 +35,7 @@ import {
   salvarItemSup,
 } from '../data/visitaSupervisorApi';
 import { compartilharVisitaSup } from '../lib/visitaSupervisorPdf';
+import AreaTeclado from '../components/AreaTeclado';
 
 // =============================================================================
 // Visita Supervisor — o supervisor (ou a gerência) registra, setor por setor
@@ -209,7 +210,7 @@ function ListaVisitas({
   }
 
   return (
-    <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <AreaTeclado style={s.flex}>
       <ScrollView
         style={s.flex}
         contentContainerStyle={{ paddingBottom: 48 }}
@@ -305,7 +306,7 @@ function ListaVisitas({
           )}
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </AreaTeclado>
   );
 }
 
@@ -490,7 +491,7 @@ function TelaVisita({
   }
 
   return (
-    <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <AreaTeclado style={s.flex}>
       <ScrollView style={s.flex} contentContainerStyle={{ paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
         <View style={s.topo}>
           <TouchableOpacity style={s.voltar} onPress={onVoltar} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -634,7 +635,7 @@ function TelaVisita({
           )}
         </View>
       </ScrollView>
-    </KeyboardAvoidingView>
+    </AreaTeclado>
   );
 }
 

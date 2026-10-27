@@ -13,6 +13,7 @@ import {
 import { colors, radius, spacing } from '../theme/colors';
 import { ANTHROPIC_API_KEY, ANTHROPIC_MODEL } from '../config/aiConfig';
 import CabecalhoTela from '../components/CabecalhoTela';
+import AreaTeclado from '../components/AreaTeclado';
 
 interface Mensagem {
   id: string;
@@ -105,9 +106,8 @@ export default function ChatIAScreen({ onVoltar }: { onVoltar: () => void }) {
   }
 
   return (
-    <KeyboardAvoidingView
+    <AreaTeclado
       style={styles.flex}
-      behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       keyboardVerticalOffset={Platform.OS === 'ios' ? 60 : 0}
     >
       <CabecalhoTela
@@ -176,7 +176,7 @@ export default function ChatIAScreen({ onVoltar }: { onVoltar: () => void }) {
           <Text style={styles.enviarBtnTexto}>Enviar</Text>
         </TouchableOpacity>
       </View>
-    </KeyboardAvoidingView>
+    </AreaTeclado>
   );
 }
 

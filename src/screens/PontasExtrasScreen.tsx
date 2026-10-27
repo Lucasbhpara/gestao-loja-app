@@ -30,6 +30,7 @@ import {
   enviarFotoProdutoPonta,
 } from '../data/pontasExtrasApi';
 import CabecalhoTela from '../components/CabecalhoTela';
+import AreaTeclado from '../components/AreaTeclado';
 
 // Pontas e Pontos Extras: diferente do Mapa da Loja (que mostra ONDE cada
 // ponta fica), aqui mostra O QUE está montado em cada uma agora — até 4
@@ -306,7 +307,7 @@ function ModalNovaPonta({
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onFechar}>
-      <View style={styles.modalFundo}>
+      <AreaTeclado style={styles.modalFundo}>
         <View style={styles.modalCaixa}>
           <Text style={styles.modalTitulo}>Nova ponta</Text>
           <Text style={styles.modalLabel}>Nome</Text>
@@ -338,7 +339,7 @@ function ModalNovaPonta({
             </TouchableOpacity>
           </View>
         </View>
-      </View>
+      </AreaTeclado>
     </Modal>
   );
 }
@@ -391,7 +392,7 @@ function ModalEditarPonta({
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onFechar}>
-      <View style={styles.modalFundo}>
+      <AreaTeclado style={styles.modalFundo}>
         <View style={styles.modalCaixa}>
           <Text style={styles.modalTitulo}>Editar ponta</Text>
           <Text style={styles.modalLabel}>Nome</Text>
@@ -415,7 +416,7 @@ function ModalEditarPonta({
             <Text style={styles.modalExcluirTexto}>Remover esta ponta</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </AreaTeclado>
     </Modal>
   );
 }
@@ -515,7 +516,7 @@ function ModalEditarProduto({
 
   return (
     <Modal visible animationType="slide" transparent onRequestClose={onFechar}>
-      <View style={styles.modalFundo}>
+      <AreaTeclado style={styles.modalFundo}>
         <View style={styles.modalCaixa}>
           <Text style={styles.modalTitulo}>Editar produto</Text>
 
@@ -563,7 +564,7 @@ function ModalEditarProduto({
             <Text style={styles.modalExcluirTexto}>Remover este produto</Text>
           </TouchableOpacity>
         </View>
-      </View>
+      </AreaTeclado>
     </Modal>
   );
 }

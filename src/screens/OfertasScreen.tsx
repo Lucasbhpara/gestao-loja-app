@@ -65,6 +65,7 @@ import {
   dataBrCurta,
   reais,
 } from '../data/ofertasApi';
+import AreaTeclado from '../components/AreaTeclado';
 
 // =============================================================================
 // Ofertas no WhatsApp: monta a oferta, gera a imagem no padrão da loja e abre
@@ -987,7 +988,7 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
 
       {/* ----------------------------------------------------------- Editor */}
       <Modal visible={!!rascunho} transparent animationType="slide" onRequestClose={() => setRascunho(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalFundo}>
+        <AreaTeclado  style={styles.modalFundo}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setRascunho(null)} />
           <View style={styles.folha}>
             <View style={styles.folhaAlca} />
@@ -1171,12 +1172,12 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
               </ScrollView>
             ) : null}
           </View>
-        </KeyboardAvoidingView>
+        </AreaTeclado>
       </Modal>
 
       {/* ----------------------------------------------------------- Reprovar */}
       <Modal visible={!!reprovando} transparent animationType="slide" onRequestClose={() => setReprovando(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalFundo}>
+        <AreaTeclado  style={styles.modalFundo}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setReprovando(null)} />
           <View style={styles.folha}>
             <View style={styles.folhaAlca} />
@@ -1204,12 +1205,12 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
               <Text style={styles.btnGrandeTexto}>Reprovar</Text>
             </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+        </AreaTeclado>
       </Modal>
 
       {/* ----------------------------------------------------------- Lápis do preço */}
       <Modal visible={!!editPreco} transparent animationType="slide" onRequestClose={() => setEditPreco(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalFundo}>
+        <AreaTeclado  style={styles.modalFundo}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setEditPreco(null)} />
           <View style={styles.folha}>
             <View style={styles.folhaAlca} />
@@ -1247,12 +1248,12 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
               <Text style={styles.btnGrandeTexto}>Salvar preço</Text>
             </TouchableOpacity>
           </View>
-        </KeyboardAvoidingView>
+        </AreaTeclado>
       </Modal>
 
       {/* ----------------------------------------------------------- Agenda */}
       <Modal visible={!!editAgenda} transparent animationType="slide" onRequestClose={() => setEditAgenda(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalFundo}>
+        <AreaTeclado  style={styles.modalFundo}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setEditAgenda(null)} />
           <View style={styles.folha}>
             <View style={styles.folhaAlca} />
@@ -1317,7 +1318,7 @@ export default function OfertasScreen({ onVoltar }: { onVoltar: () => void }) {
               </ScrollView>
             ) : null}
           </View>
-        </KeyboardAvoidingView>
+        </AreaTeclado>
       </Modal>
 
       {/* ----------------------------------------------------------- Prévia */}

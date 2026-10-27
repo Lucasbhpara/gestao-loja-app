@@ -34,6 +34,7 @@ import {
   formatarDataHora,
   nomeSetorPadrao,
 } from '../data/usoConsumoApi';
+import AreaTeclado from '../components/AreaTeclado';
 
 // Uso e Consumo: qualquer colaborador registra a retirada de material
 // (quem, setor, quantidade). Administrador também conta o estoque, cadastra
@@ -450,7 +451,7 @@ export default function UsoConsumoScreen({ onVoltar }: { onVoltar: () => void })
 
       {/* Retirada */}
       <Modal visible={!!retirando} transparent animationType="slide" onRequestClose={() => setRetirando(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalFundo}>
+        <AreaTeclado  style={styles.modalFundo}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setRetirando(null)} />
           <View style={styles.folha}>
             <View style={styles.folhaAlca} />
@@ -495,12 +496,12 @@ export default function UsoConsumoScreen({ onVoltar }: { onVoltar: () => void })
               </ScrollView>
             ) : null}
           </View>
-        </KeyboardAvoidingView>
+        </AreaTeclado>
       </Modal>
 
       {/* Contagem */}
       <Modal visible={!!contando} transparent animationType="slide" onRequestClose={() => setContando(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalFundo}>
+        <AreaTeclado  style={styles.modalFundo}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setContando(null)} />
           <View style={styles.folha}>
             <View style={styles.folhaAlca} />
@@ -533,12 +534,12 @@ export default function UsoConsumoScreen({ onVoltar }: { onVoltar: () => void })
               </>
             ) : null}
           </View>
-        </KeyboardAvoidingView>
+        </AreaTeclado>
       </Modal>
 
       {/* Cadastro / edição de item */}
       <Modal visible={!!editando} transparent animationType="slide" onRequestClose={() => setEditando(null)}>
-        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.modalFundo}>
+        <AreaTeclado  style={styles.modalFundo}>
           <TouchableOpacity style={{ flex: 1 }} onPress={() => setEditando(null)} />
           <View style={styles.folha}>
             <View style={styles.folhaAlca} />
@@ -628,7 +629,7 @@ export default function UsoConsumoScreen({ onVoltar }: { onVoltar: () => void })
               </ScrollView>
             ) : null}
           </View>
-        </KeyboardAvoidingView>
+        </AreaTeclado>
       </Modal>
     </View>
   );
