@@ -16,6 +16,7 @@ import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import { supabase } from '../lib/supabase';
+import { FLAGS_GIRO, FlagGiro, NOME_SETOR_TAREFA, SituacaoProduto, desligarFlag, ligarFlag, listarSituacoes, setorDoProduto } from '../data/giroSituacaoApi';
 import {
   AjusteEstoque,
   MOTIVOS_AJUSTE,
@@ -128,6 +129,62 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
     setContada(a ? String(a.quantidadeContada).replace('.', ',') : '');
     setMotivo(a?.motivo ?? MOTIVOS_AJUSTE[0]);
     setObs(a?.observacao ?? '');
+  }
+
+  // --- Situação na loja (Área de venda / Depósito / Sem preço / Mal exposto) ---
+  const [situacoes, setSituacoes] = useState<Map<string, SituacaoProduto>>(new Map());
+  const [naAreaConfirmada, setNaAreaConfirmada] = useState<Set<string>>(new Set());
+  const [mudandoFlag, setMudandoFlag] = useState<string | null>(null);
+  useEffect(() => {
+    listarSituacoes().then(setSituacoes).catch(() => {});
+  }, []);
+
+  async function alternarFlag(p: ProdutoGiro, flag: FlagGiro) {
+    const atual = situacoes.get(p.codigo) ?? {};
+    const tarefaId = atual[flag];
+    setMudandoFlag(flag);
+    try {
+      const novo: SituacaoProduto = { ...atual };
+      if (tarefaId) {
+        await desligarFlag(tarefaId);
+        delete novo[flag];
+      } else {
+        novo[flag] = await ligarFlag(flag, p, detalheExtra?.barras ?? [], usuarioAtual?.nome ?? '');
+        if (flag === 'deposito') {
+          const conf = new Set(naAreaConfirmada);
+          conf.delete(p.codigo);
+          setNaAreaConfirmada(conf);
+        }
+      }
+      setSituacoes(new Map(situacoes).set(p.codigo, novo));
+    } catch (e: any) {
+      Alert.alert('Não consegui salvar', e?.message ?? 'Tente de novo.');
+    } finally {
+      setMudandoFlag(null);
+    }
+  }
+
+  // "Área de venda": confirma que está exposto e tira o "Depósito" (apaga a tarefa).
+  async function marcarAreaVenda(p: ProdutoGiro) {
+    const atual = situacoes.get(p.codigo) ?? {};
+    const conf = new Set(naAreaConfirmada);
+    if (atual.deposito) {
+      setMudandoFlag('area');
+      try {
+        await desligarFlag(atual.deposito);
+        const novo = { ...atual };
+        delete novo.deposito;
+        setSituacoes(new Map(situacoes).set(p.codigo, novo));
+      } catch (e: any) {
+        Alert.alert('Não consegui salvar', e?.message ?? 'Tente de novo.');
+        return;
+      } finally {
+        setMudandoFlag(null);
+      }
+      conf.add(p.codigo);
+    } else if (conf.has(p.codigo)) conf.delete(p.codigo);
+    else conf.add(p.codigo);
+    setNaAreaConfirmada(conf);
   }
 
   // --- Gaveta do produto (toque em qualquer produto, em qualquer aba) -------
@@ -740,6 +797,20 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                         <Text style={styles.prodNumValor}>{formatarReais(p.custoEstoque)}</Text>
                       </View>
                     </View>
+                    {(() => {
+                      const sit = situacoes.get(p.codigo);
+                      const ativos = sit ? (Object.keys(sit) as FlagGiro[]) : [];
+                      return ativos.length ? (
+                        <View style={styles.situacaoChips}>
+                          {ativos.map((f) => (
+                            <View key={f} style={styles.situacaoChip}>
+                              <Feather name={FLAGS_GIRO[f].icone as any} size={11} color="#B4650E" />
+                              <Text style={styles.situacaoChipTexto}>{FLAGS_GIRO[f].rotulo} · tarefa aberta</Text>
+                            </View>
+                          ))}
+                        </View>
+                      ) : null;
+                    })()}
                     {p.ajustePaiFilho ? <Text style={styles.ajusteTexto}>🔗 {p.ajustePaiFilho}</Text> : null}
                     {ajustePorCodigo.get(p.codigo) ? (
                       <Text style={styles.ajustePendente}>
@@ -859,6 +930,39 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
                     <Text style={styles.prodNumValor}>{fmtQtd(detalhe.estoqueSistema)}</Text>
                   </View>
                 </View>
+                <Text style={[styles.filtroRotulo, { marginTop: spacing.lg }]}>Onde está o produto?</Text>
+                <View style={styles.situacaoGrade}>
+                  {(() => {
+                    const sit = situacoes.get(detalhe.codigo) ?? {};
+                    const area = !sit.deposito && naAreaConfirmada.has(detalhe.codigo);
+                    const botoes: { chave: 'area' | FlagGiro; rotulo: string; icone: any; ativo: boolean; cor: string }[] = [
+                      { chave: 'area', rotulo: 'Área de venda', icone: 'shopping-cart', ativo: area, cor: colors.green500 },
+                      { chave: 'deposito', rotulo: FLAGS_GIRO.deposito.rotulo, icone: FLAGS_GIRO.deposito.icone, ativo: !!sit.deposito, cor: '#B4650E' },
+                      { chave: 'sem_preco', rotulo: FLAGS_GIRO.sem_preco.rotulo, icone: FLAGS_GIRO.sem_preco.icone, ativo: !!sit.sem_preco, cor: colors.red500 },
+                      { chave: 'mal_exposto', rotulo: FLAGS_GIRO.mal_exposto.rotulo, icone: FLAGS_GIRO.mal_exposto.icone, ativo: !!sit.mal_exposto, cor: colors.red500 },
+                    ];
+                    return botoes.map((b) => (
+                      <TouchableOpacity
+                        key={b.chave}
+                        disabled={mudandoFlag !== null}
+                        style={[styles.situacaoBotao, b.ativo && { backgroundColor: b.cor, borderColor: b.cor }]}
+                        onPress={() => (b.chave === 'area' ? marcarAreaVenda(detalhe) : alternarFlag(detalhe, b.chave))}
+                      >
+                        {mudandoFlag === b.chave ? (
+                          <ActivityIndicator size="small" color={b.ativo ? colors.white : colors.navy700} />
+                        ) : (
+                          <Feather name={b.ativo ? 'check-square' : 'square'} size={16} color={b.ativo ? colors.white : colors.gray600} />
+                        )}
+                        <Feather name={b.icone} size={15} color={b.ativo ? colors.white : colors.navy700} />
+                        <Text style={[styles.situacaoTexto, b.ativo && { color: colors.white }]}>{b.rotulo}</Text>
+                      </TouchableOpacity>
+                    ));
+                  })()}
+                </View>
+                <Text style={[styles.ajuda, { marginTop: 6 }]}>
+                  Depósito, Sem preço e Mal exposto criam na hora uma tarefa para o encarregado de{' '}
+                  {NOME_SETOR_TAREFA[setorDoProduto(detalhe.setor)] ?? 'Mercearia'}. Quando ele concluir, o botão desmarca sozinho. Tocar de novo apaga a tarefa.
+                </Text>
                 {detalhe.ajustePaiFilho ? <Text style={[styles.ajusteTexto, { marginTop: spacing.sm }]}>🔗 {detalhe.ajustePaiFilho}</Text> : null}
                 {ajustePorCodigo.get(detalhe.codigo) ? (
                   <Text style={[styles.ajustePendente, { marginTop: spacing.sm }]}>
@@ -1029,6 +1133,23 @@ export default function GiroProdutosScreen({ onVoltar }: { onVoltar: () => void 
 
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.gray50 },
+  situacaoGrade: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 6 },
+  situacaoBotao: {
+    width: '48%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 7,
+    paddingVertical: 11,
+    paddingHorizontal: 10,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.gray100,
+    backgroundColor: colors.white,
+  },
+  situacaoTexto: { fontSize: 13.5, fontWeight: '700', color: '#0E1B2C', flexShrink: 1 },
+  situacaoChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 6 },
+  situacaoChip: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: '#FBEBD4', borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3 },
+  situacaoChipTexto: { fontSize: 11, fontWeight: '700', color: '#B4650E' },
   lapis: { width: 40, height: 40, borderRadius: 20, backgroundColor: colors.navy700, alignItems: 'center', justifyContent: 'center' },
   detalheCodigos: { flexDirection: 'row', gap: spacing.md, marginTop: spacing.md, padding: spacing.md, borderRadius: radius.md, backgroundColor: colors.gray50 },
   detalheCodigo: { fontSize: 15, fontWeight: '700', color: '#0E1B2C', marginTop: 2, letterSpacing: 0.5 },

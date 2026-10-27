@@ -404,7 +404,7 @@ export default function HomeColaboradorScreen() {
               {t.setor && t.setor !== usuarioAtual.setor ? (
                 <Text style={styles.tarefaPrazo}>Setor: {setores.find((x) => x.key === t.setor)?.nome ?? t.setor}</Text>
               ) : null}
-              {!!t.descricao && <Text style={styles.tarefaDescricao}>{t.descricao}</Text>}
+              {!!t.descricao && <Text style={styles.tarefaDescricao}>{t.descricao.replace(/\n?ref giro:\S+/, '')}</Text>}
               {t.fotosReferencia?.length ? (
                 <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
                   {t.fotosReferencia.map((u) => (
