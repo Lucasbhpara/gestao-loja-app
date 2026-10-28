@@ -1,12 +1,12 @@
 import { supabase } from '../lib/supabase';
-import { carregarVendaDia, DadosVendaDia, somarDiasIso, nomeDia, diaMesCurto, reais } from './vendaDiaApi';
-import { carregarResumoMeta, ResumoMeta } from './metaVendaApi';
+import { carregarVendaDia, DadosVendaDia, somarDiasIso, nomeDia, diaMesCurto, reais, limitesVendas } from './vendaDiaApi';
+import { carregarResumoMeta, ResumoMeta, metaDoDia } from './metaVendaApi';
 
 // =============================================================================
 // Relatório diário (só do Lucas): abre pela notificação depois que as vendas
-// sobem e vira um PDF para mandar no WhatsApp.
-//   • Venda do dia anterior (total e por setor)
-//   • Meta do dia e do mês
+// sobem e vira um PDF para mandar no WhatsApp. É o relatório de HOJE:
+//   • ONTEM: venda (total e por setor), se bateu a meta de ontem, mês
+//   • HOJE: meta de hoje (e quanto precisa por dia para o mês)
 //   • Colaboradores de folga/falta/atestado HOJE, por setor
 //   • Quebra por setor (valor e % sobre a venda) — o relatório de perdas é
 //     importado acumulado do mês, então mostramos o acumulado até a data dele
@@ -18,9 +18,10 @@ export type SetorQuebra = { setor: string; perdido: number; vendido: number; pct
 
 export type RelatorioDiario = {
   diaVenda: string;
-  diaFolgas: string;
+  diaFolgas: string; // = hoje (dia seguinte ao da venda)
   venda: DadosVendaDia;
-  meta: ResumoMeta | null;
+  meta: ResumoMeta | null; // meta de ONTEM (dia da venda) e do mês
+  metaHoje: number | null;
   folgas: SetorFolga[];
   totalFora: number;
   quebras: { ini: string; fim: string; setores: SetorQuebra[]; perdido: number; vendido: number } | null;
@@ -112,11 +113,14 @@ async function quebrasPorSetor(): Promise<RelatorioDiario['quebras']> {
 
 // diaVenda: dia das vendas (padrão: o último dia com venda subida).
 export async function carregarRelatorioDiario(diaVenda: string | null, forcar = false): Promise<RelatorioDiario | null> {
+  // Sempre confere o último dia com venda (o app pode estar aberto desde ontem).
+  await limitesVendas(true).catch(() => null);
   const venda = await carregarVendaDia(diaVenda, forcar);
   if (!venda) return null;
   const diaFolgas = somarDiasIso(venda.dia, 1);
-  const [meta, folgas, quebras] = await Promise.all([
+  const [meta, metaHoje, folgas, quebras] = await Promise.all([
     carregarResumoMeta(venda.dia, venda.total, forcar).catch(() => null),
+    metaDoDia(diaFolgas, forcar).catch(() => null),
     folgasDoDia(diaFolgas).catch(() => [] as SetorFolga[]),
     quebrasPorSetor().catch(() => null),
   ]);
@@ -125,6 +129,7 @@ export async function carregarRelatorioDiario(diaVenda: string | null, forcar = 
     diaFolgas,
     venda,
     meta,
+    metaHoje,
     folgas,
     totalFora: folgas.reduce((a, s) => a + s.pessoas.length, 0),
     quebras,
@@ -143,14 +148,23 @@ export function htmlRelatorioDiario(r: RelatorioDiario): string {
 
   const cardMetaDia =
     m && m.metaDia != null && m.pctDia != null
-      ? `<div class="card"><div class="r">Meta do dia</div><div class="v" style="color:${m.pctDia >= 100 ? '#1E8E5A' : '#C0392B'}">${pct(m.pctDia)}</div>${barra(m.pctDia)}
+      ? `<div class="card"><div class="r">Meta de ontem</div><div class="v" style="color:${m.pctDia >= 100 ? '#1E8E5A' : '#C0392B'}">${pct(m.pctDia)}</div>${barra(m.pctDia)}
          <div class="l">${reais(m.vendaDia, 0)} de ${reais(m.metaDia, 0)} · ${m.pctDia >= 100 ? '<b style="color:#1E8E5A">bateu (+' + reais(m.vendaDia - m.metaDia, 0) + ')</b>' : '<b style="color:#C0392B">faltou ' + reais(m.metaDia - m.vendaDia, 0) + '</b>'}</div></div>`
-      : `<div class="card"><div class="r">Meta do dia</div><div class="v" style="font-size:15px">sem meta cadastrada</div></div>`;
+      : `<div class="card"><div class="r">Meta de ontem</div><div class="v" style="font-size:15px">sem meta cadastrada</div></div>`;
   const cardMetaMes =
     m && m.temMes
-      ? `<div class="card"><div class="r">Meta do mês</div><div class="v">${pct(m.pctMes)}</div>${barra(m.pctMes)}
+      ? `<div class="card"><div class="r">Mês até ontem</div><div class="v">${pct(m.pctMes)}</div>${barra(m.pctMes)}
          <div class="l">${reais(m.vendaMes, 0)} de ${reais(m.metaMes, 0)}${m.faltaMes > 0 ? ' · falta ' + reais(m.faltaMes, 0) + (m.precisaPorDia != null ? ` (${reais(m.precisaPorDia, 0)}/dia em ${m.diasRestantes} dias)` : '') : ' · meta batida!'}</div></div>`
       : '';
+
+  const mh = r.metaHoje;
+  const cardMetaHoje = `<div class="card hoje"><div class="r">Meta de hoje · ${diaMesCurto(r.diaFolgas)}</div><div class="v">${mh != null ? reais(mh, 0) : '<span style="font-size:15px">sem meta cadastrada</span>'}</div>${
+    m && m.temMes && m.faltaMes > 0 && m.precisaPorDia != null
+      ? `<div class="l">Para fechar o mês: <b>${reais(m.precisaPorDia, 0)}/dia</b> nos ${m.diasRestantes} dias que faltam (falta ${reais(m.faltaMes, 0)})</div>`
+      : m && m.temMes && m.faltaMes <= 0
+        ? '<div class="l"><b style="color:#1E8E5A">Meta do mês já batida!</b></div>'
+        : ''
+  }</div>`;
 
   const setoresVenda = v.setores
     .map((s) => {
@@ -184,22 +198,26 @@ export function htmlRelatorioDiario(r: RelatorioDiario): string {
   const logo =
     '<svg width="34" height="34" viewBox="0 0 160 160"><rect width="160" height="160" rx="36" fill="#0E1B2C"/><path d="M42 36 V84 A38 38 0 0 0 118 84 V36" fill="none" stroke="#F4F5F7" stroke-width="20" stroke-linecap="round"/><circle cx="80" cy="74" r="15" fill="#2F7BFF"/></svg>';
 
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório diário ${diaMesCurto(r.diaVenda)}</title><style>
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório diário ${diaMesCurto(r.diaFolgas)}</title><style>
 @page{size:A4;margin:10mm}*{box-sizing:border-box}body{font-family:Arial,Helvetica,sans-serif;color:#0E1B2C;margin:0;font-size:10.5px}
 .topo{display:flex;align-items:center;gap:12px;border-bottom:3px solid #0E1B2C;padding-bottom:10px;margin-bottom:12px}.topo h1{font-size:20px;margin:0}.topo .s{color:#5B6577;font-size:12px;margin-top:2px}
 .cards{display:flex;gap:10px;margin-bottom:10px}.card{flex:1;border:1px solid #D5DBE5;border-radius:10px;padding:10px 12px}.card .r{font-size:10px;color:#5B6577;text-transform:uppercase;letter-spacing:.04em;font-weight:700}.card .v{font-size:20px;font-weight:800;margin-top:4px}.card .l{font-size:10px;color:#5B6577;margin-top:4px}
 .trilho{height:7px;background:#EEF1F6;border-radius:4px;margin-top:6px;overflow:hidden}.trilho div{height:100%}
 h2{font-size:13px;margin:14px 0 5px}table{width:100%;border-collapse:collapse}th{text-align:left;font-size:9px;text-transform:uppercase;color:#5B6577;border-bottom:1.5px solid #0E1B2C;padding:4px 5px}td{padding:4px 5px;border-bottom:1px solid #E4E8EF;vertical-align:top}tr{page-break-inside:avoid}.n{text-align:right;white-space:nowrap}.sub{color:#5B6577;font-size:9.5px}
 .tot td{font-weight:800;border-top:1.5px solid #0E1B2C}.tag{font-size:8.5px;background:#EEF1F6;color:#5B6577;border-radius:8px;padding:1px 5px}.tag.red{background:#FBDEDC;color:#C0392B}
+.sec{margin:16px 0 8px;font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.05em;color:#fff;background:#0E1B2C;border-radius:6px;padding:5px 9px}.card.hoje{border:2px solid #1E8E5A;background:#F1F9F4}
 .rod{margin-top:14px;font-size:9px;color:#5B6577;border-top:1px solid #D5DBE5;padding-top:6px;display:flex;justify-content:space-between}
 </style></head><body>
-<div class="topo">${logo}<div><h1>Relatório diário — ${diaMesCurto(r.diaVenda)}</h1><div class="s">${nomeDia(r.diaVenda)} · Loja 327 · gerado em ${new Date().toLocaleString('pt-BR')}</div></div></div>
+<div class="topo">${logo}<div><h1>Relatório diário — ${diaMesCurto(r.diaFolgas)}</h1><div class="s">${nomeDia(r.diaFolgas)} · Loja 327 · gerado em ${new Date().toLocaleString('pt-BR')}</div></div></div>
+<div class="sec">Ontem · ${nomeDia(r.diaVenda)}</div>
 <div class="cards">
-<div class="card"><div class="r">Venda do dia</div><div class="v">${reais(v.total)}</div><div class="l" style="color:${varSemana == null ? '#5B6577' : varSemana >= 0 ? '#1E8E5A' : '#C0392B'}">${varSemana == null ? '' : (varSemana > 0 ? '+' : '') + pct(varSemana) + ' '}vs ${diaMesCurto(v.ant)} (${reais(v.totalAnt, 0)})</div></div>
+<div class="card"><div class="r">Venda de ontem</div><div class="v">${reais(v.total)}</div><div class="l" style="color:${varSemana == null ? '#5B6577' : varSemana >= 0 ? '#1E8E5A' : '#C0392B'}">${varSemana == null ? '' : (varSemana > 0 ? '+' : '') + pct(varSemana) + ' '}vs ${diaMesCurto(v.ant)} (${reais(v.totalAnt, 0)})</div></div>
 ${cardMetaDia}${cardMetaMes}</div>
-<h2>Venda por setor</h2>
+<h2>Venda de ontem por setor</h2>
 <table><thead><tr><th>Setor</th><th class="n">Venda</th><th class="n">% do dia</th><th class="n">vs ${diaMesCurto(v.ant)}</th></tr></thead><tbody>${setoresVenda}</tbody></table>
-<h2>Fora hoje (${diaMesCurto(r.diaFolgas)}) — ${r.totalFora} ${r.totalFora === 1 ? 'colaborador' : 'colaboradores'}</h2>
+<div class="sec">Hoje · ${nomeDia(r.diaFolgas)}</div>
+<div class="cards">${cardMetaHoje}</div>
+<h2>Colaboradores fora hoje (${diaMesCurto(r.diaFolgas)}) — ${r.totalFora} ${r.totalFora === 1 ? 'colaborador' : 'colaboradores'}</h2>
 <table><tbody>${folgas}</tbody></table>
 <h2>Quebra por setor${q ? ` — acumulado de ${diaMesCurto(q.ini)} a ${diaMesCurto(q.fim)}` : ''}</h2>
 <table><thead><tr><th>Setor</th><th class="n">Quebra</th><th class="n">Venda do setor</th><th class="n">% quebra</th></tr></thead><tbody>${quebras}</tbody></table>

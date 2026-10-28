@@ -77,7 +77,7 @@ export default function RelatorioDiarioScreen({
     <View style={s.flex}>
       <CabecalhoTela
         titulo="Relatório diário"
-        subtitulo={r ? `Vendas de ${nomeDia(r.diaVenda)}` : 'Venda, meta, folgas e quebra'}
+        subtitulo={r ? `Hoje: ${nomeDia(r.diaFolgas)} · vendas de ${diaMesCurto(r.diaVenda)}` : 'Venda, meta, folgas e quebra'}
         icone="file-text"
         onVoltar={onVoltar}
       >
@@ -86,7 +86,7 @@ export default function RelatorioDiarioScreen({
             <TouchableOpacity style={s.seta} onPress={() => setDia(somarDiasIso(r.diaVenda, -1))} disabled={r.diaVenda <= r.venda.primeiro}>
               <Feather name="chevron-left" size={20} color={colors.white} />
             </TouchableOpacity>
-            <Text style={s.diaTexto}>{diaMesCurto(r.diaVenda)}</Text>
+            <Text style={s.diaTexto}>{diaMesCurto(r.diaFolgas)}</Text>
             <TouchableOpacity style={s.seta} onPress={() => setDia(somarDiasIso(r.diaVenda, 1))} disabled={r.diaVenda >= r.venda.ultimo}>
               <Feather name="chevron-right" size={20} color={colors.white} />
             </TouchableOpacity>
@@ -110,8 +110,9 @@ export default function RelatorioDiarioScreen({
               <Text style={s.botaoTxt}>Enviar PDF no WhatsApp</Text>
             </TouchableOpacity>
 
+            <Text style={s.secao}>ONTEM · {nomeDia(r.diaVenda).toUpperCase()}</Text>
             <View style={s.card}>
-              <Text style={s.rotulo}>VENDA DO DIA</Text>
+              <Text style={s.rotulo}>VENDA DE ONTEM</Text>
               <Text style={s.total}>{reais(r.venda.total)}</Text>
               <Text style={s.legenda}>
                 vs {diaMesCurto(r.venda.ant)}: {reais(r.venda.totalAnt, 0)}
@@ -119,7 +120,7 @@ export default function RelatorioDiarioScreen({
             </View>
 
             <View style={s.card}>
-              <Text style={s.rotulo}>META DO DIA</Text>
+              <Text style={s.rotulo}>META DE ONTEM</Text>
               {m && m.metaDia != null && m.pctDia != null ? (
                 <>
                   <Text style={[s.kpi, { color: m.pctDia >= 100 ? VERDE : VERMELHO }]}>{pctTexto(m.pctDia)}</Text>
@@ -139,8 +140,21 @@ export default function RelatorioDiarioScreen({
               ) : null}
             </View>
 
+            <Text style={s.secao}>HOJE · {nomeDia(r.diaFolgas).toUpperCase()}</Text>
+            <View style={[s.card, { borderWidth: 2, borderColor: VERDE }]}>
+              <Text style={s.rotulo}>META DE HOJE</Text>
+              <Text style={s.total}>{r.metaHoje != null ? reais(r.metaHoje, 0) : '—'}</Text>
+              {r.metaHoje == null ? (
+                <Text style={s.legenda}>Sem meta cadastrada para hoje.</Text>
+              ) : m && m.temMes && m.faltaMes > 0 && m.precisaPorDia != null ? (
+                <Text style={s.legenda}>
+                  Para fechar o mês: {reais(m.precisaPorDia, 0)}/dia nos {m.diasRestantes} dias que faltam
+                </Text>
+              ) : null}
+            </View>
+
             <View style={s.card}>
-              <Text style={s.titulo}>Fora hoje ({diaMesCurto(r.diaFolgas)}) · {r.totalFora}</Text>
+              <Text style={s.titulo}>Colaboradores fora hoje ({diaMesCurto(r.diaFolgas)}) · {r.totalFora}</Text>
               {r.folgas.length === 0 ? (
                 <Text style={s.legenda}>Ninguém de folga, falta ou atestado lançado.</Text>
               ) : (
@@ -205,6 +219,7 @@ const s = StyleSheet.create({
   titulo: { fontSize: 15.5, fontWeight: '800', color: '#0E1B2C', marginBottom: 4 },
   linha: { paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.gray100 },
   linhaTitulo: { fontSize: 13.5, fontWeight: '700', color: '#0E1B2C' },
+  secao: { fontSize: 12, fontWeight: '800', color: colors.gray600, letterSpacing: 0.6, marginTop: 6 },
   vazio: { textAlign: 'center', color: colors.gray600, marginTop: 20 },
   botao: { backgroundColor: '#1FA855', borderRadius: radius.lg, paddingVertical: 15, alignItems: 'center', justifyContent: 'center', flexDirection: 'row', gap: 8 },
   botaoTxt: { color: colors.white, fontWeight: '800', fontSize: 15.5 },

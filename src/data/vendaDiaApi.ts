@@ -77,7 +77,10 @@ async function grupos(dia: string, ant: string, nivel: number) {
 }
 
 export async function carregarVendaDia(dia: string | null, forcar = false): Promise<DadosVendaDia | null> {
-  const lim = await limitesVendas(forcar);
+  let lim = await limitesVendas(forcar);
+  // Pediu um dia depois do último que conhecemos: pode ter subido venda nova
+  // enquanto o app estava aberto — confere de novo antes de cortar o dia.
+  if (lim && dia && dia > lim.ultimo && !forcar) lim = await limitesVendas(true);
   if (!lim) return null;
   let d = dia ?? lim.ultimo;
   if (d > lim.ultimo) d = lim.ultimo;
