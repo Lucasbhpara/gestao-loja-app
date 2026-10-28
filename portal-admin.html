@@ -7611,6 +7611,78 @@ function impAnalisar(linhas) {
   };
 }
 
+// Planilha "VENDAS ATÉ DD-MM" (uma linha por venda de produto, colunas
+// dataVenda · codigoProduto · precoProduto · totalVendido). O valor é
+// preço × quantidade; o código vem como EAN e é trocado pelo código interno
+// (estoque da loja, depois cadastro de produtos), igual ao que o Claude fazia.
+function impAcharCabecalhoVendaDia(linhas) {
+  for (let i = 0; i < Math.min(linhas.length, 30); i++) {
+    const nomes = (linhas[i] || []).map((c) => String(c == null ? '' : c).trim().toLowerCase());
+    const col = (n) => nomes.indexOf(n.toLowerCase());
+    const c = { data: col('dataVenda'), codigo: col('codigoProduto'), preco: col('precoProduto'), qtd: col('totalVendido') };
+    if (c.data >= 0 && c.codigo >= 0 && c.preco >= 0 && c.qtd >= 0) return { i, c };
+  }
+  return null;
+}
+
+async function impMapaCodigoInterno(eans) {
+  const mapa = new Map();
+  const lista = [...eans];
+  for (const tabela of ['estoque_loja_itens', 'produtos_catalogo']) {
+    const faltam = lista.filter((e) => !mapa.has(e));
+    for (let i = 0; i < faltam.length; i += 300) {
+      const { data, error } = await sb.from(tabela).select('codigo_barras,codigo_interno').in('codigo_barras', faltam.slice(i, i + 300));
+      if (error) throw new Error('Não consegui ler ' + tabela + ': ' + error.message);
+      (data || []).forEach((r) => { if (r.codigo_interno && !mapa.has(r.codigo_barras)) mapa.set(r.codigo_barras, String(r.codigo_interno)); });
+    }
+  }
+  return mapa;
+}
+
+async function impAnalisarVendaDia(linhas, cab) {
+  const anoPadrao = new Date().getFullYear();
+  const { i: iCab, c } = cab;
+  const porEan = new Map(); // ean|data → valor
+  const datas = new Set();
+  let total = 0;
+  for (let i = iCab + 1; i < linhas.length; i++) {
+    const l = linhas[i] || [];
+    const ean = String(l[c.codigo] == null ? '' : l[c.codigo]).trim().replace(/\.0+$/, '');
+    if (!/^\d+$/.test(ean)) continue;
+    // Data do Excel pode vir alguns segundos/horas fora da meia-noite (fuso);
+    // somar 12h antes de pegar o dia evita cair no dia anterior.
+    const bruta = l[c.data] instanceof Date ? new Date(l[c.data].getTime() + 12 * 3600000) : l[c.data];
+    const data = impData(bruta, anoPadrao);
+    if (!data) continue;
+    const v = impNumero(l[c.preco]) * impNumero(l[c.qtd]);
+    if (!(v > 0)) continue;
+    const k = ean + '|' + data;
+    porEan.set(k, (porEan.get(k) || 0) + v);
+    datas.add(data);
+    total += v;
+  }
+  if (!porEan.size) throw new Error('A planilha não tem nenhuma venda maior que zero.');
+  const eans = new Set([...porEan.keys()].map((k) => k.split('|')[0]));
+  const mapa = await impMapaCodigoInterno(eans);
+  const registros = new Map();
+  const produtos = new Set();
+  porEan.forEach((v, k) => {
+    const [ean, data] = k.split('|');
+    const cod = mapa.get(ean) || ean.replace(/^0+(?=\d)/, '');
+    produtos.add(cod);
+    const kk = cod + '|' + data;
+    registros.set(kk, { codigo_produto: cod, data_venda: data, venda_valor: (registros.get(kk)?.venda_valor || 0) + v });
+  });
+  registros.forEach((r) => { r.venda_valor = Math.round(r.venda_valor * 100) / 100; });
+  const ds = [...datas].sort();
+  return {
+    registros: [...registros.values()], produtos: produtos.size, total,
+    dataIni: ds[0], dataFim: ds[ds.length - 1], dias: ds.length,
+    colunaCodigo: 'codigoProduto (EAN → código interno)',
+    vendaDia: true,
+  };
+}
+
 async function paginaImportarVendas() {
   if (!estado.usuario || !MATRICULAS_GIRO.includes(String(estado.usuario.matricula))) {
     document.getElementById('conteudo-principal').innerHTML = cabecalho('Importar vendas (Falcon)', '') + '<div class="celula-vazio">Página em teste — ainda não liberada.</div>';
@@ -7622,7 +7694,7 @@ async function paginaImportarVendas() {
     '<div id="imp-situacao" class="item-card" style="margin-bottom:16px;"><div class="carregando">Conferindo o que já está no banco…</div></div>' +
     '<div class="item-card" style="margin-bottom:16px;">' +
       '<div style="font-size:14px;font-weight:700;margin-bottom:8px;">1. Exporte do Falcon</div>' +
-      '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">Relatório de venda da loja com <b>PRODUTO</b> nas linhas e <b>Análise temporal → Dia</b> nas colunas, medida <b>VENDA (R$)</b>. Exporte em Excel (.xlsx). Pode ser o mesmo período de antes — o que já existe é atualizado, sem duplicar.</div>' +
+      '<div style="font-size:13px;color:var(--text-secondary);line-height:1.6;">Aceita dois tipos de planilha:<br>• <b>Venda do dia</b> (“VENDAS ATÉ DD-MM”), com as colunas <b>dataVenda, codigoProduto, precoProduto, totalVendido</b> — a mesma que você manda todo dia. O dia que vier na planilha é <b>substituído inteiro</b> (pode subir de novo sem duplicar).<br>• Relatório do Falcon com <b>PRODUTO</b> nas linhas e <b>Análise temporal → Dia</b> nas colunas, medida <b>VENDA (R$)</b>.<br>Depois de importar, a meta do dia e a notificação do relatório diário atualizam sozinhas.</div>' +
       '<div style="font-size:14px;font-weight:700;margin:16px 0 8px;">2. Escolha o arquivo</div>' +
       '<input type="file" id="imp-arquivo" accept=".xlsx,.xls,.csv" onchange="impLerArquivo(this)" />' +
       '<div id="imp-previa" style="margin-top:16px;"></div>' +
@@ -7653,12 +7725,14 @@ function impLerArquivo(input) {
   if (!arquivo) return;
   previa.innerHTML = '<div class="carregando">Lendo a planilha no seu computador…</div>';
   const leitor = new FileReader();
-  leitor.onload = (ev) => {
+  leitor.onload = async (ev) => {
     try {
       const livro = XLSX.read(new Uint8Array(ev.target.result), { type: 'array', cellDates: true });
       const folha = livro.Sheets[livro.SheetNames[0]];
       const linhas = XLSX.utils.sheet_to_json(folha, { header: 1, raw: true, defval: null });
-      const a = impAnalisar(linhas);
+      const cabVD = impAcharCabecalhoVendaDia(linhas);
+      if (cabVD) previa.innerHTML = '<div class="carregando">Trocando os códigos de barras pelos códigos internos…</div>';
+      const a = cabVD ? await impAnalisarVendaDia(linhas, cabVD) : impAnalisar(linhas);
       estado.impAnalise = a;
       if (!a.registros.length) throw new Error('A planilha não tem nenhuma venda maior que zero.');
       previa.innerHTML =
