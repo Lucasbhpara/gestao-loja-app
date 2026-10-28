@@ -111,6 +111,14 @@ export async function carregarResumoMeta(dia: string, vendaDia: number, forcar =
   };
 }
 
+// Só a meta cadastrada de um dia (para mostrar a meta de HOJE, sem venda ainda).
+export async function metaDoDia(dia: string, forcar = false): Promise<number | null> {
+  const cfg = await configDoMes(dia.slice(0, 7), forcar);
+  if (!cfg) return null;
+  const v = cfg.diarias[dia] ?? cfg.diarias_anteriores?.[dia];
+  return v != null ? Number(v) : null;
+}
+
 export function pctTexto(p: number): string {
   return p.toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 }) + '%';
 }
