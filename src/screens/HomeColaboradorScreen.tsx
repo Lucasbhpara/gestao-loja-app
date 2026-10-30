@@ -135,6 +135,9 @@ export default function HomeColaboradorScreen() {
   // "Produtos vencendo" agora é uma gaveta retrátil pra deixar a Home mais
   // limpa — começa fechada, o colaborador abre quando quiser conferir.
   const [gavetaVencendoAberta, setGavetaVencendoAberta] = useState(false);
+  // Avisos e tarefas ficam em gaveta (fechada) para não poluir a tela inicial.
+  const [gavetaAvisosAberta, setGavetaAvisosAberta] = useState(false);
+  const [gavetaTarefasAberta, setGavetaTarefasAberta] = useState(false);
 
   function carregarTarefas() {
     if (!usuarioAtual) return;
@@ -352,13 +355,43 @@ export default function HomeColaboradorScreen() {
     }
   }
 
+  // Cabeçalho de gaveta: título, contador e um resumo; tocar abre/fecha.
+  function cabecalhoGaveta(titulo: string, qtd: number, urgente: boolean, resumo: string, aberta: boolean, alternar: () => void) {
+    return (
+      <TouchableOpacity style={[styles.gavetaCaixa, urgente && styles.gavetaCaixaUrgente]} onPress={alternar} activeOpacity={0.75}>
+        <View style={{ flex: 1 }}>
+          <View style={styles.gavetaCabecalhoEsquerda}>
+            <Text style={[styles.sectionTitle, { marginBottom: 0 }]}>{titulo}</Text>
+            <View style={[styles.gavetaBadge, urgente && styles.gavetaBadgeUrgente]}>
+              <Text style={[styles.gavetaBadgeTexto, urgente && styles.gavetaBadgeTextoUrgente]}>{qtd}</Text>
+            </View>
+          </View>
+          {!aberta && !!resumo && (
+            <Text style={styles.gavetaResumo} numberOfLines={1}>
+              {resumo}
+            </Text>
+          )}
+        </View>
+        <Feather name="chevron-down" size={20} color={colors.gray600} style={aberta ? styles.gavetaSetaCima : undefined} />
+      </TouchableOpacity>
+    );
+  }
+
   function blocoAvisos(dentroUlva2: boolean) {
     return (
       <>
         {!carregandoResumo && avisosUrgentes.length > 0 && (
         <View style={dentroUlva2 ? styles.secaoUlva2 : styles.section}>
-          <Text style={styles.sectionTitle}>⚠ Avisos urgentes</Text>
-          <View style={styles.listCard}>
+          {cabecalhoGaveta(
+            '⚠ Avisos urgentes',
+            avisosUrgentes.length,
+            true,
+            avisosUrgentes.map((a) => a.titulo).join(' · '),
+            gavetaAvisosAberta,
+            () => setGavetaAvisosAberta((v) => !v),
+          )}
+          {gavetaAvisosAberta && (
+          <View style={[styles.listCard, { marginTop: spacing.sm }]}>
             {avisosUrgentes.map((a, i) => (
               <TouchableOpacity
                 key={a.id}
@@ -370,6 +403,7 @@ export default function HomeColaboradorScreen() {
               </TouchableOpacity>
             ))}
           </View>
+          )}
         </View>
       )}
       </>
@@ -381,9 +415,24 @@ export default function HomeColaboradorScreen() {
       <>
         {!somenteValidade && (
       <View style={dentroUlva2 ? styles.secaoUlva2 : styles.section}>
-        <Text style={styles.sectionTitle}>Prioridades de hoje</Text>
+        {cabecalhoGaveta(
+          'Prioridades de hoje',
+          tarefas.length,
+          tarefas.some((t) => t.prioridade === 'alta'),
+          carregandoTarefas
+            ? 'Carregando…'
+            : tarefas.length === 0
+            ? 'Nenhuma tarefa para o setor'
+            : (() => {
+                const altas = tarefas.filter((t) => t.prioridade === 'alta').length;
+                return (altas ? `🔴 ${altas} muito importante${altas > 1 ? 's' : ''} · ` : '') + 'toque para ver';
+              })(),
+          gavetaTarefasAberta,
+          () => setGavetaTarefasAberta((v) => !v),
+        )}
+        {gavetaTarefasAberta && <View style={{ marginTop: spacing.sm }} />}
 
-        {carregandoTarefas ? (
+        {!gavetaTarefasAberta ? null : carregandoTarefas ? (
           <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.lg }} />
         ) : erroTarefas ? (
           <View style={styles.erroCard}>
@@ -711,6 +760,10 @@ const styles = StyleSheet.create({
   gavetaCabecalho: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 4 },
   gavetaCabecalhoEsquerda: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   gavetaSetaAberta: { transform: [{ rotate: '90deg' }] },
+  gavetaSetaCima: { transform: [{ rotate: '180deg' }] },
+  gavetaCaixa: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.white, borderRadius: radius.lg, paddingVertical: 12, paddingHorizontal: spacing.lg, borderWidth: 1, borderColor: colors.gray100 },
+  gavetaCaixaUrgente: { borderColor: '#F3B4AE' },
+  gavetaResumo: { fontSize: 11.5, color: colors.gray600, marginTop: 3 },
   gavetaBadge: { backgroundColor: colors.gray100, borderRadius: radius.full, minWidth: 20, height: 20, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 6 },
   gavetaBadgeUrgente: { backgroundColor: '#FBDEDC' },
   gavetaBadgeTexto: { fontSize: 11, fontWeight: '700', color: colors.gray600 },
