@@ -7733,8 +7733,29 @@ function impLerArquivo(input) {
       const cabVD = impAcharCabecalhoVendaDia(linhas);
       if (cabVD) previa.innerHTML = '<div class="carregando">Trocando os códigos de barras pelos códigos internos…</div>';
       const a = cabVD ? await impAnalisarVendaDia(linhas, cabVD) : impAnalisar(linhas);
-      estado.impAnalise = a;
       if (!a.registros.length) throw new Error('A planilha não tem nenhuma venda maior que zero.');
+      // Proteção: um dia que já está no banco e veio na planilha com venda
+      // bem menor (menos de 70%) provavelmente está incompleto na exportação
+      // (aconteceu com 22/10). Esse dia fica de fora, a não ser que você marque.
+      const novoPorDia = {};
+      a.registros.forEach((r) => { novoPorDia[r.data_venda] = (novoPorDia[r.data_venda] || 0) + r.venda_valor; });
+      const atualPorDia = {};
+      try {
+        const { data: dd } = await sb.rpc('vendas_loja_dias', { p_ini: a.dataIni, p_fim: a.dataFim });
+        (dd || []).forEach((x) => { atualPorDia[String(x.dia).slice(0, 10)] = Number(x.venda) || 0; });
+      } catch (e) { /* sem comparação: segue normal */ }
+      a.suspeitos = Object.keys(novoPorDia).sort().filter((d) => atualPorDia[d] > 0 && novoPorDia[d] < atualPorDia[d] * 0.7)
+        .map((d) => ({ dia: d, novo: novoPorDia[d], atual: atualPorDia[d] }));
+      a.incluirSuspeitos = false;
+      estado.impAnalise = a;
+      const avisoSuspeitos = a.suspeitos.length
+        ? '<div class="item-card" style="border:2px solid var(--red);margin:0 0 14px;padding:12px 14px;">' +
+            '<div style="font-weight:700;color:var(--red);margin-bottom:6px;">⚠ ' + (a.suspeitos.length === 1 ? 'Um dia veio' : a.suspeitos.length + ' dias vieram') + ' com venda bem menor que a que já está no ULVA — parece incompleto:</div>' +
+            a.suspeitos.map((x) => '<div style="font-size:13px;">• <b>' + giroData(x.dia) + '</b>: planilha ' + giroReais(x.novo) + ' × no ULVA ' + giroReais(x.atual) + '</div>').join('') +
+            '<div style="font-size:12.5px;margin-top:8px;color:var(--text-secondary);">' + (a.suspeitos.length === 1 ? 'Esse dia não será importado' : 'Esses dias não serão importados') + ' (o que está no ULVA fica como está). Os outros dias sobem normalmente.</div>' +
+            '<label style="display:flex;gap:8px;align-items:center;margin-top:8px;font-size:13px;"><input type="checkbox" onchange="estado.impAnalise.incluirSuspeitos=this.checked" /> Importar mesmo assim (substituir pelo valor da planilha)</label>' +
+          '</div>'
+        : '';
       previa.innerHTML =
         '<div class="resumo-perdas">' +
           '<div class="box"><div class="rotulo">Produtos</div><div class="valor">' + a.produtos.toLocaleString('pt-BR') + '</div></div>' +
@@ -7743,7 +7764,8 @@ function impLerArquivo(input) {
           '<div class="box"><div class="rotulo">Total vendido</div><div class="valor">' + giroReais(a.total) + '</div></div>' +
         '</div>' +
         '<div style="font-size:12px;color:var(--text-muted);margin:-8px 0 14px;">Código do produto lido da coluna “' + giroEsc(a.colunaCodigo) + '”. Confira se os números batem com o Falcon antes de importar.</div>' +
-        '<button class="btn-acao" id="imp-botao" onclick="impGravar()">3. Importar ' + a.registros.length.toLocaleString('pt-BR') + ' registros</button>' +
+        avisoSuspeitos +
+        '<button class="btn-acao" id="imp-botao" onclick="impGravar()">3. Importar vendas</button>' +
         '<div id="imp-progresso" style="margin-top:14px;"></div>';
     } catch (e) {
       estado.impAnalise = null;
@@ -7762,7 +7784,9 @@ async function impGravar() {
   const LOTE = 1000;
   const agora = new Date().toISOString();
   let feitos = 0, falhas = 0, ultimoErro = '';
-  const total = a.registros.length;
+  const pular = new Set(a.incluirSuspeitos ? [] : (a.suspeitos || []).map((x) => x.dia));
+  const registros = a.registros.filter((r) => !pular.has(r.data_venda));
+  const total = registros.length;
   const desenhar = () => {
     const pct = Math.round((feitos / total) * 100);
     prog.innerHTML = '<div style="height:10px;border-radius:9px;background:var(--border);overflow:hidden;"><div style="height:10px;width:' + pct + '%;background:var(--green);"></div></div>' +
@@ -7770,7 +7794,7 @@ async function impGravar() {
   };
   desenhar();
   for (let i = 0; i < total; i += LOTE) {
-    const lote = a.registros.slice(i, i + LOTE).map((r) => Object.assign({ atualizado_em: agora }, r));
+    const lote = registros.slice(i, i + LOTE).map((r) => Object.assign({ atualizado_em: agora }, r));
     let ok = false;
     for (let tentativa = 0; tentativa < 3 && !ok; tentativa++) {
       const { error } = await sb.from('vendas_diarias').upsert(lote, { onConflict: 'codigo_produto,data_venda' });
