@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, Switch } from 'react-native';
+import { View, Text, TextInput, TouchableOpacity, ScrollView, Alert, Switch, Share } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { WebView } from 'react-native-webview';
 import {
@@ -61,6 +61,7 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
   const [webPronta, setWebPronta] = useState(false);
   const webRef = useRef<WebView>(null);
   const pedidoImagem = useRef<object | null>(null); // imagem esperando a página do desenho carregar
+  const ehCobranca = useRef(false); // a imagem gerada é de dívida (aí oferece mandar o Pix em texto)
   const mes = hojeIso().slice(0, 7);
 
   useEffect(() => {
@@ -106,7 +107,7 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
   );
 
   function novaVenda(cliente = '') {
-    setRasc({ data: hojeIso(), cliente, forma: config.formas[0] ?? 'Pix', recebido: !cliente, obs: '', linhas: [linhaVazia()] });
+    setRasc({ data: hojeIso(), cliente, forma: config.formas[0] ?? 'Pix', recebido: false, obs: '', linhas: [linhaVazia()] });
   }
   function editar(p: Pedido) {
     setRasc({
@@ -177,6 +178,7 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
     webRef.current.injectJavaScript(`window.gerarCard(${JSON.stringify(dados)}, true); true;`);
   }
   function pedirImagem(dados: object) {
+    ehCobranca.current = (dados as any)?.modo === 'cobranca';
     setEnviando(true);
     if (webPronta) gerarImagem(dados);
     else pedidoImagem.current = dados; // gera assim que a página do desenho carregar
@@ -230,12 +232,23 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
         const caminho = `${FileSystem.cacheDirectory}sabores-da-pri-${nome}-${Date.now()}.jpg`;
         await FileSystem.writeAsStringAsync(caminho, m.base64, { encoding: FileSystem.EncodingType.Base64 });
         await Sharing.shareAsync(caminho, { mimeType: 'image/jpeg', dialogTitle: 'Compartilhar com a cliente', UTI: 'public.jpeg' });
+        if (ehCobranca.current && config.pix?.trim()) oferecerPixTexto(config.pix.trim());
       } catch (e: any) {
         Alert.alert('Não consegui compartilhar', e?.message ?? '');
       } finally {
         setEnviando(false);
       }
     }
+  }
+
+  // O WhatsApp não deixa a imagem ir com texto junto. Então, depois da imagem,
+  // a chave Pix vai SOZINHA numa mensagem: a cliente segura em cima, copia e
+  // cola no app do banco, sem pegar nenhuma palavra a mais.
+  function oferecerPixTexto(pix: string) {
+    Alert.alert('Mandar a chave Pix em texto?', 'Vai uma mensagem só com a chave, para a cliente copiar e colar no banco:\n\n' + pix, [
+      { text: 'Agora não', style: 'cancel' },
+      { text: 'Enviar chave Pix', onPress: () => Share.share({ message: pix }).catch(() => {}) },
+    ]);
   }
 
   function quitarTudo() {
@@ -393,7 +406,7 @@ export default function VendasConf({ vendas, produtos, config, onConfig, onVolta
             ) : null}
             {pendFicha.length ? (
               <Text style={s.dica}>
-                “Compartilhar dívida” gera uma imagem com a sua logo, um bilhetinho carinhoso, a lista acima e o Pix. “Mensagem” manda só o texto, se quiser enviar junto.
+                “Compartilhar dívida” gera uma imagem com a sua logo, um bilhetinho carinhoso, a lista acima e o Pix. Depois de enviar a imagem, o app oferece mandar a chave Pix sozinha numa mensagem, para a cliente copiar e colar. “Mensagem” manda só o texto.
                 {config.pix ? '' : ' Dica: coloque sua chave Pix em Minha marca para ela aparecer na cobrança.'}
               </Text>
             ) : null}
