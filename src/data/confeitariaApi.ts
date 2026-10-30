@@ -129,11 +129,13 @@ export const normalizar = (s: string) =>
 
 // ---------------------------------------------- quantidades e custo do item
 // "1 xicara (130g)" → 130 g · "2 kg" → 2000 g · "400 ml" → 400 ml · "3 und" → 3 un
-export function medida(texto: string | null | undefined): { valor: number; base: 'g' | 'ml' | 'un' } | null {
+// "30 cm" → 30 cm · "10 m" → 1000 cm · "5 mm" → 0,5 cm (fitas, laços, papel)
+export type BaseMedida = 'g' | 'ml' | 'un' | 'cm';
+export function medida(texto: string | null | undefined): { valor: number; base: BaseMedida } | null {
   if (!texto) return null;
   const t = normalizar(texto).replace(',', '.');
-  const parenteses = t.match(/\(([\d.]+)\s*(kg|g|grs?|gramas?|ml|l|lt|litros?)\)/);
-  const m = parenteses ?? t.match(/^([\d.]+)\s*(kg|g|grs?|gramas?|ml|l|lt|litros?|und|unid|un|unidades?|cx|caixas?|pct|fls)?\b/);
+  const parenteses = t.match(/\(([\d.]+)\s*(kg|g|grs?|gramas?|ml|l|lt|litros?|mm|cm|centimetros?|metros?|mts?|m)\)/);
+  const m = parenteses ?? t.match(/^([\d.]+)\s*(kg|g|grs?|gramas?|ml|l|lt|litros?|mm|cm|centimetros?|metros?|mts?|m|und|unid|un|unidades?|cx|caixas?|pct|fls)?\b/);
   if (!m) return null;
   const v = Number(m[1]);
   if (!isFinite(v) || v <= 0) return null;
@@ -142,6 +144,9 @@ export function medida(texto: string | null | undefined): { valor: number; base:
   if (/^(g|grs?|gramas?)$/.test(u)) return { valor: v, base: 'g' };
   if (u === 'ml') return { valor: v, base: 'ml' };
   if (/^(l|lt|litros?)$/.test(u)) return { valor: v * 1000, base: 'ml' };
+  if (u === 'mm') return { valor: v / 10, base: 'cm' };
+  if (/^(cm|centimetros?)$/.test(u)) return { valor: v, base: 'cm' };
+  if (/^(m|mts?|metros?)$/.test(u)) return { valor: v * 100, base: 'cm' };
   return { valor: v, base: 'un' };
 }
 
@@ -753,7 +758,7 @@ export type ItemEstoque = {
   id: string;
   nome: string;
   chave: string;
-  unidade: 'g' | 'ml' | 'un';
+  unidade: 'g' | 'ml' | 'un' | 'cm';
   quantidade: number;
   minimo: number;
   embalagemQtd: number | null;
@@ -845,12 +850,13 @@ export async function criarEstoqueDasFichas(produtos: Produto[], existentes: Ite
   return novos.length;
 }
 
-export const unidadeTexto = (u: string) => (u === 'g' ? 'g' : u === 'ml' ? 'ml' : 'un');
-// 1500 g → "1,5 kg" · 750 ml → "750 ml" · 3 un → "3 un"
+export const unidadeTexto = (u: string) => (u === 'g' ? 'g' : u === 'ml' ? 'ml' : u === 'cm' ? 'cm' : 'un');
+// 1500 g → "1,5 kg" · 750 ml → "750 ml" · 3 un → "3 un" · 250 cm → "2,5 m"
 export function qtdEstoqueTexto(q: number, u: string): string {
   if (u === 'g' && Math.abs(q) >= 1000) return `${numeroTexto(q / 1000, 2)} kg`;
   if (u === 'ml' && Math.abs(q) >= 1000) return `${numeroTexto(q / 1000, 2)} L`;
-  return `${numeroTexto(q, u === 'un' ? 1 : 0)} ${unidadeTexto(u)}`;
+  if (u === 'cm' && Math.abs(q) >= 100) return `${numeroTexto(q / 100, 2)} m`;
+  return `${numeroTexto(q, u === 'un' || u === 'cm' ? 1 : 0)} ${unidadeTexto(u)}`;
 }
 export function statusEstoque(i: ItemEstoque): 'zerado' | 'baixo' | 'ok' | 'sem_minimo' {
   if (i.quantidade <= 0) return 'zerado';
@@ -930,5 +936,12 @@ export function entradaDaCompra(quantidade: number | null, unidade: string | nul
   if (pacote && est.unidade === 'un') return q * Number(pacote[1]);
   if (/^(kg|g|gr|grs)$/.test(u) && est.unidade === 'g') return u === 'kg' ? q * 1000 : q;
   if (/^(l|lt|ml)$/.test(u) && est.unidade === 'ml') return u === 'ml' ? q : q * 1000;
+  // fitas, papéis: "10 m" no cupom ou unidade m/cm na compra
+  if (est.unidade === 'cm') {
+    if (/^(cm|centimetros?)$/.test(u)) return q;
+    if (/^(m|mts?|metros?)$/.test(u)) return q * 100;
+    const metr = nome.match(/(\d+(?:\.\d+)?)\s*(cm|mts?|m|metros?)\b/);
+    if (metr) return q * Number(metr[1]) * (metr[2] === 'cm' ? 1 : 100);
+  }
   return est.embalagemQtd ? q * est.embalagemQtd : q; // embalagens (cx, pct, un do cupom)
 }

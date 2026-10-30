@@ -96,7 +96,7 @@ export default function EstoqueConf({ estoque, produtos, onVoltar, onRecarregar 
       <View style={s.tela}>
         <Topo titulo="Contagem" sub="Digite quanto tem de cada item agora" onVoltar={() => setContando(null)} icone="clipboard" />
         <ScrollView contentContainerStyle={{ padding: 16, gap: 8, paddingBottom: 130 }} keyboardShouldPersistTaps="handled">
-          <Text style={s.dica}>Deixe em branco o que não contou. Pode digitar em kg/L (ex.: “1,5 kg”) ou em caixas (ex.: “2 cx”) que o app converte.</Text>
+          <Text style={s.dica}>Deixe em branco o que não contou. Pode digitar em kg/L (ex.: “1,5 kg”), em metros (ex.: “2 m”) ou em caixas (ex.: “2 cx”) que o app converte.</Text>
           <TextInput style={[s.busca, { marginTop: 0 }]} value={busca} onChangeText={setBusca} placeholder="Buscar item" placeholderTextColor="#C4AEB5" />
           {lista.map((i) => (
             <View key={i.id} style={[s.cartao, { flexDirection: 'row', alignItems: 'center', gap: 10, padding: 10 }]}>
@@ -282,8 +282,9 @@ function ItemFolha({ item, onFechar, onSalvo }: { item: ItemEstoque | null; onFe
       ) : null}
       <Campo rotulo="Nome" value={nome} onChangeText={setNome} placeholder="Ex.: Leite condensado" dica="Use o mesmo nome da receita para a baixa automática funcionar." />
       <Text style={s.rotulo}>Controlar em</Text>
-      <Chips opcoes={['g', 'ml', 'un']} valor={unidade} onMudar={(v) => v && setUnidade(v)} />
-      <Campo rotulo="Tamanho da embalagem" value={emb} onChangeText={setEmb} placeholder="Ex.: 395 g, 1 kg, 50 un" dica={base.embalagemQtd ? `Cada embalagem = ${qtdEstoqueTexto(base.embalagemQtd, unidade)}` : 'Ajuda a converter “1 cx” e as compras.'} />
+      <Chips opcoes={['g', 'ml', 'un', 'cm']} valor={unidade} onMudar={(v) => v && setUnidade(v)} />
+      {unidade === 'cm' ? <Text style={s.dica}>Para fitas, laços e papéis: pode digitar em cm ou em metros (ex.: “10 m”, “30 cm”).</Text> : null}
+      <Campo rotulo="Tamanho da embalagem" value={emb} onChangeText={setEmb} placeholder="Ex.: 395 g, 1 kg, 50 un, 10 m" dica={base.embalagemQtd ? `Cada embalagem = ${qtdEstoqueTexto(base.embalagemQtd, unidade)}` : 'Ajuda a converter “1 cx” e as compras.'} />
       <Campo rotulo={`Estoque mínimo (${unidade})`} value={minimo} onChangeText={setMinimo} keyboardType="numbers-and-punctuation" placeholder="Ex.: 2 cx, 500 g" dica="Abaixo disso, entra no aviso das 16:30." />
       <Campo rotulo={item ? 'Contar de novo (opcional)' : 'Quanto tem agora'} value={contagem} onChangeText={setContagem} keyboardType="numbers-and-punctuation" placeholder={`Ex.: 3 cx, 1,2 kg, 790 ${unidade}`} />
       {item ? (
