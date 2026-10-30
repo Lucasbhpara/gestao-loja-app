@@ -145,7 +145,7 @@ export default function EstoqueConf({ estoque, produtos, onVoltar, onRecarregar 
               <Botao texto="Puxar receitas" icone="refresh-cw" tipo="claro" onPress={gerarDasFichas} style={{ flex: 1 }} desativado={trabalhando} />
             </View>
             <Text style={s.dica}>
-              Produção lançada tira do estoque o que a receita usa; compra lançada põe no estoque. Todo dia às 16:30 chega um aviso se algum item estiver abaixo do mínimo.
+              Produção lançada tira do estoque o que a receita usa; compra lançada põe no estoque. Para ajustar sem lançar compra, toque no item → “Ajustar estoque”. Todo dia às 16:30 chega um aviso se algum item estiver abaixo do mínimo.
             </Text>
           </>
         )}
@@ -183,7 +183,10 @@ export default function EstoqueConf({ estoque, produtos, onVoltar, onRecarregar 
       {aberto ? (
         <ItemFolha
           item={aberto === 'novo' ? null : aberto}
-          onFechar={() => setAberto(null)}
+          onFechar={async () => {
+            setAberto(null);
+            await onRecarregar(); // pode ter ajustado o estoque
+          }}
           onSalvo={async () => {
             setAberto(null);
             await onRecarregar();
@@ -202,6 +205,34 @@ function ItemFolha({ item, onFechar, onSalvo }: { item: ItemEstoque | null; onFe
   const [contagem, setContagem] = useState('');
   const [mov, setMov] = useState<MovEstoque[] | null>(null);
   const [salvando, setSalvando] = useState(false);
+  // Ajuste rápido: sem lançar compra nem produção.
+  const [ajTipo, setAjTipo] = useState<'Somar +' | 'Tirar −' | 'Ficou com ='>('Somar +');
+  const [ajQtd, setAjQtd] = useState('');
+  const [ajMotivo, setAjMotivo] = useState('');
+  const [agora, setAgora] = useState(item?.quantidade ?? 0);
+
+  async function ajustar() {
+    if (!item) return;
+    const v = qtdDigitada(ajQtd, item);
+    if (v == null || v < 0) return Alert.alert('Quanto?', `Digite a quantidade (ex.: 2 cx, 500 ${item.unidade}).`);
+    setSalvando(true);
+    try {
+      const motivo = ajMotivo.trim() || (ajTipo === 'Ficou com =' ? 'Correção' : ajTipo === 'Somar +' ? 'Entrada sem compra' : 'Saída / perda');
+      const novo =
+        ajTipo === 'Ficou com ='
+          ? await movimentar(item.id, 'contagem', v, motivo)
+          : await movimentar(item.id, 'ajuste', ajTipo === 'Somar +' ? v : -v, motivo);
+      setAgora(novo);
+      setAjQtd('');
+      setAjMotivo('');
+      listarMovimentos(item.id).then(setMov).catch(() => {});
+      Alert.alert('Estoque ajustado', `${item.nome}: agora ${qtdEstoqueTexto(novo, item.unidade)}.`);
+    } catch (e: any) {
+      Alert.alert('Não consegui ajustar', e?.message ?? '');
+    } finally {
+      setSalvando(false);
+    }
+  }
 
   useEffect(() => {
     if (item) listarMovimentos(item.id).then(setMov).catch(() => setMov([]));
@@ -229,9 +260,24 @@ function ItemFolha({ item, onFechar, onSalvo }: { item: ItemEstoque | null; onFe
   return (
     <Folha visivel titulo={item ? item.nome : 'Novo item'} onFechar={onFechar} rodape={<Botao texto={salvando ? 'Salvando…' : 'Salvar'} icone="check" onPress={salvar} desativado={salvando} />}>
       {item ? (
-        <Cartao style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' } as any}>
-          <Text style={s.sub}>Tem agora</Text>
-          <Text style={s.valor}>{qtdEstoqueTexto(item.quantidade, item.unidade)}</Text>
+        <Cartao style={{ gap: 10 } as any}>
+          <View style={[s.linha, { justifyContent: 'space-between' }]}>
+            <Text style={s.sub}>Tem agora</Text>
+            <Text style={s.valor}>{qtdEstoqueTexto(agora, item.unidade)}</Text>
+          </View>
+          <Text style={s.titulo}>Ajustar estoque</Text>
+          <Text style={s.dica}>Sem precisar lançar compra: some o que chegou, tire o que saiu/perdeu ou corrija para o que tem.</Text>
+          <Chips opcoes={['Somar +', 'Tirar −', 'Ficou com =']} valor={ajTipo} onMudar={(v) => v && setAjTipo(v as any)} />
+          <TextInput
+            style={[s.input, { fontWeight: '800' }]}
+            value={ajQtd}
+            onChangeText={setAjQtd}
+            keyboardType="numbers-and-punctuation"
+            placeholder={`Quantidade (ex.: 2 cx, 500 ${item.unidade})`}
+            placeholderTextColor="#C4AEB5"
+          />
+          <TextInput style={s.input} value={ajMotivo} onChangeText={setAjMotivo} placeholder="Motivo (opcional) — ex.: ganhei, quebrou" placeholderTextColor="#C4AEB5" />
+          <Botao texto={salvando ? 'Ajustando…' : 'Ajustar agora'} icone="sliders" tipo="claro" onPress={ajustar} desativado={salvando || !ajQtd.trim()} />
         </Cartao>
       ) : null}
       <Campo rotulo="Nome" value={nome} onChangeText={setNome} placeholder="Ex.: Leite condensado" dica="Use o mesmo nome da receita para a baixa automática funcionar." />
