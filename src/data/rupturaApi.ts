@@ -244,7 +244,10 @@ export function calcularResultado(
     } else {
       situacao = semVenda ? 'suspeito' : 'repor';
     }
-    const provavelDescontinuado = it.importacoesZerado >= 2 && (dias == null || dias > 60);
+    // Zerado no CD há mais de 30 dias e sem venda há mais de 60: serve tanto
+    // para quem sobe o formulário todo dia quanto uma vez por mês.
+    const diasCdZerado = diasDesde(it.cdZeradoDesde, null);
+    const provavelDescontinuado = diasCdZerado != null && diasCdZerado > 30 && (dias == null || dias > 60);
     resultado.push({
       codigoInterno: it.codigoInterno,
       codigoBarras: lidosCod.get(it.codigoInterno) ?? it.eans.find((e) => e.length === 13 || e.length === 8) ?? it.eans[0] ?? null,
