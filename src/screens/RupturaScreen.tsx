@@ -38,6 +38,8 @@ import {
   calcularResultado,
   carregarColetaAtual,
   compartilharPedido,
+  criarTarefaReposicao,
+  SITUACOES_TAREFA,
   compartilharResultado,
   contaRuptura,
   enviarColeta,
@@ -168,7 +170,7 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   }
 
   if (etapa === 'historico') {
-    return <TelaHistorico onVoltar={() => setEtapa('grupos')} />;
+    return <TelaHistorico onVoltar={() => setEtapa('grupos')} quem={quem} />;
   }
 
   if (etapa === 'descontinuados') {
@@ -231,6 +233,63 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
         </TouchableOpacity>
       </ScrollView>
     </View>
+  );
+}
+
+// ==================================================== tarefa de reposição ==
+
+const SETORES_TAREFA: { key: 'mercearia' | 'deposito' | 'prevencao'; nome: string }[] = [
+  { key: 'mercearia', nome: 'Mercearia' },
+  { key: 'deposito', nome: 'Depósito' },
+  { key: 'prevencao', nome: 'Prevenção' },
+];
+
+function BotaoTarefa({ grupoNome, itens, quem }: { grupoNome: string; itens: ResultadoItem[]; quem: string }) {
+  const [aberto, setAberto] = useState(false);
+  const [criando, setCriando] = useState(false);
+  const [criada, setCriada] = useState(false);
+  const qtd = itens.filter((i) => SITUACOES_TAREFA.includes(i.situacao) && i.codigoInterno).length;
+  if (!qtd) return null;
+  async function criar(setor: 'mercearia' | 'deposito' | 'prevencao') {
+    setCriando(true);
+    try {
+      await criarTarefaReposicao(grupoNome, itens, setor, quem);
+      setCriada(true);
+      setAberto(false);
+      Alert.alert('Tarefa criada', `A tarefa com ${qtd} ${qtd === 1 ? 'item' : 'itens'} foi para o setor e aparece em Tarefas.`);
+    } catch (e: any) {
+      Alert.alert('Não consegui criar a tarefa', e?.message ?? '');
+    } finally {
+      setCriando(false);
+    }
+  }
+  return (
+    <>
+      <TouchableOpacity style={[styles.btnTarefa, criada && { opacity: 0.6 }]} onPress={() => setAberto(true)} disabled={criada}>
+        <Feather name={criada ? 'check-circle' : 'clipboard'} size={16} color="#7A3FC4" />
+        <Text style={styles.btnTarefaTexto}>{criada ? 'Tarefa de reposição criada' : `Criar tarefa de reposição (${qtd})`}</Text>
+      </TouchableOpacity>
+      <Modal visible={aberto} transparent animationType="fade" onRequestClose={() => setAberto(false)}>
+        <View style={styles.modalFundo}>
+          <View style={styles.modal}>
+            <Text style={styles.modalTitulo}>Tarefa de reposição</Text>
+            <Text style={styles.modalTexto}>
+              {qtd} {qtd === 1 ? 'produto' : 'produtos'} com saldo no sistema e fora da gôndola. A tarefa sai com prazo hoje e prioridade alta. Para qual setor?
+            </Text>
+            {SETORES_TAREFA.map((s) => (
+              <TouchableOpacity key={s.key} style={styles.opcao} onPress={() => criar(s.key)} disabled={criando}>
+                <Text style={styles.opcaoTexto}>{s.nome}</Text>
+              </TouchableOpacity>
+            ))}
+            {criando ? <ActivityIndicator color={AZUL} style={{ marginTop: spacing.md }} /> : (
+              <TouchableOpacity onPress={() => setAberto(false)} style={{ marginTop: spacing.md, alignSelf: 'center' }}>
+                <Text style={styles.link}>Cancelar</Text>
+              </TouchableOpacity>
+            )}
+          </View>
+        </View>
+      </Modal>
+    </>
   );
 }
 
@@ -528,6 +587,7 @@ function TelaResultado({
           </View>
         </View>
         {dataVendas && <Text style={styles.nota}>Vendas consideradas até {dataBR(dataVendas)} · sem venda = mais de {grupo.diasSemVenda} dias</Text>}
+        <BotaoTarefa grupoNome={grupo.nome} itens={resultado} quem={quem} />
 
         {voltaram.length > 0 && (
           <View style={[styles.cardSit, { borderColor: AZUL }]}>
@@ -627,7 +687,7 @@ function TelaResultado({
 
 // ================================================================ histórico ==
 
-function TelaHistorico({ onVoltar }: { onVoltar: () => void }) {
+function TelaHistorico({ onVoltar, quem }: { onVoltar: () => void; quem: string }) {
   const [lista, setLista] = useState<ColetaSalva[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
@@ -691,6 +751,8 @@ function TelaHistorico({ onVoltar }: { onVoltar: () => void }) {
             <View style={styles.resumoBloco}><Text style={styles.resumoNum}>{coleta.totalColetados}</Text><Text style={styles.resumoRot}>bipados</Text></View>
             <View style={styles.resumoBloco}><Text style={styles.resumoNum}>{coleta.totalItens}</Text><Text style={styles.resumoRot}>no grupo</Text></View>
           </View>
+          <View style={{ height: spacing.md }} />
+          <BotaoTarefa grupoNome={coleta.grupoNome} itens={itens} quem={quem} />
           {grupos.map(({ s, itens: its }) => {
             const info = SITUACOES[s];
             return (
@@ -868,4 +930,6 @@ const styles = StyleSheet.create({
   opcao: { borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.sm },
   opcaoTexto: { fontSize: 14, color: colors.navy900, fontWeight: '600' },
   link: { color: AZUL, fontWeight: '700' },
+  btnTarefa: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#F1E9FB', borderRadius: radius.md, paddingVertical: 12, marginBottom: spacing.md },
+  btnTarefaTexto: { color: '#7A3FC4', fontWeight: '700', fontSize: 14 },
 });
