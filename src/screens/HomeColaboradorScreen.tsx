@@ -40,6 +40,7 @@ import UsoConsumoScreen from './UsoConsumoScreen';
 import OfertasHubScreen from './OfertasHubScreen';
 import ChegadasScreen from './ChegadasScreen';
 import OlhoValidadeScreen from './OlhoValidadeScreen';
+import RupturaTratativasScreen from './RupturaTratativasScreen';
 import InicioUlva2, { Grupo, GrupoId, TelaFerramenta, Ferramenta } from './InicioUlva2';
 import { buscarUlva2Liberado, ulva2LiberadoEmCache } from '../data/ulva2Flag';
 
@@ -73,6 +74,7 @@ export default function HomeColaboradorScreen() {
     | 'checklist'
     | 'colaboradores'
     | 'precificacao'
+    | 'rupturaTratativas'
     | 'escalaFaltas'
     | 'usoConsumo'
     | 'ofertas'
@@ -245,6 +247,9 @@ export default function HomeColaboradorScreen() {
         }}
       />
     );
+  }
+  if (tela === 'rupturaTratativas') {
+    return <RupturaTratativasScreen modo="encarregado" onVoltar={() => setTela('home')} />;
   }
   if (tela === 'precificacao') {
     return <PrecificacaoScreen onVoltar={() => setTela('home')} />;
@@ -541,12 +546,14 @@ export default function HomeColaboradorScreen() {
         ...f('De olho na validade', 'Cliente achou produto vencido', 'eye', 'olhoValidade'),
         ...(!somenteValidade && ehFlv ? f('Pedidos', 'Pedidos do FLV', 'shopping-cart', 'pedidos') : []),
         ...(somenteValidade ? [] : f('Uso e Consumo', 'Retirada de material por setor', 'box', 'usoConsumo')),
+        ...(somenteValidade ? [] : f('Ruptura', 'Produtos para repor e conferir', 'alert-octagon', 'rupturaTratativas')),
       ],
     },
   ];
 
   function abrirFerramenta(t: TelaFerramenta) {
     const mapa: Partial<Record<TelaFerramenta, typeof tela>> = {
+      rupturaTratativas: 'rupturaTratativas',
       ocorrencias: 'ocorrencia',
       conferencias: 'conferencia',
       checklist: 'checklist',
@@ -708,6 +715,7 @@ export default function HomeColaboradorScreen() {
                 { label: 'Ofertas', icone: 'tag' as const, chave: 'ofertas', onPress: () => setTela('ofertas') },
                 { label: 'Chegou hoje', icone: 'truck' as const, chave: 'chegadas', onPress: () => setTela('chegadas') },
                 { label: 'Uso e Consumo', icone: 'box' as const, chave: 'usoConsumo', onPress: () => setTela('usoConsumo') },
+                { label: 'Ruptura', icone: 'alert-octagon' as const, chave: 'rupturaTratativas', onPress: () => setTela('rupturaTratativas') },
                 { label: 'Inventário', icone: 'package' as const, chave: null, onPress: undefined },
                 { label: 'Mural de Avisos', icone: 'bell' as const, chave: 'avisos', onPress: () => setTela('avisos') },
                 { label: 'Abrir ocorrência', icone: 'alert-triangle' as const, chave: 'ocorrencia', onPress: () => setTela('ocorrencia') },

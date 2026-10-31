@@ -28,6 +28,7 @@ import GiroProdutosScreen from './GiroProdutosScreen';
 import VendasLojaScreen from './VendasLojaScreen';
 import PesquisaPrecoScreen from './PesquisaPrecoScreen';
 import RupturaScreen from './RupturaScreen';
+import RupturaTratativasScreen from './RupturaTratativasScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
@@ -93,6 +94,7 @@ export default function HomeAdminScreen() {
     | 'vendaDia'
     | 'resultadosInventario'
     | 'ruptura'
+    | 'rupturaTratativas'
   >('home');
 
   // Relatório diário (só do Lucas): a notificação "Relatório pronto" traz
@@ -260,6 +262,9 @@ export default function HomeAdminScreen() {
   }
   if (tela === 'vendas') {
     return <VendasScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'rupturaTratativas') {
+    return <RupturaTratativasScreen modo="gerencia" onVoltar={() => setTela('home')} />;
   }
   if (tela === 'ruptura') {
     return <RupturaScreen onVoltar={() => setTela('home')} />;

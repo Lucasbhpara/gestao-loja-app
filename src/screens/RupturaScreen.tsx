@@ -17,6 +17,8 @@ import { CameraView, useCameraPermissions } from 'expo-camera';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import CabecalhoTela from '../components/CabecalhoTela';
+import RupturaTratativasScreen from './RupturaTratativasScreen';
+import { abrirTratativasDaColeta } from '../data/rupturaTratativasApi';
 import {
   ColetaLocal,
   ColetaSalva,
@@ -32,14 +34,15 @@ import {
   baixarUniverso,
   buscarDescontinuados,
   buscarHistorico,
+  buscarPrioridade,
+  notaPrioridade,
+  PrioridadeGrupo,
   buscarItensColetas,
   buscarGrupos,
   buscarProdutoPorEan,
   calcularResultado,
   carregarColetaAtual,
   compartilharPedido,
-  criarTarefaReposicao,
-  SITUACOES_TAREFA,
   compartilharResultado,
   contaRuptura,
   enviarColeta,
@@ -63,7 +66,7 @@ const dataHoraBR = (d: string) => {
   return x.toLocaleDateString('pt-BR') + ' ' + x.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 };
 
-type Etapa = 'grupos' | 'coleta' | 'resultado' | 'descontinuados' | 'historico';
+type Etapa = 'grupos' | 'coleta' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas';
 
 export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -82,12 +85,15 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   const [abrindo, setAbrindo] = useState(false);
   // Cada setor é uma gaveta fechada; abre uma de cada vez para a tela não poluir.
   const [setorAberto, setSetorAberto] = useState<string | null>(null);
+  const [prioridade, setPrioridade] = useState<Map<string, PrioridadeGrupo>>(new Map());
 
   const carregarGrupos = useCallback(async () => {
     setCarregando(true);
     setErro(null);
     try {
-      setGrupos(await buscarGrupos());
+      const [gs, pr] = await Promise.all([buscarGrupos(), buscarPrioridade()]);
+      setGrupos(gs);
+      setPrioridade(pr);
     } catch (e: any) {
       setErro(e?.message ?? 'Não consegui carregar os grupos.');
     } finally {
@@ -167,8 +173,13 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
         quem={quem}
         onVoltarColeta={() => setEtapa('coleta')}
         onConcluir={encerrar}
+        onVerTratativas={async () => { await encerrar(); setEtapa('tratativas'); }}
       />
     );
+  }
+
+  if (etapa === 'tratativas') {
+    return <RupturaTratativasScreen modo="gerencia" onVoltar={() => { setEtapa('grupos'); carregarGrupos(); }} />;
   }
 
   if (etapa === 'historico') {
@@ -201,6 +212,36 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
             <Text style={styles.avisoTexto}>Baixando a lista do grupo…</Text>
           </View>
         )}
+        {(() => {
+          const top = grupos
+            .map((g) => ({ g, p: prioridade.get(g.id), n: notaPrioridade(prioridade.get(g.id), g.ultimaColeta?.data ?? null) }))
+            .filter((x) => x.p && x.p.suspeitos > 0 && x.n > 0)
+            .sort((a, b) => b.n - a.n)
+            .slice(0, 5);
+          if (!top.length) return null;
+          return (
+            <View style={styles.painel}>
+              <Text style={styles.painelTitulo}>🎯 Prioridade de coleta</Text>
+              <Text style={styles.painelSub}>Zerados na loja que vendiam · cruzado com estoque, vendas e CD</Text>
+              {top.map(({ g, p }, i) => {
+                const u = g.ultimaColeta;
+                const dias = u ? Math.floor((Date.now() - new Date(u.data).getTime()) / 86400000) : null;
+                return (
+                  <TouchableOpacity key={g.id} style={styles.painelLinha} onPress={() => abrirGrupo(g)} disabled={abrindo}>
+                    <Text style={styles.painelPos}>{i + 1}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.nomeGrupo}>{g.nome}</Text>
+                      <Text style={styles.subGrupo}>
+                        {nomeSetor(g.setor)} · {p!.suspeitos} suspeitos{p!.comCd ? ` (${p!.comCd} o CD tem)` : ''} · {dias == null ? 'nunca coletado' : dias === 0 ? 'coletado hoje' : `coletado há ${dias}d`}
+                      </Text>
+                    </View>
+                    <Feather name="chevron-right" size={18} color={colors.gray400} />
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          );
+        })()}
         {Object.entries(porSetor).map(([setor, gs]) => {
           const aberto = setorAberto === setor;
           const coletados = gs.filter((g) => g.ultimaColeta);
@@ -225,6 +266,9 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
                       <View style={{ flex: 1 }}>
                         <Text style={styles.nomeGrupo}>{g.nome}</Text>
                         <Text style={styles.subGrupo}>{u ? `Última coleta ${dataBR(u.data)} · ${u.ruptura} em ruptura` : 'Nenhuma coleta ainda'}</Text>
+                        {(prioridade.get(g.id)?.suspeitos ?? 0) > 0 && (
+                          <Text style={styles.suspeitos}>⚠️ {prioridade.get(g.id)!.suspeitos} suspeitos de ruptura</Text>
+                        )}
                       </View>
                       {pct != null && (
                         <View style={[styles.pill, { backgroundColor: pct >= 10 ? '#FDECEA' : pct >= 5 ? '#FFF8D6' : '#DFF3E8' }]}>
@@ -239,6 +283,10 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
           );
         })}
         {!carregando && grupos.length === 0 && !erro && <Text style={styles.vazio}>Nenhum grupo cadastrado ainda.</Text>}
+        <TouchableOpacity style={[styles.btnSecundario, { backgroundColor: '#E3EDFF', borderColor: '#E3EDFF' }]} onPress={() => setEtapa('tratativas')}>
+          <Feather name="check-square" size={16} color={colors.navy700} />
+          <Text style={styles.btnSecundarioTexto}>Tratativas</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.btnSecundario} onPress={() => setEtapa('historico')}>
           <Feather name="clock" size={16} color={colors.navy700} />
           <Text style={styles.btnSecundarioTexto}>Histórico e lista de pedido</Text>
@@ -249,63 +297,6 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
         </TouchableOpacity>
       </ScrollView>
     </View>
-  );
-}
-
-// ==================================================== tarefa de reposição ==
-
-const SETORES_TAREFA: { key: 'mercearia' | 'deposito' | 'prevencao'; nome: string }[] = [
-  { key: 'mercearia', nome: 'Mercearia' },
-  { key: 'deposito', nome: 'Depósito' },
-  { key: 'prevencao', nome: 'Prevenção' },
-];
-
-function BotaoTarefa({ grupoNome, itens, quem }: { grupoNome: string; itens: ResultadoItem[]; quem: string }) {
-  const [aberto, setAberto] = useState(false);
-  const [criando, setCriando] = useState(false);
-  const [criada, setCriada] = useState(false);
-  const qtd = itens.filter((i) => SITUACOES_TAREFA.includes(i.situacao) && i.codigoInterno).length;
-  if (!qtd) return null;
-  async function criar(setor: 'mercearia' | 'deposito' | 'prevencao') {
-    setCriando(true);
-    try {
-      await criarTarefaReposicao(grupoNome, itens, setor, quem);
-      setCriada(true);
-      setAberto(false);
-      Alert.alert('Tarefa criada', `A tarefa com ${qtd} ${qtd === 1 ? 'item' : 'itens'} foi para o setor e aparece em Tarefas.`);
-    } catch (e: any) {
-      Alert.alert('Não consegui criar a tarefa', e?.message ?? '');
-    } finally {
-      setCriando(false);
-    }
-  }
-  return (
-    <>
-      <TouchableOpacity style={[styles.btnTarefa, criada && { opacity: 0.6 }]} onPress={() => setAberto(true)} disabled={criada}>
-        <Feather name={criada ? 'check-circle' : 'clipboard'} size={16} color="#7A3FC4" />
-        <Text style={styles.btnTarefaTexto}>{criada ? 'Tarefa de reposição criada' : `Criar tarefa de reposição (${qtd})`}</Text>
-      </TouchableOpacity>
-      <Modal visible={aberto} transparent animationType="fade" onRequestClose={() => setAberto(false)}>
-        <View style={styles.modalFundo}>
-          <View style={styles.modal}>
-            <Text style={styles.modalTitulo}>Tarefa de reposição</Text>
-            <Text style={styles.modalTexto}>
-              {qtd} {qtd === 1 ? 'produto' : 'produtos'} com saldo no sistema e fora da gôndola. A tarefa sai com prazo hoje e prioridade alta. Para qual setor?
-            </Text>
-            {SETORES_TAREFA.map((s) => (
-              <TouchableOpacity key={s.key} style={styles.opcao} onPress={() => criar(s.key)} disabled={criando}>
-                <Text style={styles.opcaoTexto}>{s.nome}</Text>
-              </TouchableOpacity>
-            ))}
-            {criando ? <ActivityIndicator color={AZUL} style={{ marginTop: spacing.md }} /> : (
-              <TouchableOpacity onPress={() => setAberto(false)} style={{ marginTop: spacing.md, alignSelf: 'center' }}>
-                <Text style={styles.link}>Cancelar</Text>
-              </TouchableOpacity>
-            )}
-          </View>
-        </View>
-      </Modal>
-    </>
   );
 }
 
@@ -504,6 +495,7 @@ function TelaResultado({
   quem,
   onVoltarColeta,
   onConcluir,
+  onVerTratativas,
 }: {
   grupo: GrupoRuptura;
   universo: ItemUniverso[];
@@ -513,6 +505,7 @@ function TelaResultado({
   quem: string;
   onVoltarColeta: () => void;
   onConcluir: () => void;
+  onVerTratativas: () => void;
 }) {
   const { resultado, voltaram, esperados, coletados } = useMemo(
     () => calcularResultado(coleta, universo, grupo.diasSemVenda ?? 10, dataVendas),
@@ -603,7 +596,6 @@ function TelaResultado({
           </View>
         </View>
         {dataVendas && <Text style={styles.nota}>Vendas consideradas até {dataBR(dataVendas)} · sem venda = mais de {grupo.diasSemVenda} dias</Text>}
-        <BotaoTarefa grupoNome={grupo.nome} itens={resultado} quem={quem} />
 
         {voltaram.length > 0 && (
           <View style={[styles.cardSit, { borderColor: AZUL }]}>
@@ -672,7 +664,26 @@ function TelaResultado({
           style={[styles.btnPrincipal, { flex: 2, marginLeft: spacing.sm }]}
           disabled={enviando}
           onPress={async () => {
-            if (await salvar()) onConcluir();
+            if (!(await salvar())) return;
+            try {
+              const r = await abrirTratativasDaColeta(
+                { id: coleta.id, grupoId: coleta.grupoId, grupoNome: coleta.grupoNome, setor: coleta.setor },
+                resultado,
+                quem,
+              );
+              Alert.alert(
+                'Coleta salva',
+                `${r.abertas} ${r.abertas === 1 ? 'tratativa aberta' : 'tratativas abertas'}` +
+                  (r.fechadas ? ` · ${r.fechadas} ${r.fechadas === 1 ? 'resolvida' : 'resolvidas'} (estavam na gôndola)` : '') + '.',
+                [
+                  { text: 'Voltar aos grupos', onPress: onConcluir },
+                  { text: 'Ver tratativas', onPress: onVerTratativas },
+                ],
+              );
+            } catch (e: any) {
+              Alert.alert('Coleta salva', 'Mas não consegui abrir as tratativas: ' + (e?.message ?? ''));
+              onConcluir();
+            }
           }}
         >
           {enviando ? <ActivityIndicator color={colors.white} /> : <Feather name="check" size={18} color={colors.white} />}
@@ -767,8 +778,7 @@ function TelaHistorico({ onVoltar, quem }: { onVoltar: () => void; quem: string 
             <View style={styles.resumoBloco}><Text style={styles.resumoNum}>{coleta.totalColetados}</Text><Text style={styles.resumoRot}>bipados</Text></View>
             <View style={styles.resumoBloco}><Text style={styles.resumoNum}>{coleta.totalItens}</Text><Text style={styles.resumoRot}>no grupo</Text></View>
           </View>
-          <View style={{ height: spacing.md }} />
-          <BotaoTarefa grupoNome={coleta.grupoNome} itens={itens} quem={quem} />
+
           {grupos.map(({ s, itens: its }) => {
             const info = SITUACOES[s];
             return (
@@ -946,6 +956,12 @@ const styles = StyleSheet.create({
   opcao: { borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.sm },
   opcaoTexto: { fontSize: 14, color: colors.navy900, fontWeight: '600' },
   link: { color: AZUL, fontWeight: '700' },
+  painel: { backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: '#F3C9C4', padding: spacing.md, marginBottom: spacing.lg },
+  painelTitulo: { fontSize: 16, fontWeight: '800', color: colors.navy900 },
+  painelSub: { fontSize: 11.5, color: colors.gray600, marginBottom: spacing.sm },
+  painelLinha: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.gray100 },
+  painelPos: { width: 24, height: 24, borderRadius: 12, backgroundColor: '#FDECEA', color: '#C0352B', fontWeight: '800', textAlign: 'center', lineHeight: 24, fontSize: 12 },
+  suspeitos: { fontSize: 11.5, color: '#C0352B', fontWeight: '700', marginTop: 2 },
   gaveta: { backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.gray100, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
   gavetaAberta: { borderColor: AZUL, paddingBottom: spacing.sm },
   gavetaTopo: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md },
