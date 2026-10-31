@@ -140,7 +140,8 @@ function mapUniverso(r: any): ItemUniverso {
     estoqueCd: r.estoque_cd == null ? null : Number(r.estoque_cd),
     cdZeradoDesde: r.cd_zerado_desde ?? null,
     importacoesZerado: r.importacoes_zerado ?? 0,
-    lojaTrabalha: !!r.loja_trabalha,
+    // Vendeu na loja = a loja trabalha, mesmo sem linha no Estoque Loja.
+    lojaTrabalha: !!r.loja_trabalha || !!r.ultima_venda,
     descontinuado: !!r.descontinuado,
     motivoDescontinuado: r.motivo_descontinuado ?? null,
   };
@@ -227,7 +228,7 @@ export function calcularResultado(
       if (bipado || (dias != null && dias <= diasLimite)) voltaram.push(it);
       continue;
     }
-    esperados++;
+    if (it.lojaTrabalha) esperados++;
 
     let situacao: Situacao;
     const saldo = it.saldo ?? 0;
