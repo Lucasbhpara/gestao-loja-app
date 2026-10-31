@@ -245,7 +245,7 @@ export function calcularResultado(
     const provavelDescontinuado = it.importacoesZerado >= 2 && (dias == null || dias > 60);
     resultado.push({
       codigoInterno: it.codigoInterno,
-      codigoBarras: lidosCod.get(it.codigoInterno) ?? it.eans[0] ?? null,
+      codigoBarras: lidosCod.get(it.codigoInterno) ?? it.eans.find((e) => e.length === 13 || e.length === 8) ?? it.eans[0] ?? null,
       produto: it.produto,
       situacao,
       saldo: it.saldo,
@@ -358,7 +358,7 @@ export async function buscarDescontinuados(): Promise<Descontinuado[]> {
 
 const dataBR = (d: string | null) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '');
 
-export async function compartilharResultado(coleta: ColetaLocal, resultado: ResultadoItem[], soRuptura: boolean): Promise<void> {
+export async function compartilharResultado(coleta: { grupoNome: string }, resultado: ResultadoItem[], soRuptura: boolean): Promise<void> {
   const linhas = resultado
     .filter((r) => !soRuptura || r.situacao !== 'ok')
     .map((r) => ({
@@ -376,7 +376,151 @@ export async function compartilharResultado(coleta: ColetaLocal, resultado: Resu
   const livro = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(livro, ws, 'Ruptura');
   const dia = new Date().toISOString().slice(0, 10).split('-').reverse().join('-');
-  const nome = `Ruptura ${coleta.grupoNome} ${dia}.xlsx`.replace(/[\\/:*?"<>|]/g, '');
+  await compartilharLivro(livro, `Ruptura ${coleta.grupoNome} ${dia}.xlsx`, 'Enviar ruptura');
+}
+
+// ------------------------------------------------------------ histórico ----
+
+export interface ColetaSalva {
+  id: string;
+  grupoNome: string;
+  setor: string | null;
+  feitaPor: string | null;
+  finalizadaEm: string;
+  totalItens: number;
+  totalColetados: number;
+  totalRuptura: number;
+  resumo: Record<string, number>;
+}
+
+export interface ItemSalvo {
+  coletaId: string;
+  codigoInterno: string | null;
+  codigoBarras: string | null;
+  produto: string;
+  situacao: Situacao;
+  saldo: number | null;
+  ultimaVenda: string | null;
+  estoqueCd: number | null;
+}
+
+export async function buscarHistorico(limite = 60): Promise<ColetaSalva[]> {
+  const { data, error } = await supabase
+    .from('ruptura_coletas')
+    .select('id, grupo_nome, setor, feita_por, finalizada_em, total_itens, total_coletados, total_ruptura, resumo')
+    .not('finalizada_em', 'is', null)
+    .order('finalizada_em', { ascending: false })
+    .limit(limite);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((c: any) => ({
+    id: c.id,
+    grupoNome: c.grupo_nome,
+    setor: c.setor,
+    feitaPor: c.feita_por,
+    finalizadaEm: c.finalizada_em,
+    totalItens: c.total_itens,
+    totalColetados: c.total_coletados,
+    totalRuptura: c.total_ruptura,
+    resumo: c.resumo ?? {},
+  }));
+}
+
+export async function buscarItensColetas(ids: string[]): Promise<ItemSalvo[]> {
+  if (!ids.length) return [];
+  const { data, error } = await supabase
+    .from('ruptura_coleta_itens')
+    .select('coleta_id, codigo_interno, codigo_barras, produto, situacao, saldo, ultima_venda, estoque_cd')
+    .in('coleta_id', ids)
+    .limit(5000);
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((i: any) => ({
+    coletaId: i.coleta_id,
+    codigoInterno: i.codigo_interno,
+    codigoBarras: i.codigo_barras,
+    produto: i.produto ?? '',
+    situacao: i.situacao,
+    saldo: i.saldo == null ? null : Number(i.saldo),
+    ultimaVenda: i.ultima_venda,
+    estoqueCd: i.estoque_cd == null ? null : Number(i.estoque_cd),
+  }));
+}
+
+// Transforma itens salvos no formato do resultado (para reaproveitar a planilha).
+export function itensSalvosComoResultado(itens: ItemSalvo[]): ResultadoItem[] {
+  return itens
+    .map((i) => ({
+      codigoInterno: i.codigoInterno,
+      codigoBarras: i.codigoBarras,
+      produto: i.produto,
+      situacao: i.situacao,
+      saldo: i.saldo,
+      ultimaVenda: i.ultimaVenda,
+      estoqueCd: i.estoqueCd,
+      provavelDescontinuado: false,
+      diasSemVenda: null,
+    }))
+    .sort((a, b) => ORDEM_SITUACOES.indexOf(a.situacao) - ORDEM_SITUACOES.indexOf(b.situacao) || a.produto.localeCompare(b.produto));
+}
+
+// ------------------------------------------------------ planilha de pedido ----
+// Junta uma ou mais coletas numa lista para lançar no pedido do CD:
+//  aba "Pedido"          → ruptura + nunca veio (o CD tem, a loja precisa pedir)
+//  aba "CD sem estoque"  → para cobrar o comprador
+//  aba "Fora do CD"      → ruptura de item que não está no formulário (fornecedor direto ou fora de linha)
+export async function compartilharPedido(coletas: { id: string; grupoNome: string }[], itens: ItemSalvo[]): Promise<{ pedido: number; cdSem: number; foraCd: number }> {
+  const nomeGrupo = new Map(coletas.map((c) => [c.id, c.grupoNome]));
+  const vistos = new Set<string>();
+  const pedido: ItemSalvo[] = [];
+  const cdSem: ItemSalvo[] = [];
+  const foraCd: ItemSalvo[] = [];
+  for (const i of itens) {
+    if (!i.codigoInterno || vistos.has(i.codigoInterno)) continue;
+    if (i.situacao === 'ruptura' || i.situacao === 'nunca_veio') {
+      // Sem estoque_cd = o item não está no formulário do CD (entrega direta ou fora de linha)
+      (i.estoqueCd == null ? foraCd : pedido).push(i);
+      vistos.add(i.codigoInterno);
+    } else if (i.situacao === 'cd_sem') { cdSem.push(i); vistos.add(i.codigoInterno); }
+  }
+  // Embalagem de compra vem do formulário do CD
+  const cods = [...pedido, ...cdSem].map((i) => i.codigoInterno as string);
+  const emb = new Map<string, string>();
+  for (let k = 0; k < cods.length; k += 300) {
+    const { data } = await supabase.from('mix_cd_itens').select('codigo_interno, embalagem').in('codigo_interno', cods.slice(k, k + 300));
+    for (const m of data ?? []) emb.set(m.codigo_interno, m.embalagem ?? '');
+  }
+  const ordena = (a: ItemSalvo, b: ItemSalvo) =>
+    (nomeGrupo.get(a.coletaId) ?? '').localeCompare(nomeGrupo.get(b.coletaId) ?? '') || a.produto.localeCompare(b.produto);
+  const linha = (i: ItemSalvo) => ({
+    Grupo: nomeGrupo.get(i.coletaId) ?? '',
+    'Código interno': i.codigoInterno ?? '',
+    Produto: i.produto,
+    Embalagem: emb.get(i.codigoInterno ?? '') ?? '',
+    'Estoque CD': i.estoqueCd ?? '',
+    Motivo: i.situacao === 'nunca_veio' ? 'Nunca veio para a loja' : i.situacao === 'cd_sem' ? 'CD sem estoque' : i.estoqueCd == null ? 'Não está no formulário do CD' : 'Ruptura',
+  });
+  const cols = [{ wch: 24 }, { wch: 13 }, { wch: 44 }, { wch: 11 }, { wch: 11 }, { wch: 22 }];
+  const livro = XLSX.utils.book_new();
+  const ws1 = XLSX.utils.json_to_sheet(pedido.sort(ordena).map(linha));
+  ws1['!cols'] = cols;
+  XLSX.utils.book_append_sheet(livro, ws1, 'Pedido');
+  if (cdSem.length) {
+    const ws2 = XLSX.utils.json_to_sheet(cdSem.sort(ordena).map(linha));
+    ws2['!cols'] = cols;
+    XLSX.utils.book_append_sheet(livro, ws2, 'CD sem estoque');
+  }
+  if (foraCd.length) {
+    const ws3 = XLSX.utils.json_to_sheet(foraCd.sort(ordena).map(linha));
+    ws3['!cols'] = cols;
+    XLSX.utils.book_append_sheet(livro, ws3, 'Fora do CD');
+  }
+  const dia = new Date().toISOString().slice(0, 10).split('-').reverse().join('-');
+  const titulo = coletas.length === 1 ? coletas[0].grupoNome : `${coletas.length} grupos`;
+  await compartilharLivro(livro, `Pedido ruptura ${titulo} ${dia}.xlsx`, 'Enviar lista de pedido');
+  return { pedido: pedido.length, cdSem: cdSem.length, foraCd: foraCd.length };
+}
+
+async function compartilharLivro(livro: XLSX.WorkBook, nomeArquivo: string, titulo: string): Promise<void> {
+  const nome = nomeArquivo.replace(/[\\/:*?"<>|]/g, '');
   if (rodandoNaWeb) {
     XLSX.writeFile(livro, nome, { bookType: 'xlsx' });
     return;
@@ -389,7 +533,7 @@ export async function compartilharResultado(coleta: ColetaLocal, resultado: Resu
   if (!(await Sharing.isAvailableAsync())) throw new Error(`Não consegui abrir a tela de compartilhar. O arquivo ficou em: ${caminho}`);
   await Sharing.shareAsync(caminho, {
     mimeType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-    dialogTitle: 'Enviar ruptura',
+    dialogTitle: titulo,
     UTI: 'com.microsoft.excel.xlsx',
   });
 }
