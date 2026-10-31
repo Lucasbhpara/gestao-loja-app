@@ -2,6 +2,8 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as XLSX from 'xlsx';
 import { supabase } from '../lib/supabase';
 import { rodandoNaWeb } from '../lib/plataforma';
+import { criarTarefa } from './tarefasApi';
+import { SetorKey } from './employees';
 
 // =============================================================================
 // Controle de Ruptura.
@@ -242,7 +244,10 @@ export function calcularResultado(
     } else {
       situacao = semVenda ? 'suspeito' : 'repor';
     }
-    const provavelDescontinuado = it.importacoesZerado >= 2 && (dias == null || dias > 60);
+    // Zerado no CD há mais de 30 dias e sem venda há mais de 60: serve tanto
+    // para quem sobe o formulário todo dia quanto uma vez por mês.
+    const diasCdZerado = diasDesde(it.cdZeradoDesde, null);
+    const provavelDescontinuado = diasCdZerado != null && diasCdZerado > 30 && (dias == null || dias > 60);
     resultado.push({
       codigoInterno: it.codigoInterno,
       codigoBarras: lidosCod.get(it.codigoInterno) ?? it.eans.find((e) => e.length === 13 || e.length === 8) ?? it.eans[0] ?? null,
@@ -536,4 +541,43 @@ async function compartilharLivro(livro: XLSX.WorkBook, nomeArquivo: string, titu
     dialogTitle: titulo,
     UTI: 'com.microsoft.excel.xlsx',
   });
+}
+
+// ---------------------------------------------------- tarefa de reposição ----
+// "Falta repor" (tem saldo e vende) e "Estoque suspeito" (tem saldo e não
+// vende) viram uma tarefa para o setor: abastecer a gôndola com o que está no
+// depósito; o que não for achado no depósito é avisado para ajustar o estoque.
+export const SITUACOES_TAREFA: Situacao[] = ['repor', 'suspeito'];
+
+export async function criarTarefaReposicao(
+  grupoNome: string,
+  itens: { codigoInterno: string | null; produto: string; situacao: Situacao; saldo: number | null }[],
+  setor: SetorKey,
+  criadoPorNome: string,
+): Promise<number> {
+  const repor = itens.filter((i) => i.situacao === 'repor' && i.codigoInterno);
+  const suspeito = itens.filter((i) => i.situacao === 'suspeito' && i.codigoInterno);
+  const total = repor.length + suspeito.length;
+  if (!total) return 0;
+  const linha = (i: { codigoInterno: string | null; produto: string; saldo: number | null }) =>
+    `• ${i.codigoInterno} – ${i.produto}${i.saldo != null ? ` (sistema: ${i.saldo})` : ''}`;
+  const partes: string[] = [];
+  if (repor.length) partes.push(`REPOR NA GÔNDOLA (estão no depósito):\n${repor.map(linha).join('\n')}`);
+  if (suspeito.length)
+    partes.push(
+      `PROCURAR NO DEPÓSITO (sistema mostra saldo, mas não vende há dias):\n${suspeito.map(linha).join('\n')}\n` +
+        'Se não encontrar, avise a gerência para ajustar o estoque.',
+    );
+  partes.push('Ao concluir, tire foto da gôndola abastecida.');
+  const hoje = new Date();
+  const prazo = `${hoje.getFullYear()}-${String(hoje.getMonth() + 1).padStart(2, '0')}-${String(hoje.getDate()).padStart(2, '0')}`;
+  await criarTarefa({
+    titulo: `Repor gôndola: ${grupoNome} (${total} ${total === 1 ? 'item' : 'itens'})`,
+    descricao: partes.join('\n\n'),
+    setor,
+    prazo,
+    criadoPorNome,
+    prioridade: 'alta',
+  });
+  return total;
 }
