@@ -1794,6 +1794,7 @@ function chDataHora(iso) { const d = new Date(iso); return d.toLocaleDateString(
 // conta há quantos formulários cada item vem zerado. Baixe o formulário SEM
 // tirar os itens zerados.
 // =============================================================================
+function rupEsc(s) { return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c])); }
 async function extrairLinhasFormularioCD(file) {
   // Igual ao extrairLinhasPDF, mas com tolerância maior: no formulário do CD
   // os números grandes (ex.: "10.965,00") saem um pouco acima da linha.
@@ -1848,7 +1849,7 @@ async function paginaRupturaMix() {
   ]);
   const u = (ultimo || [])[0];
   const linhasForm = u
-    ? '<tr><td><b>' + esc(u.formulario || '—') + '</b><br><span style="color:var(--text-muted);font-size:12px">' + esc(u.deposito || '') + '</span></td>' +
+    ? '<tr><td><b>' + rupEsc(u.formulario || '—') + '</b><br><span style="color:var(--text-muted);font-size:12px">' + rupEsc(u.deposito || '') + '</span></td>' +
       '<td>' + total.toLocaleString('pt-BR') + '</td><td>' + zerados.toLocaleString('pt-BR') + '</td><td>' + fora.toLocaleString('pt-BR') + '</td>' +
       '<td>' + new Date(u.importado_em).toLocaleString('pt-BR') + '</td></tr>'
     : '';
@@ -1863,7 +1864,7 @@ async function paginaRupturaMix() {
     '<h3 style="margin:28px 0 8px">Grupos de gôndola</h3>' +
     '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">“Dias sem venda”: a partir de quantos dias sem vender o produto aparece como parado ou estoque suspeito.</div>' +
     '<div class="tabela-wrap"><table><thead><tr><th>Setor</th><th>Grupo</th><th style="width:140px">Dias sem venda</th></tr></thead><tbody>' +
-    (grupos || []).map((g) => '<tr><td>' + esc(g.setor) + '</td><td>' + esc(g.nome) + '</td><td><input type="number" min="1" max="365" value="' + g.dias_sem_venda +
+    (grupos || []).map((g) => '<tr><td>' + rupEsc(g.setor) + '</td><td>' + rupEsc(g.nome) + '</td><td><input type="number" min="1" max="365" value="' + g.dias_sem_venda +
       '" style="width:80px" onchange="salvarDiasGrupoRuptura(\'' + g.id + '\', this.value)"></td></tr>').join('') +
     '</tbody></table></div>';
   ligarZonaArrastarSoltar('arquivo-mix-cd', lerArquivoMixCD);
@@ -1879,13 +1880,13 @@ async function lerArquivoMixCD(file) {
     if (!r.itens.length) { previa.innerHTML = '<div class="celula-vazio">Não encontrei itens nesse PDF. É o Formulário Pedido do CD?</div>'; return; }
     const zerados = r.itens.filter((i) => !(i.estq > 0)).length;
     previa.innerHTML = '<div class="item-card" style="font-size:13.5px;line-height:1.7">' +
-      '<b>' + esc(r.formulario || 'Formulário sem nome') + '</b> · ' + esc(r.deposito || '') + '<br>' +
+      '<b>' + rupEsc(r.formulario || 'Formulário sem nome') + '</b> · ' + rupEsc(r.deposito || '') + '<br>' +
       r.itens.length.toLocaleString('pt-BR') + ' itens · ' + zerados.toLocaleString('pt-BR') + ' zerados no CD' +
       (zerados === 0 ? '<br>⚠️ Nenhum item zerado: parece que o PDF foi gerado com “tirar itens zerados”. Pode importar, mas o mix fica incompleto.' : '') +
-      (r.naoLidas.length ? '<br>⚠️ ' + r.naoLidas.length + ' linhas não foram entendidas (ex.: ' + esc(r.naoLidas[0]) + ')' : '') +
+      (r.naoLidas.length ? '<br>⚠️ ' + r.naoLidas.length + ' linhas não foram entendidas (ex.: ' + rupEsc(r.naoLidas[0]) + ')' : '') +
       '<div style="margin-top:12px"><button class="btn-acao" id="btn-importar-mix" onclick="importarMixCD()">📥 Importar ' + r.itens.length.toLocaleString('pt-BR') + ' itens</button></div></div>';
   } catch (e) {
-    previa.innerHTML = '<div class="celula-vazio">Não consegui ler o PDF: ' + esc(e.message || '') + '</div>';
+    previa.innerHTML = '<div class="celula-vazio">Não consegui ler o PDF: ' + rupEsc(e.message || '') + '</div>';
   }
 }
 
