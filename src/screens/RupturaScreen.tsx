@@ -80,6 +80,8 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   const [offline, setOffline] = useState(false);
   const [coleta, setColeta] = useState<ColetaLocal | null>(null);
   const [abrindo, setAbrindo] = useState(false);
+  // Cada setor é uma gaveta fechada; abre uma de cada vez para a tela não poluir.
+  const [setorAberto, setSetorAberto] = useState<string | null>(null);
 
   const carregarGrupos = useCallback(async () => {
     setCarregando(true);
@@ -199,29 +201,43 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
             <Text style={styles.avisoTexto}>Baixando a lista do grupo…</Text>
           </View>
         )}
-        {Object.entries(porSetor).map(([setor, gs]) => (
-          <View key={setor} style={{ marginBottom: spacing.lg }}>
-            <Text style={styles.titSetor}>{nomeSetor(setor)}</Text>
-            {gs.map((g) => {
-              const u = g.ultimaColeta;
-              const pct = u && u.total ? Math.round((u.ruptura / u.total) * 100) : null;
-              return (
-                <TouchableOpacity key={g.id} style={styles.cardGrupo} onPress={() => abrirGrupo(g)} disabled={abrindo}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.nomeGrupo}>{g.nome}</Text>
-                    <Text style={styles.subGrupo}>{u ? `Última coleta ${dataBR(u.data)} · ${u.ruptura} em ruptura` : 'Nenhuma coleta ainda'}</Text>
-                  </View>
-                  {pct != null && (
-                    <View style={[styles.pill, { backgroundColor: pct >= 10 ? '#FDECEA' : pct >= 5 ? '#FFF8D6' : '#DFF3E8' }]}>
-                      <Text style={[styles.pillTexto, { color: pct >= 10 ? '#C0352B' : pct >= 5 ? '#9A7A00' : '#178553' }]}>{pct}%</Text>
-                    </View>
-                  )}
-                  <Feather name="chevron-right" size={20} color={colors.gray400} />
-                </TouchableOpacity>
-              );
-            })}
-          </View>
-        ))}
+        {Object.entries(porSetor).map(([setor, gs]) => {
+          const aberto = setorAberto === setor;
+          const coletados = gs.filter((g) => g.ultimaColeta);
+          const emFalta = coletados.reduce((t, g) => t + (g.ultimaColeta?.ruptura ?? 0), 0);
+          return (
+            <View key={setor} style={[styles.gaveta, aberto && styles.gavetaAberta]}>
+              <TouchableOpacity style={styles.gavetaTopo} onPress={() => setSetorAberto(aberto ? null : setor)}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.gavetaTitulo}>{nomeSetor(setor)}</Text>
+                  <Text style={styles.subGrupo}>
+                    {gs.length} grupos · {coletados.length ? `${coletados.length} coletados · ${emFalta} em falta` : 'nenhuma coleta ainda'}
+                  </Text>
+                </View>
+                <Feather name={aberto ? 'chevron-up' : 'chevron-down'} size={22} color={colors.navy700} />
+              </TouchableOpacity>
+              {aberto &&
+                gs.map((g) => {
+                  const u = g.ultimaColeta;
+                  const pct = u && u.total ? Math.round((u.ruptura / u.total) * 100) : null;
+                  return (
+                    <TouchableOpacity key={g.id} style={styles.cardGrupo} onPress={() => abrirGrupo(g)} disabled={abrindo}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.nomeGrupo}>{g.nome}</Text>
+                        <Text style={styles.subGrupo}>{u ? `Última coleta ${dataBR(u.data)} · ${u.ruptura} em ruptura` : 'Nenhuma coleta ainda'}</Text>
+                      </View>
+                      {pct != null && (
+                        <View style={[styles.pill, { backgroundColor: pct >= 10 ? '#FDECEA' : pct >= 5 ? '#FFF8D6' : '#DFF3E8' }]}>
+                          <Text style={[styles.pillTexto, { color: pct >= 10 ? '#C0352B' : pct >= 5 ? '#9A7A00' : '#178553' }]}>{pct}%</Text>
+                        </View>
+                      )}
+                      <Feather name="chevron-right" size={20} color={colors.gray400} />
+                    </TouchableOpacity>
+                  );
+                })}
+            </View>
+          );
+        })}
         {!carregando && grupos.length === 0 && !erro && <Text style={styles.vazio}>Nenhum grupo cadastrado ainda.</Text>}
         <TouchableOpacity style={styles.btnSecundario} onPress={() => setEtapa('historico')}>
           <Feather name="clock" size={16} color={colors.navy700} />
@@ -930,6 +946,10 @@ const styles = StyleSheet.create({
   opcao: { borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, padding: spacing.md, marginTop: spacing.sm },
   opcaoTexto: { fontSize: 14, color: colors.navy900, fontWeight: '600' },
   link: { color: AZUL, fontWeight: '700' },
+  gaveta: { backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.gray100, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
+  gavetaAberta: { borderColor: AZUL, paddingBottom: spacing.sm },
+  gavetaTopo: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md },
+  gavetaTitulo: { fontSize: 16, fontWeight: '800', color: colors.navy900 },
   btnTarefa: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#F1E9FB', borderRadius: radius.md, paddingVertical: 12, marginBottom: spacing.md },
   btnTarefaTexto: { color: '#7A3FC4', fontWeight: '700', fontSize: 14 },
 });
