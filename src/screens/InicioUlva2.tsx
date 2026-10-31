@@ -16,7 +16,7 @@ export type TelaFerramenta =
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
   | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'olhoValidade' | 'resultadosInventario'
-  | 'pedidos' | 'relatorioDiario';
+  | 'pedidos' | 'relatorioDiario' | 'ruptura';
 
 export type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
 export type GrupoId = 'rotina' | 'comercial' | 'resultados' | 'estoque';
@@ -68,6 +68,7 @@ export const GRUPOS_ULVA2: Grupo[] = [
       { nome: 'Validade', desc: 'Produtos perto de vencer', icone: 'calendar', tela: 'validade' },
       { nome: 'De olho na validade', desc: 'Cliente achou produto vencido', icone: 'eye', tela: 'olhoValidade' },
       { nome: 'Inventário', desc: 'Contagem de estoque', icone: 'list', tela: 'inventario' },
+      { nome: 'Ruptura', desc: 'Bipar a gôndola e ver o que falta', icone: 'alert-octagon', tela: 'ruptura', somenteDono: true },
       { nome: 'Estoque Loja', desc: 'Saldo e preço de cada produto', icone: 'archive', tela: 'estoqueLoja' },
       { nome: 'Uso e Consumo', desc: 'Retirada de material por setor', icone: 'box', tela: 'usoConsumo' },
     ],
