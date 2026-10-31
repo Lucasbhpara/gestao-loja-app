@@ -27,6 +27,7 @@ import VisitaSupervisorScreen from './VisitaSupervisorScreen';
 import GiroProdutosScreen from './GiroProdutosScreen';
 import VendasLojaScreen from './VendasLojaScreen';
 import PesquisaPrecoScreen from './PesquisaPrecoScreen';
+import RupturaScreen from './RupturaScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
@@ -91,6 +92,7 @@ export default function HomeAdminScreen() {
     | 'olhoValidade'
     | 'vendaDia'
     | 'resultadosInventario'
+    | 'ruptura'
   >('home');
 
   // Relatório diário (só do Lucas): a notificação "Relatório pronto" traz
@@ -258,6 +260,9 @@ export default function HomeAdminScreen() {
   }
   if (tela === 'vendas') {
     return <VendasScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'ruptura') {
+    return <RupturaScreen onVoltar={() => setTela('home')} />;
   }
   if (tela === 'pesquisaPreco') {
     return <PesquisaPrecoScreen onVoltar={() => setTela('home')} />;
@@ -473,6 +478,7 @@ export default function HomeAdminScreen() {
             { label: 'Validade', icone: 'calendar' as const, onPress: () => setTela('validade') },
             { label: 'De olho na validade', icone: 'eye' as const, onPress: () => setTela('olhoValidade') },
             { label: 'Inventário', icone: 'package' as const, onPress: () => setTela('inventario') },
+            { label: 'Ruptura', icone: 'alert-octagon' as const, onPress: () => setTela('ruptura'), somenteDono: true },
             { label: 'Estoque Loja', icone: 'archive' as const, onPress: () => setTela('estoqueLoja') },
             { label: 'Uso e Consumo', icone: 'box' as const, onPress: () => setTela('usoConsumo') },
             { label: 'Mural de Avisos', icone: 'bell' as const, onPress: () => setTela('avisos') },
