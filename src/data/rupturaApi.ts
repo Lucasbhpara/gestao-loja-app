@@ -581,3 +581,35 @@ export async function criarTarefaReposicao(
   });
   return total;
 }
+
+// ------------------------------------------------- prioridade de coleta ----
+// Cruzamento automático (função ruptura_prioridade no banco): por grupo,
+// quantos produtos estão zerados na loja e vendiam (4+ dias de venda nos
+// últimos 30), quantos desses o CD tem, e quantos o CD tem e a loja nunca
+// recebeu. Serve para dizer ONDE coletar primeiro; a coleta confirma.
+export interface PrioridadeGrupo {
+  grupoId: string;
+  suspeitos: number;
+  comCd: number;
+  nuncaVeio: number;
+}
+
+export async function buscarPrioridade(): Promise<Map<string, PrioridadeGrupo>> {
+  const m = new Map<string, PrioridadeGrupo>();
+  const { data, error } = await supabase.rpc('ruptura_prioridade');
+  if (error) return m; // função ainda não criada: o app segue sem o painel
+  for (const r of data ?? []) {
+    m.set(r.grupo_id, { grupoId: r.grupo_id, suspeitos: r.suspeitos ?? 0, comCd: r.com_cd ?? 0, nuncaVeio: r.nunca_veio ?? 0 });
+  }
+  return m;
+}
+
+// Nota para ordenar: suspeitos que o CD tem pesam em dobro; grupo coletado
+// há poucos dias desce (até 7 dias), grupo nunca coletado sobe.
+export function notaPrioridade(p: PrioridadeGrupo | undefined, ultimaColeta: string | null): number {
+  if (!p) return 0;
+  const base = p.suspeitos + p.comCd;
+  if (!ultimaColeta) return base * 1.5;
+  const dias = (Date.now() - new Date(ultimaColeta).getTime()) / 86400000;
+  return base * Math.min(1, dias / 7);
+}
