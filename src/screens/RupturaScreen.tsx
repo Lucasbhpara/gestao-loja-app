@@ -19,7 +19,9 @@ import { useAuth } from '../context/AuthContext';
 import CabecalhoTela from '../components/CabecalhoTela';
 import {
   ColetaLocal,
+  ColetaSalva,
   Descontinuado,
+  ItemSalvo,
   GrupoRuptura,
   ItemUniverso,
   MOTIVOS_DESCONTINUADO,
@@ -29,14 +31,18 @@ import {
   Situacao,
   baixarUniverso,
   buscarDescontinuados,
+  buscarHistorico,
+  buscarItensColetas,
   buscarGrupos,
   buscarProdutoPorEan,
   calcularResultado,
   carregarColetaAtual,
+  compartilharPedido,
   compartilharResultado,
   contaRuptura,
   enviarColeta,
   gerarId,
+  itensSalvosComoResultado,
   mapaEans,
   marcarDescontinuado,
   normalizarEan,
@@ -50,8 +56,12 @@ import {
 const AZUL = '#2F7BFF';
 const dataBR = (d: string | null) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '—');
 const nomeSetor = (s: string) => s.charAt(0) + s.slice(1).toLowerCase();
+const dataHoraBR = (d: string) => {
+  const x = new Date(d);
+  return x.toLocaleDateString('pt-BR') + ' ' + x.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+};
 
-type Etapa = 'grupos' | 'coleta' | 'resultado' | 'descontinuados';
+type Etapa = 'grupos' | 'coleta' | 'resultado' | 'descontinuados' | 'historico';
 
 export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -157,6 +167,10 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
     );
   }
 
+  if (etapa === 'historico') {
+    return <TelaHistorico onVoltar={() => setEtapa('grupos')} />;
+  }
+
   if (etapa === 'descontinuados') {
     return <TelaDescontinuados onVoltar={() => setEtapa('grupos')} />;
   }
@@ -207,6 +221,10 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
           </View>
         ))}
         {!carregando && grupos.length === 0 && !erro && <Text style={styles.vazio}>Nenhum grupo cadastrado ainda.</Text>}
+        <TouchableOpacity style={styles.btnSecundario} onPress={() => setEtapa('historico')}>
+          <Feather name="clock" size={16} color={colors.navy700} />
+          <Text style={styles.btnSecundarioTexto}>Histórico e lista de pedido</Text>
+        </TouchableOpacity>
         <TouchableOpacity style={styles.btnSecundario} onPress={() => setEtapa('descontinuados')}>
           <Feather name="slash" size={16} color={colors.navy700} />
           <Text style={styles.btnSecundarioTexto}>Produtos descontinuados</Text>
@@ -240,6 +258,10 @@ function TelaColeta({
   const [digitado, setDigitado] = useState('');
   const [flash, setFlash] = useState<{ texto: string; tipo: 'ok' | 'repetido' | 'fora' } | null>(null);
   const ultimo = useRef<{ ean: string; em: number }>({ ean: '', em: 0 });
+  // A câmera às vezes lê um número errado num quadro só. Só aceitamos o código
+  // quando ele aparece igual em leituras seguidas (2 para produto do grupo,
+  // 3 para código desconhecido). Digitado/leitor externo entra direto.
+  const candidato = useRef<{ ean: string; vezes: number; em: number }>({ ean: '', vezes: 0, em: 0 });
   const coletaRef = useRef(coleta);
   coletaRef.current = coleta;
 
@@ -250,10 +272,17 @@ function TelaColeta({
   const coletados = ativos.filter((u) => bipados.has(u.codigoInterno)).length;
   const esperados = ativos.filter((u) => u.lojaTrabalha).length;
 
-  async function registrar(bruto: string) {
+  async function registrar(bruto: string, manual = false) {
     const ean = normalizarEan(bruto);
     if (!ean) return;
     const agora = Date.now();
+    if (!manual) {
+      const c0 = candidato.current;
+      if (c0.ean === ean && agora - c0.em < 1500) candidato.current = { ean, vezes: c0.vezes + 1, em: agora };
+      else candidato.current = { ean, vezes: 1, em: agora };
+      const precisa = eans.has(ean) ? 2 : 3;
+      if (candidato.current.vezes < precisa) return;
+    }
     if (ultimo.current.ean === ean && agora - ultimo.current.em < 2500) return; // mesma leitura repetida pela câmera
     ultimo.current = { ean, em: agora };
     const c = coletaRef.current;
@@ -338,10 +367,10 @@ function TelaColeta({
             placeholderTextColor={colors.gray400}
             keyboardType="number-pad"
             autoFocus
-            onSubmitEditing={() => { registrar(digitado); setDigitado(''); }}
+            onSubmitEditing={() => { registrar(digitado, true); setDigitado(''); }}
             blurOnSubmit={false}
           />
-          <TouchableOpacity style={styles.btnPequeno} onPress={() => { registrar(digitado); setDigitado(''); }}>
+          <TouchableOpacity style={styles.btnPequeno} onPress={() => { registrar(digitado, true); setDigitado(''); }}>
             <Feather name="plus" size={20} color={colors.white} />
           </TouchableOpacity>
         </View>
@@ -439,11 +468,25 @@ function TelaResultado({
   }
 
   async function exportar() {
-    try {
-      await compartilharResultado(coleta, resultado, true);
-    } catch (e: any) {
-      Alert.alert('Erro ao gerar planilha', e?.message ?? '');
-    }
+    Alert.alert('Gerar planilha', 'Qual planilha?', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Completa',
+        onPress: async () => {
+          try { await compartilharResultado(coleta, resultado, true); } catch (e: any) { Alert.alert('Erro ao gerar planilha', e?.message ?? ''); }
+        },
+      },
+      {
+        text: 'Para pedido',
+        onPress: async () => {
+          try {
+            const itens: ItemSalvo[] = resultado.map((r) => ({ coletaId: coleta.id, codigoInterno: r.codigoInterno, codigoBarras: r.codigoBarras, produto: r.produto, situacao: r.situacao, saldo: r.saldo, ultimaVenda: r.ultimaVenda, estoqueCd: r.estoqueCd }));
+            const n = await compartilharPedido([{ id: coleta.id, grupoNome: coleta.grupoNome }], itens);
+            if (!n.pedido && !n.cdSem && !n.foraCd) Alert.alert('Nada para pedir', 'Nenhum item em ruptura ou “nunca veio” nesta coleta.');
+          } catch (e: any) { Alert.alert('Erro ao gerar planilha', e?.message ?? ''); }
+        },
+      },
+    ]);
   }
 
   async function confirmarDescontinuado(item: ResultadoItem, motivo: string) {
@@ -578,6 +621,142 @@ function TelaResultado({
           </View>
         </View>
       </Modal>
+    </View>
+  );
+}
+
+// ================================================================ histórico ==
+
+function TelaHistorico({ onVoltar }: { onVoltar: () => void }) {
+  const [lista, setLista] = useState<ColetaSalva[]>([]);
+  const [carregando, setCarregando] = useState(true);
+  const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
+  const [gerando, setGerando] = useState(false);
+  const [aberta, setAberta] = useState<{ coleta: ColetaSalva; itens: ResultadoItem[] } | null>(null);
+
+  const carregar = useCallback(async () => {
+    setCarregando(true);
+    try {
+      setLista(await buscarHistorico());
+    } catch (e: any) {
+      Alert.alert('Erro', e?.message ?? '');
+    } finally {
+      setCarregando(false);
+    }
+  }, []);
+  useEffect(() => { carregar(); }, [carregar]);
+
+  const alternar = (id: string) => {
+    const n = new Set(marcadas);
+    n.has(id) ? n.delete(id) : n.add(id);
+    setMarcadas(n);
+  };
+  const marcarHoje = () => {
+    const hoje = new Date().toDateString();
+    setMarcadas(new Set(lista.filter((c) => new Date(c.finalizadaEm).toDateString() === hoje).map((c) => c.id)));
+  };
+
+  async function gerarPedido(ids: string[]) {
+    setGerando(true);
+    try {
+      const coletas = lista.filter((c) => ids.includes(c.id));
+      const itens = await buscarItensColetas(ids);
+      const n = await compartilharPedido(coletas.map((c) => ({ id: c.id, grupoNome: c.grupoNome })), itens);
+      if (!n.pedido && !n.cdSem && !n.foraCd) Alert.alert('Nada para pedir', 'Nenhum item em ruptura ou “nunca veio” nessas coletas.');
+    } catch (e: any) {
+      Alert.alert('Erro ao gerar planilha', e?.message ?? '');
+    } finally {
+      setGerando(false);
+    }
+  }
+
+  async function abrir(c: ColetaSalva) {
+    try {
+      const itens = await buscarItensColetas([c.id]);
+      setAberta({ coleta: c, itens: itensSalvosComoResultado(itens) });
+    } catch (e: any) {
+      Alert.alert('Erro', e?.message ?? '');
+    }
+  }
+
+  if (aberta) {
+    const { coleta, itens } = aberta;
+    const grupos = ORDEM_SITUACOES.map((s) => ({ s, itens: itens.filter((r) => r.situacao === s) })).filter((g) => g.itens.length && g.s !== 'ok');
+    return (
+      <View style={styles.tela}>
+        <CabecalhoTela titulo={coleta.grupoNome} subtitulo={`${dataHoraBR(coleta.finalizadaEm)} · ${coleta.feitaPor ?? ''}`} icone="clock" onVoltar={() => setAberta(null)} />
+        <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 140 }}>
+          <View style={styles.resumo}>
+            <View style={styles.resumoBloco}><Text style={styles.resumoNum}>{coleta.totalRuptura}</Text><Text style={styles.resumoRot}>em falta</Text></View>
+            <View style={styles.resumoBloco}><Text style={styles.resumoNum}>{coleta.totalColetados}</Text><Text style={styles.resumoRot}>bipados</Text></View>
+            <View style={styles.resumoBloco}><Text style={styles.resumoNum}>{coleta.totalItens}</Text><Text style={styles.resumoRot}>no grupo</Text></View>
+          </View>
+          {grupos.map(({ s, itens: its }) => {
+            const info = SITUACOES[s];
+            return (
+              <View key={s} style={[styles.cardSit, { backgroundColor: info.fundo, borderColor: info.fundo, marginTop: spacing.md }]}>
+                <Text style={[styles.cardSitTitulo, { color: info.cor }]}>{info.emoji} {info.titulo} ({its.length})</Text>
+                {its.map((r, i) => (
+                  <View key={(r.codigoInterno ?? r.codigoBarras ?? '') + i} style={styles.linhaItem}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.itemNome}>{r.produto}</Text>
+                      <Text style={styles.itemDet}>{r.codigoInterno ?? r.codigoBarras}{r.saldo != null ? ` · saldo ${r.saldo}` : ''}{r.estoqueCd != null ? ` · CD ${r.estoqueCd}` : ''}</Text>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            );
+          })}
+        </ScrollView>
+        <View style={styles.rodape}>
+          <TouchableOpacity style={[styles.btnSecundario, { flex: 1, marginTop: 0 }]} onPress={() => compartilharResultado(coleta, itens, true).catch((e) => Alert.alert('Erro', e?.message ?? ''))}>
+            <Feather name="share-2" size={16} color={colors.navy700} />
+            <Text style={styles.btnSecundarioTexto}>Completa</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={[styles.btnPrincipal, { flex: 1, marginLeft: spacing.sm }]} disabled={gerando} onPress={() => gerarPedido([coleta.id])}>
+            {gerando ? <ActivityIndicator color={colors.white} /> : <Feather name="shopping-cart" size={16} color={colors.white} />}
+            <Text style={styles.btnPrincipalTexto}>Para pedido</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
+
+  return (
+    <View style={styles.tela}>
+      <CabecalhoTela titulo="Histórico" subtitulo="Marque as coletas para gerar uma lista de pedido única" icone="clock" onVoltar={onVoltar} />
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 140 }} refreshControl={<RefreshControl refreshing={carregando} onRefresh={carregar} />}>
+        {lista.length > 0 && (
+          <TouchableOpacity onPress={marcarHoje} style={{ alignSelf: 'flex-end', marginBottom: spacing.sm }}>
+            <Text style={styles.link}>Marcar as de hoje</Text>
+          </TouchableOpacity>
+        )}
+        {lista.map((c) => {
+          const m = marcadas.has(c.id);
+          const pedir = (c.resumo.ruptura ?? 0) + (c.resumo.nunca_veio ?? 0);
+          return (
+            <View key={c.id} style={[styles.cardGrupo, m && { borderColor: AZUL }]}>
+              <TouchableOpacity onPress={() => alternar(c.id)} style={{ padding: 4 }}>
+                <Feather name={m ? 'check-square' : 'square'} size={22} color={m ? AZUL : colors.gray400} />
+              </TouchableOpacity>
+              <TouchableOpacity style={{ flex: 1 }} onPress={() => abrir(c)}>
+                <Text style={styles.nomeGrupo}>{c.grupoNome}</Text>
+                <Text style={styles.subGrupo}>{dataHoraBR(c.finalizadaEm)} · {c.totalRuptura} em falta · {pedir} para pedir</Text>
+              </TouchableOpacity>
+              <Feather name="chevron-right" size={20} color={colors.gray400} />
+            </View>
+          );
+        })}
+        {!carregando && lista.length === 0 && <Text style={styles.vazio}>Nenhuma coleta salva ainda.</Text>}
+      </ScrollView>
+      {marcadas.size > 0 && (
+        <View style={styles.rodape}>
+          <TouchableOpacity style={[styles.btnPrincipal, { flex: 1 }]} disabled={gerando} onPress={() => gerarPedido([...marcadas])}>
+            {gerando ? <ActivityIndicator color={colors.white} /> : <Feather name="shopping-cart" size={18} color={colors.white} />}
+            <Text style={styles.btnPrincipalTexto}>Lista de pedido ({marcadas.size} {marcadas.size === 1 ? 'coleta' : 'coletas'})</Text>
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
