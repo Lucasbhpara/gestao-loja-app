@@ -10611,6 +10611,23 @@ function escalaLerWorkbook(wb) {
 
 // ---------- Importar a planilha de escala (X = folga, F = folga de feriado) ----------
 let importEscala = null;
+// "MARIA DA SILVA" → "Maria da Silva"
+function escalaNomeBonito(t) {
+  return String(t || '').trim().toLowerCase().replace(/\s+/g, ' ')
+    .split(' ').map((p) => (['da', 'de', 'do', 'das', 'dos', 'e'].includes(p) ? p : p.charAt(0).toUpperCase() + p.slice(1))).join(' ');
+}
+// Quem está ativo no cadastro, num setor que a planilha cobre, e não apareceu
+// em nenhuma linha: saiu da loja (ou mudou) — sugerido para sair da escala.
+// Gerência começa desmarcada (gerente costuma não estar na planilha).
+function escalaQuemSaiu() {
+  const imp = importEscala;
+  const naEscala = new Set(imp.linhas.map((l) => l.colaboradorId).filter((id) => id && id !== 'novo'));
+  const cobertos = new Set(imp.linhas.flatMap((l) => escalaSetoresDaAba(l.aba)));
+  return estado.colaboradoresLoja
+    .filter((c) => c.ativo !== false && cobertos.has(c.setor) && !naEscala.has(c.id))
+    .sort((a, b) => nomeSetor(a.setor).localeCompare(nomeSetor(b.setor)) || a.nome.localeCompare(b.nome))
+    .map((c) => ({ c, sair: imp.manter[c.id] == null ? c.setor !== 'gerencia' : !imp.manter[c.id] }));
+}
 
 async function enviarPlanilhaFolgas(input) {
   const arquivo = input.files[0];
@@ -10630,8 +10647,15 @@ async function enviarPlanilhaFolgas(input) {
       linhas: (() => {
         const ativos = estado.colaboradoresLoja.filter((c) => c.ativo !== false);
         const achados = escalaResolverRepetidos(lida.linhas.map((l) => escalaAcharColaborador(l.nome, l.aba, ativos)));
-        return lida.linhas.map((l, k) => ({ ...l, colaboradorId: achados[k].status === 'ok' ? achados[k].colaborador.id : '', status: achados[k].status }));
+        return lida.linhas.map((l, k) => ({
+          ...l,
+          colaboradorId: achados[k].status === 'ok' ? achados[k].colaborador.id : achados[k].status === 'nao_achado' ? 'novo' : '',
+          status: achados[k].status,
+          novoSetor: escalaSetoresDaAba(l.aba)[0],
+          novoNome: escalaNomeBonito(l.nome),
+        }));
       })(),
+      manter: {}, // quem não está na escala nova mas foi desmarcado de "sair"
     };
     renderRevisaoEscala();
   } catch (e) { mostrarToast('Não consegui ler a planilha: ' + e.message, 'erro'); }
@@ -10640,7 +10664,7 @@ async function enviarPlanilhaFolgas(input) {
 function resumoImportEscala() {
   const usadas = importEscala.linhas.filter((l) => l.colaboradorId);
   const porColab = {};
-  usadas.forEach((l) => { porColab[l.colaboradorId] = (porColab[l.colaboradorId] || 0) + 1; });
+  usadas.forEach((l) => { if (l.colaboradorId !== 'novo') porColab[l.colaboradorId] = (porColab[l.colaboradorId] || 0) + 1; });
   let folgas = 0, feriados = 0;
   usadas.forEach((l) => Object.values(l.marcas).forEach((t) => { if (t === 'folga') folgas++; else feriados++; }));
   return { usadas, repetidos: Object.keys(porColab).filter((id) => porColab[id] > 1), folgas, feriados };
@@ -10650,7 +10674,8 @@ function renderRevisaoEscala() {
   const imp = importEscala;
   const r = resumoImportEscala();
   const nomeColab = (id) => (estado.colaboradoresLoja.find((c) => c.id === id) || {}).nome || '';
-  const opcoesColab = (sel) => '<option value="">— não importar —</option>' + [...estado.colaboradoresLoja]
+  const opcoesColab = (sel) => '<option value="">— não importar —</option>' +
+    '<option value="novo"' + (sel === 'novo' ? ' selected' : '') + '>➕ Pessoa nova — cadastrar</option>' + [...estado.colaboradoresLoja]
     .filter((c) => c.ativo !== false)
     .sort((a, b) => a.nome.localeCompare(b.nome))
     .map((c) => '<option value="' + c.id + '"' + (c.id === sel ? ' selected' : '') + '>' + c.nome + ' — ' + nomeSetor(c.setor) + '</option>').join('');
@@ -10662,7 +10687,18 @@ function renderRevisaoEscala() {
   };
   const linhaRev = ({ l, i }) => '<tr' + (r.repetidos.includes(l.colaboradorId) ? ' class="linha-revisar"' : '') + '>' +
     '<td><b>' + l.nome + '</b><div class="vl-cod">' + l.aba + ' · ' + conta(l) + '</div></td>' +
-    '<td><select class="campo-tabela' + (l.colaboradorId ? '' : ' vazio') + '" onchange="importEscala.linhas[' + i + '].colaboradorId=this.value; renderRevisaoEscala();">' + opcoesColab(l.colaboradorId) + '</select></td></tr>';
+    '<td><select class="campo-tabela' + (l.colaboradorId ? '' : ' vazio') + '" onchange="importEscala.linhas[' + i + '].colaboradorId=this.value; renderRevisaoEscala();">' + opcoesColab(l.colaboradorId) + '</select>' +
+      (l.colaboradorId === 'novo'
+        ? '<div style="display:flex;gap:6px;align-items:center;margin-top:6px;flex-wrap:wrap;">' +
+            '<span style="font-size:12px;color:var(--text-muted);">Entra no setor</span>' +
+            '<select class="campo-tabela" style="width:auto;" onchange="importEscala.linhas[' + i + '].novoSetor=this.value">' +
+              SETORES.map((st) => '<option value="' + st.key + '"' + (st.key === l.novoSetor ? ' selected' : '') + '>' + st.nome + '</option>').join('') +
+            '</select>' +
+            '<span style="font-size:12px;color:var(--text-muted);">como</span>' +
+            '<input class="campo-tabela" style="width:180px;" value="' + giroEsc(l.novoNome) + '" onchange="importEscala.linhas[' + i + '].novoNome=this.value" />' +
+          '</div>'
+        : '') +
+    '</td></tr>';
   const opcoesMes = MESES_ESCALA.map((n, k) => '<option value="' + (k + 1) + '"' + (k + 1 === imp.mes ? ' selected' : '') + '>' + n + '</option>').join('');
 
   const corpo =
@@ -10684,7 +10720,17 @@ function renderRevisaoEscala() {
       '<div class="tabela-revisao" style="margin-top:8px;"><table><tbody>' +
         imp.linhas.map((l, i) => ({ l, i })).filter(({ l }) => l.status === 'ok' && l.colaboradorId && !r.repetidos.includes(l.colaboradorId)).map(linhaRev).join('') +
       '</tbody></table></div></details>' +
-    '<div style="font-size:12px;color:var(--text-muted);margin-top:14px;">Ao confirmar, as folgas desse mês dessas pessoas são trocadas pelas da planilha. Faltas, atestados e férias já lançados não são mexidos.</div>';
+    (() => {
+      const saiu = escalaQuemSaiu();
+      if (!saiu.length) return '';
+      return '<div class="pq-sub" style="margin-top:16px;">Não estão nesta escala (' + saiu.length + ')</div>' +
+        '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Marcados = saem da escala e das listas ao importar (o histórico de faltas fica guardado). Desmarque quem continua na loja. Gerência começa desmarcada.</div>' +
+        '<div class="tabela-revisao"><table><tbody>' +
+          saiu.map(({ c, sair }) => '<tr><td style="width:34px;"><input type="checkbox"' + (sair ? ' checked' : '') + ' onchange="importEscala.manter[\'' + c.id + '\']=!this.checked" /></td>' +
+            '<td><b>' + giroEsc(c.nome) + '</b><div class="vl-cod">' + nomeSetor(c.setor) + '</div></td></tr>').join('') +
+        '</tbody></table></div>';
+    })() +
+    '<div style="font-size:12px;color:var(--text-muted);margin-top:14px;">Ao confirmar: as pessoas novas são cadastradas no setor escolhido, quem está marcado em "Não estão nesta escala" sai, e as folgas desse mês são trocadas pelas da planilha. Faltas, atestados e férias já lançados não são mexidos.</div>';
 
   abrirModal('Importar escala — ' + imp.arquivo.name, corpo, 'Confirmar e importar', confirmarImportacaoEscala);
   document.getElementById('overlay-modal').querySelector('.modal-card').classList.add('largo');
@@ -10715,7 +10761,24 @@ async function confirmarImportacaoEscala() {
       }
     } catch (e) { /* o arquivo é só cópia; a importação segue */ }
 
-    // 2) o que já existe no mês dessas pessoas
+    // 2a) cadastra as pessoas novas no setor escolhido
+    const novasPessoas = r.usadas.filter((l) => l.colaboradorId === 'novo');
+    for (const l of novasPessoas) {
+      const nome = (l.novoNome || '').trim() || escalaNomeBonito(l.nome);
+      const ins = await sb.from('colaboradores_loja').insert({ nome, setor: l.novoSetor, ativo: true }).select('id').single();
+      if (ins.error) throw ins.error;
+      l.colaboradorId = ins.data.id;
+    }
+    // 2b) quem não está na escala nova e ficou marcado: sai (guarda o histórico)
+    const saindo = escalaQuemSaiu().filter((x) => x.sair).map((x) => x.c);
+    const hojeIso = new Date().toISOString().slice(0, 10);
+    for (const c of saindo) {
+      const u = await sb.from('colaboradores_loja').update({ ativo: false }).eq('id', c.id);
+      if (u.error) throw u.error;
+      await sb.from('escala_folgas').delete().eq('colaborador_loja_id', c.id).in('tipo', ['folga', 'folga_feriado']).gte('data', hojeIso);
+    }
+
+    // 2c) o que já existe no mês dessas pessoas
     const ids = r.usadas.map((l) => l.colaboradorId);
     const existentes = [];
     for (let k = 0; k < ids.length; k += 80) {
@@ -10746,7 +10809,9 @@ async function confirmarImportacaoEscala() {
     }
     fecharModal();
     importEscala = null;
-    mostrarToast('Escala de ' + MESES_ESCALA[imp.mes - 1] + ' importada: ' + novas.filter((n) => n.tipo === 'folga').length + ' folgas e ' + novas.filter((n) => n.tipo === 'folga_feriado').length + ' folgas de feriado' + (pulados ? ' (' + pulados + (pulados === 1 ? ' dia mantido' : ' dias mantidos') + ' como falta/atestado/férias)' : '') + '.', 'sucesso');
+    mostrarToast('Escala de ' + MESES_ESCALA[imp.mes - 1] + ' importada: ' + novas.filter((n) => n.tipo === 'folga').length + ' folgas e ' + novas.filter((n) => n.tipo === 'folga_feriado').length + ' folgas de feriado' + (pulados ? ' (' + pulados + (pulados === 1 ? ' dia mantido' : ' dias mantidos') + ' como falta/atestado/férias)' : '') +
+      (novasPessoas.length ? ' · ' + novasPessoas.length + (novasPessoas.length === 1 ? ' pessoa nova cadastrada' : ' pessoas novas cadastradas') : '') +
+      (saindo.length ? ' · ' + saindo.length + (saindo.length === 1 ? ' saiu da escala' : ' saíram da escala') : '') + '.', 'sucesso');
     estado.escalaMes = imp.mes; estado.escalaAno = imp.ano;
     await irPara('escala');
   } catch (e) {
