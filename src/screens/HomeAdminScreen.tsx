@@ -37,6 +37,7 @@ import OfertasHubScreen from './OfertasHubScreen';
 import ChegadasScreen from './ChegadasScreen';
 import OlhoValidadeScreen from './OlhoValidadeScreen';
 import VendaDiaScreen from './VendaDiaScreen';
+import RelatorioMensalScreen from './RelatorioMensalScreen';
 import ResultadosInventarioScreen from './ResultadosInventarioScreen';
 import InicioUlva2, { GrupoId, GRUPOS_ULVA2 } from './InicioUlva2';
 import RelatorioDiarioScreen from './RelatorioDiarioScreen';
@@ -92,6 +93,7 @@ export default function HomeAdminScreen() {
     | 'chegadas'
     | 'olhoValidade'
     | 'vendaDia'
+    | 'relatorioMensal'
     | 'resultadosInventario'
     | 'ruptura'
     | 'rupturaTratativas'
@@ -348,6 +350,10 @@ export default function HomeAdminScreen() {
   if (tela === 'vendaDia') {
     return <VendaDiaScreen onVoltar={() => setTela('home')} />;
   }
+  // Relatório mensal: só o Lucas (mesma trava do Relatório diário).
+  if (tela === 'relatorioMensal' && ehDono) {
+    return <RelatorioMensalScreen onVoltar={() => setTela('home')} />;
+  }
 
   if (mostrarUlva2) {
     return (
@@ -359,7 +365,7 @@ export default function HomeAdminScreen() {
           ehDono
             ? GRUPOS_ULVA2.map((g) =>
                 g.id === 'resultados'
-                  ? { ...g, ferramentas: [{ nome: 'Relatório diário', desc: 'Venda, meta, folgas e quebra — PDF', icone: 'file-text', tela: 'relatorioDiario' }, ...g.ferramentas] }
+                  ? { ...g, ferramentas: [{ nome: 'Relatório diário', desc: 'Venda, meta, folgas e quebra — PDF', icone: 'file-text', tela: 'relatorioDiario' }, { nome: 'Relatório mensal', desc: 'Meta, caixas, horários, quebras, turnover e PDF', icone: 'file-text', tela: 'relatorioMensal' }, ...g.ferramentas] }
                   : g,
               )
             : undefined
@@ -494,6 +500,7 @@ export default function HomeAdminScreen() {
             { label: 'Resultados de inventário', icone: 'award' as const, onPress: () => setTela('resultadosInventario') },
             { label: 'Vendas da Loja', icone: 'pie-chart' as const, onPress: () => setTela('vendasLoja'), somenteDono: true },
             { label: 'Venda do dia', icone: 'calendar' as const, onPress: () => setTela('vendaDia'), somenteDono: true },
+            ...(ehDono ? [{ label: 'Relatório mensal', icone: 'file-text' as const, onPress: () => setTela('relatorioMensal') }] : []),
             { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },
             // Produtos sem venda / parados, por setor → subcategoria.
             // Por enquanto só Lucas e Rodrigo (MATRICULAS_GIRO) — pra liberar

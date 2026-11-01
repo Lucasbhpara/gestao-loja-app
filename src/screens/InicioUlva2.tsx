@@ -15,7 +15,7 @@ export type TelaFerramenta =
   | 'ofertas' | 'precificacao' | 'pesquisaPreco' | 'mapaLoja' | 'pontasExtras'
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
-  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'olhoValidade' | 'resultadosInventario'
+  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'relatorioMensal' | 'olhoValidade' | 'resultadosInventario'
   | 'pedidos' | 'relatorioDiario' | 'ruptura' | 'rupturaTratativas';
 
 export type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
