@@ -352,7 +352,8 @@ export default function HomeAdminScreen() {
   if (tela === 'vendaDia') {
     return <VendaDiaScreen onVoltar={() => setTela('home')} />;
   }
-  if (tela === 'buscaProduto') {
+  // Busca produto: por enquanto só o Lucas.
+  if (tela === 'buscaProduto' && ehDono) {
     return <BuscaProdutoScreen onVoltar={() => setTela('home')} />;
   }
   // Relatório mensal: só o Lucas (mesma trava do Relatório diário).
@@ -366,7 +367,7 @@ export default function HomeAdminScreen() {
         nome={usuarioAtual.nome}
         usandoNuvem={usandoNuvem}
         podeVerDono={MATRICULAS_GIRO.includes(String(usuarioAtual.matricula))}
-        mostrarBuscaProduto
+        mostrarBuscaProduto={ehDono}
         grupos={
           ehDono
             ? GRUPOS_ULVA2.map((g) =>
