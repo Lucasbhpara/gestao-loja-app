@@ -89,7 +89,7 @@ export async function buscarFicha(codigoInterno: string): Promise<FichaProduto |
     grupoNome: l.grupo_nome,
     grupoSetor: l.grupo_setor,
     grupoAreaId: l.grupo_area_id,
-    subAreaId: a && a.fonte === 'subsortimento' ? a.areaId : null,
+    subAreaId: a && (a.fonte === 'subsortimento' || a.fonte === 'sub_coleta') ? a.areaId : null,
     classe: l.classe_5 ?? l.classe_2 ?? null,
     estoqueCd: num(l.estoque_cd),
     diasSemVenda: ref && l.ultima_venda ? diasEntre(l.ultima_venda, ref) : null,

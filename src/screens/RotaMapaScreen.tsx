@@ -51,7 +51,7 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
   type Certeza = 'bipado' | 'sub' | 'grupo';
   const areaDe = (it: ItemRota): { id: string; certeza: Certeza } | null => {
     const l = local[it.codigoInterno];
-    if (l && porId.has(l.areaId)) return { id: l.areaId, certeza: l.fonte === 'subsortimento' ? 'sub' : 'bipado' };
+    if (l && porId.has(l.areaId)) return { id: l.areaId, certeza: l.fonte === 'subsortimento' || l.fonte === 'sub_coleta' ? 'sub' : 'bipado' };
     if (it.grupoId && doGrupo[it.grupoId] && porId.has(doGrupo[it.grupoId])) return { id: doGrupo[it.grupoId], certeza: 'grupo' };
     return null;
   };

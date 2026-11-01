@@ -185,9 +185,11 @@ export async function salvarAreaSubsortimento(s: Subsortimento, areaId: string, 
   if (error) throw new Error(error.message);
 }
 
-export type FonteLocal = 'coleta' | 'manual' | 'subsortimento';
+// sub_coleta = sub-sortimento ainda não marcado, corredor aprendido nas coletas
+// (área onde mais produtos dele foram bipados, com pelo menos 2).
+export type FonteLocal = 'coleta' | 'manual' | 'subsortimento' | 'sub_coleta';
 
-// codigo_interno → área (local próprio do produto > área do sub-sortimento)
+// codigo_interno → área (local próprio > sub-sortimento marcado > aprendido na coleta)
 export async function buscarAreasProdutos(codigos: string[]): Promise<Record<string, { areaId: string; fonte: FonteLocal }>> {
   const m: Record<string, { areaId: string; fonte: FonteLocal }> = {};
   const unicos = [...new Set(codigos)];
