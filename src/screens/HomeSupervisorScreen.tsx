@@ -8,6 +8,7 @@ import VisitaTecnicaScreen from './VisitaTecnicaScreen';
 import PerdasAdminScreen from './PerdasAdminScreen';
 import VendasLojaScreen from './VendasLojaScreen';
 import VendaDiaScreen from './VendaDiaScreen';
+import RelatorioMensalScreen from './RelatorioMensalScreen';
 import VendasScreen from './VendasScreen';
 import GiroProdutosScreen from './GiroProdutosScreen';
 import EstoqueLojaScreen from './EstoqueLojaScreen';
@@ -39,6 +40,7 @@ const GRUPOS_SUPERVISOR: Grupo[] = [
     ferramentas: [
       { nome: 'Vendas da Loja', desc: 'Venda por setor e por dia', icone: 'pie-chart', tela: 'vendasLoja' },
       { nome: 'Venda do dia', desc: 'Total, setores, top 10 e PDF', icone: 'calendar', tela: 'vendaDia' },
+      { nome: 'Relatório mensal', desc: 'Meta, caixas, horários, quebras, turnover e PDF', icone: 'file-text', tela: 'relatorioMensal' },
       { nome: 'Vendas', desc: 'Venda por categoria', icone: 'trending-up', tela: 'vendas' },
       { nome: 'Perdas e Desperdício', desc: 'Quebra por setor e por produto', icone: 'trending-down', tela: 'perdas' },
       { nome: 'Giro de Produtos', desc: 'Produtos parados e sem venda', icone: 'refresh-cw', tela: 'giro' },
@@ -95,6 +97,8 @@ export default function HomeSupervisorScreen() {
       return <VendasLojaScreen onVoltar={voltar} />;
     case 'vendaDia':
       return <VendaDiaScreen onVoltar={voltar} />;
+    case 'relatorioMensal':
+      return <RelatorioMensalScreen onVoltar={voltar} />;
     case 'vendas':
       return <VendasScreen onVoltar={voltar} />;
     case 'giro':

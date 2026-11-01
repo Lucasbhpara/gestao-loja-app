@@ -15,7 +15,7 @@ export type TelaFerramenta =
   | 'ofertas' | 'precificacao' | 'pesquisaPreco' | 'mapaLoja' | 'pontasExtras'
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
-  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'olhoValidade' | 'resultadosInventario'
+  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'relatorioMensal' | 'olhoValidade' | 'resultadosInventario'
   | 'pedidos' | 'relatorioDiario' | 'ruptura' | 'rupturaTratativas';
 
 export type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
@@ -56,6 +56,7 @@ export const GRUPOS_ULVA2: Grupo[] = [
       { nome: 'Resultados de inventário', desc: 'Resultado final e compartilhar', icone: 'award', tela: 'resultadosInventario' },
       { nome: 'Vendas da Loja', desc: 'Venda por setor e por dia', icone: 'pie-chart', tela: 'vendasLoja', somenteDono: true },
       { nome: 'Venda do dia', desc: 'Total, setores, top 10 e PDF', icone: 'calendar', tela: 'vendaDia', somenteDono: true },
+      { nome: 'Relatório mensal', desc: 'Meta, caixas, horários, quebras, turnover e PDF', icone: 'file-text', tela: 'relatorioMensal', somenteDono: true },
       { nome: 'Vendas', desc: 'Venda por categoria', icone: 'trending-up', tela: 'vendas' },
       { nome: 'Giro de Produtos', desc: 'Produtos parados e sem venda', icone: 'refresh-cw', tela: 'giro', somenteDono: true },
     ],
