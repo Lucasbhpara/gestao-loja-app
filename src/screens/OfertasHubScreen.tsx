@@ -7,13 +7,16 @@ import CabecalhoTela from '../components/CabecalhoTela';
 import OfertasScreen from './OfertasScreen';
 import EstoqueJornalScreen from './EstoqueJornalScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
+import ConferenciaEncarteScreen from './ConferenciaEncarteScreen';
 import { listarCampanhas, campanhaAtual, listarItens, ehAlerta } from '../data/jornalEstoqueApi';
 import { supabase } from '../lib/supabase';
 
 // Aba "Ofertas": junta o Jornal de Ofertas, o Estoque do Jornal e as
 // Ofertas no WhatsApp num lugar só.
 
-type Tela = 'hub' | 'whats' | 'estoque' | 'jornal';
+type Tela = 'hub' | 'whats' | 'estoque' | 'jornal' | 'encarte';
+// Conferir no encarte: por enquanto só o Lucas.
+const MATRICULA_DONO = '7990353';
 
 export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -53,6 +56,8 @@ export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void })
   if (tela === 'whats') return <OfertasScreen onVoltar={() => setTela('hub')} />;
   if (tela === 'estoque') return <EstoqueJornalScreen onVoltar={() => setTela('hub')} />;
   if (tela === 'jornal') return <JornalOfertasScreen onVoltar={() => setTela('hub')} />;
+  if (tela === 'encarte') return <ConferenciaEncarteScreen onVoltar={() => setTela('hub')} />;
+  const ehDono = String(usuarioAtual?.matricula ?? '') === MATRICULA_DONO;
 
   const cards: { k: Tela; titulo: string; texto: string; icone: React.ComponentProps<typeof Feather>['name']; badge?: string | null; cor?: string }[] = [
     {
@@ -61,6 +66,9 @@ export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void })
       texto: 'O encarte da quinzena para consultar.',
       icone: 'book-open',
     },
+    ...(ehDono
+      ? [{ k: 'encarte' as Tela, titulo: 'Conferir no encarte', texto: 'Toque no produto do jornal e escolha os produtos da loja (todas as fragrâncias). Vale para o período todo.', icone: 'check-square' as const }]
+      : []),
     {
       k: 'estoque',
       titulo: 'Estoque do Jornal',
