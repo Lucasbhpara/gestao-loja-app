@@ -19,6 +19,9 @@ import { useAuth } from '../context/AuthContext';
 import CabecalhoTela from '../components/CabecalhoTela';
 import RupturaTratativasScreen from './RupturaTratativasScreen';
 import { abrirTratativasDaColeta } from '../data/rupturaTratativasApi';
+import SeletorAreaMapa from '../components/SeletorAreaMapa';
+import { AreaMapa } from '../data/mapaLojaApi';
+import { buscarAreasComCache, buscarAreasDosGrupos, moverProdutoDeGrupo, salvarAreaDoGrupo } from '../data/rupturaMapaApi';
 import {
   ColetaLocal,
   ColetaSalva,
@@ -86,6 +89,35 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   // Cada setor é uma gaveta fechada; abre uma de cada vez para a tela não poluir.
   const [setorAberto, setSetorAberto] = useState<string | null>(null);
   const [prioridade, setPrioridade] = useState<Map<string, PrioridadeGrupo>>(new Map());
+  // Mapa da loja: áreas e em que área fica cada grupo.
+  const [areas, setAreas] = useState<AreaMapa[]>([]);
+  const [areaDoGrupo, setAreaDoGrupo] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    buscarAreasComCache().then(setAreas).catch(() => setAreas([]));
+    buscarAreasDosGrupos().then(setAreaDoGrupo).catch(() => {});
+  }, []);
+
+  async function definirAreaDoGrupo(grupoId: string, areaId: string) {
+    setAreaDoGrupo((m) => ({ ...m, [grupoId]: areaId }));
+    try {
+      await salvarAreaDoGrupo(grupoId, areaId, quem);
+    } catch {
+      // ficou guardado no celular; tenta de novo na próxima vez
+    }
+  }
+
+  async function moverParaOutroGrupo(item: ItemUniverso, destino: GrupoRuptura): Promise<boolean> {
+    if (!grupo) return false;
+    try {
+      await moverProdutoDeGrupo(item.codigoInterno, item.produto, destino.id, grupo.id, quem);
+      setUniverso((u) => u.filter((x) => x.codigoInterno !== item.codigoInterno));
+      return true;
+    } catch (e: any) {
+      Alert.alert('Não consegui mover', 'Precisa de internet para mover o produto de grupo.\n\n' + (e?.message ?? ''));
+      return false;
+    }
+  }
 
   const carregarGrupos = useCallback(async () => {
     setCarregando(true);
@@ -124,7 +156,10 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
       setUniverso(u.itens);
       setDataVendas(u.dataVendas);
       setOffline(u.offline);
-      const c: ColetaLocal = continuar ?? { id: gerarId(), grupoId: g.id, grupoNome: g.nome, setor: g.setor, iniciadaEm: new Date().toISOString(), lidos: [] };
+      const c: ColetaLocal = continuar ? { ...continuar, areaId: continuar.areaId ?? areaDoGrupo[g.id] ?? null } : {
+        id: gerarId(), grupoId: g.id, grupoNome: g.nome, setor: g.setor, iniciadaEm: new Date().toISOString(), lidos: [],
+        areaId: areaDoGrupo[g.id] ?? null,
+      };
       setColeta(c);
       await salvarColetaAtual(c);
       setEtapa('coleta');
@@ -150,6 +185,11 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
         universo={universo}
         coleta={coleta}
         offline={offline}
+        areas={areas}
+        areaDoGrupo={areaDoGrupo[grupo.id] ?? null}
+        onDefinirAreaDoGrupo={(id) => definirAreaDoGrupo(grupo.id, id)}
+        grupos={grupos}
+        onMover={moverParaOutroGrupo}
         onMudar={(c) => { setColeta(c); salvarColetaAtual(c); }}
         onFinalizar={() => setEtapa('resultado')}
         onCancelar={() =>
@@ -307,6 +347,11 @@ function TelaColeta({
   universo,
   coleta,
   offline,
+  areas,
+  areaDoGrupo,
+  onDefinirAreaDoGrupo,
+  grupos,
+  onMover,
   onMudar,
   onFinalizar,
   onCancelar,
@@ -315,6 +360,11 @@ function TelaColeta({
   universo: ItemUniverso[];
   coleta: ColetaLocal;
   offline: boolean;
+  areas: AreaMapa[];
+  areaDoGrupo: string | null;
+  onDefinirAreaDoGrupo: (areaId: string) => void;
+  grupos: GrupoRuptura[];
+  onMover: (item: ItemUniverso, destino: GrupoRuptura) => Promise<boolean>;
   onMudar: (c: ColetaLocal) => void;
   onFinalizar: () => void;
   onCancelar: () => void;
@@ -330,6 +380,38 @@ function TelaColeta({
   const candidato = useRef<{ ean: string; vezes: number; em: number }>({ ean: '', vezes: 0, em: 0 });
   const coletaRef = useRef(coleta);
   coletaRef.current = coleta;
+  // Primeira coleta do grupo: abre o mapa para marcar onde ele fica.
+  const [seletorArea, setSeletorArea] = useState(!coleta.areaId && !areaDoGrupo && areas.length > 0);
+  const [mover, setMover] = useState<ItemUniverso | null>(null);
+  const perguntouArea = useRef(seletorArea);
+  useEffect(() => {
+    // o mapa pode terminar de carregar depois que a coleta abriu
+    if (!perguntouArea.current && !coleta.areaId && !areaDoGrupo && areas.length > 0) {
+      perguntouArea.current = true;
+      setSeletorArea(true);
+    }
+  }, [areas.length, areaDoGrupo, coleta.areaId]);
+  const areaAtual = areas.find((a) => a.id === coleta.areaId) ?? null;
+
+  function escolherArea(a: AreaMapa) {
+    setSeletorArea(false);
+    onMudar({ ...coletaRef.current, areaId: a.id });
+    if (!areaDoGrupo) {
+      onDefinirAreaDoGrupo(a.id);
+    } else if (areaDoGrupo !== a.id) {
+      Alert.alert('Local do grupo', `“${grupo.nome}” fica sempre em ${a.nome}?`, [
+        { text: 'Só nesta coleta', style: 'cancel' },
+        { text: 'Sim, mudar o local', onPress: () => onDefinirAreaDoGrupo(a.id) },
+      ]);
+    }
+  }
+
+  function tocarFalta(u: ItemUniverso) {
+    Alert.alert(u.produto, 'Este produto fica em outro subsetor?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Mover para outro grupo', onPress: () => setMover(u) },
+    ]);
+  }
 
   const eans = useMemo(() => mapaEans(universo), [universo]);
   const ativos = useMemo(() => universo.filter((u) => !u.descontinuado), [universo]);
@@ -339,6 +421,7 @@ function TelaColeta({
   const esperados = ativos.filter((u) => u.lojaTrabalha).length;
 
   async function registrar(bruto: string, manual = false) {
+    if (seletorArea || mover) return; // mapa ou lista de grupos aberta por cima da câmera
     const ean = normalizarEan(bruto);
     if (!ean) return;
     const agora = Date.now();
@@ -360,7 +443,7 @@ function TelaColeta({
     if (!it && c.lidos.some((l) => l.ean === ean)) return;
     Vibration.vibrate(it ? 60 : [0, 80, 80, 80]);
     let produto = it?.produto ?? null;
-    const novo: ColetaLocal = { ...c, lidos: [...c.lidos, { ean, codigoInterno: it?.codigoInterno ?? null, produto, em: new Date().toISOString() }] };
+    const novo: ColetaLocal = { ...c, lidos: [...c.lidos, { ean, codigoInterno: it?.codigoInterno ?? null, produto, em: new Date().toISOString(), areaId: c.areaId ?? null }] };
     onMudar(novo);
     setFlash(it ? { texto: it.produto, tipo: 'ok' } : { texto: `Código ${ean} não é deste grupo`, tipo: 'fora' });
     if (!it) {
@@ -398,6 +481,15 @@ function TelaColeta({
       <View style={styles.barraFundo}>
         <View style={[styles.barra, { width: `${pct}%` }]} />
       </View>
+      {areas.length > 0 && (
+        <TouchableOpacity style={styles.ondeEstou} onPress={() => setSeletorArea(true)}>
+          <Feather name="map-pin" size={15} color={AZUL} />
+          <Text style={styles.ondeEstouTexto} numberOfLines={1}>
+            {areaAtual ? `Estou em: ${areaAtual.nome}` : 'Marcar no mapa onde estou'}
+          </Text>
+          <Text style={styles.link}>{areaAtual ? 'Trocar' : 'Abrir mapa'}</Text>
+        </TouchableOpacity>
+      )}
 
       {camera ? (
         <View style={styles.areaCamera}>
@@ -455,11 +547,13 @@ function TelaColeta({
 
       <Text style={styles.titLista}>Ainda não bipados ({faltam.length})</Text>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 100 }}>
+        {faltam.length > 0 && <Text style={styles.dicaFalta}>Toque num produto para mandar para outro grupo, se ele fica em outro subsetor.</Text>}
         {faltam.map((u) => (
-          <View key={u.codigoInterno} style={styles.linhaFalta}>
+          <TouchableOpacity key={u.codigoInterno} style={styles.linhaFalta} onPress={() => tocarFalta(u)}>
             <Text style={styles.linhaFaltaNome} numberOfLines={1}>{u.produto}</Text>
             <Text style={styles.linhaFaltaCod}>{u.codigoInterno}</Text>
-          </View>
+            <Feather name="corner-up-right" size={15} color={colors.gray400} style={{ marginLeft: 6 }} />
+          </TouchableOpacity>
         ))}
         {faltam.length === 0 && <Text style={styles.vazio}>Tudo bipado! 🎉</Text>}
       </ScrollView>
@@ -480,7 +574,93 @@ function TelaColeta({
           <Text style={styles.btnPrincipalTexto}>Finalizar e ver ruptura</Text>
         </TouchableOpacity>
       </View>
+      <SeletorAreaMapa
+        visivel={seletorArea}
+        titulo={areaDoGrupo ? 'Onde você está?' : `Onde fica ${grupo.nome}?`}
+        subtitulo={areaDoGrupo ? 'Os produtos bipados agora ficam guardados nesta área' : 'Primeira coleta deste grupo: toque na área dele no mapa. Fica salvo para as próximas.'}
+        areas={areas}
+        inicial={coleta.areaId ?? areaDoGrupo}
+        textoConfirmar="Estou aqui"
+        onEscolher={escolherArea}
+        onFechar={() => setSeletorArea(false)}
+        textoPular="Agora não"
+        onPular={() => setSeletorArea(false)}
+      />
+      <SeletorGrupo
+        item={mover}
+        grupos={grupos.filter((g) => g.id !== grupo.id)}
+        setorAtual={grupo.setor}
+        onFechar={() => setMover(null)}
+        onEscolher={(g) => {
+          const u = mover;
+          if (!u) return;
+          Alert.alert('Mover produto?', `${u.produto}\n\nSai de “${grupo.nome}” e passa a ser coletado em “${g.nome}”.`, [
+            { text: 'Cancelar', style: 'cancel' },
+            {
+              text: 'Mover',
+              onPress: async () => {
+                setMover(null);
+                if (await onMover(u, g)) setFlash({ texto: `Movido para ${g.nome}`, tipo: 'ok' });
+              },
+            },
+          ]);
+        }}
+      />
     </View>
+  );
+}
+
+// Lista de grupos para mandar um produto que está no subsetor errado.
+function SeletorGrupo({
+  item,
+  grupos,
+  setorAtual,
+  onFechar,
+  onEscolher,
+}: {
+  item: ItemUniverso | null;
+  grupos: GrupoRuptura[];
+  setorAtual: string;
+  onFechar: () => void;
+  onEscolher: (g: GrupoRuptura) => void;
+}) {
+  const [busca, setBusca] = useState('');
+  useEffect(() => { if (item) setBusca(''); }, [item]);
+  const termo = busca.trim().toLowerCase();
+  const filtrados = grupos.filter((g) => !termo || g.nome.toLowerCase().includes(termo) || g.setor.toLowerCase().includes(termo));
+  // setor atual primeiro (o mais comum é trocar de subsetor dentro dele)
+  const setores = [...new Set(filtrados.map((g) => g.setor))].sort((a, b) => (a === setorAtual ? -1 : b === setorAtual ? 1 : a.localeCompare(b)));
+  return (
+    <Modal visible={!!item} animationType="slide" onRequestClose={onFechar}>
+      <View style={[styles.tela, { paddingTop: 44 }]}>
+        <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.md }}>
+          <TouchableOpacity onPress={onFechar} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+            <Feather name="x" size={24} color={colors.navy900} />
+          </TouchableOpacity>
+          <View style={{ flex: 1 }}>
+            <Text style={{ fontSize: 17, fontWeight: '800', color: colors.navy900 }}>Mover para qual grupo?</Text>
+            <Text style={styles.subGrupo} numberOfLines={2}>{item?.produto}</Text>
+          </View>
+        </View>
+        <View style={{ paddingHorizontal: spacing.lg }}>
+          <TextInput style={styles.input} value={busca} onChangeText={setBusca} placeholder="Buscar grupo" placeholderTextColor={colors.gray400} autoCorrect={false} />
+        </View>
+        <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
+          {setores.map((st) => (
+            <View key={st} style={{ marginBottom: spacing.md }}>
+              <Text style={[styles.titLista, { paddingHorizontal: 0, marginTop: 0 }]}>{nomeSetor(st)}</Text>
+              {filtrados.filter((g) => g.setor === st).map((g) => (
+                <TouchableOpacity key={g.id} style={styles.cardGrupo} onPress={() => onEscolher(g)}>
+                  <Text style={[styles.nomeGrupo, { flex: 1 }]}>{g.nome}</Text>
+                  <Feather name="chevron-right" size={18} color={colors.gray400} />
+                </TouchableOpacity>
+              ))}
+            </View>
+          ))}
+          {!setores.length && <Text style={styles.vazio}>Nenhum grupo com esse nome.</Text>}
+        </ScrollView>
+      </View>
+    </Modal>
   );
 }
 
@@ -899,6 +1079,9 @@ function TelaDescontinuados({ onVoltar }: { onVoltar: () => void }) {
 // =================================================================== estilos ==
 
 const styles = StyleSheet.create({
+  ondeEstou: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#E3EDFF', marginHorizontal: spacing.lg, marginTop: spacing.sm, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10 },
+  ondeEstouTexto: { flex: 1, fontSize: 13.5, fontWeight: '700', color: colors.navy900 },
+  dicaFalta: { fontSize: 11.5, color: colors.gray600, marginBottom: 6 },
   tela: { flex: 1, backgroundColor: colors.gray50 },
   aviso: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#FFF6E5', borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
   avisoTexto: { color: colors.gray900, fontSize: 13, flex: 1 },

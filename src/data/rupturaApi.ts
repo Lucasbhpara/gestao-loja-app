@@ -4,6 +4,7 @@ import { supabase } from '../lib/supabase';
 import { rodandoNaWeb } from '../lib/plataforma';
 import { criarTarefa } from './tarefasApi';
 import { SetorKey } from './employees';
+import { salvarLocalizacoesDaColeta } from './rupturaMapaApi';
 
 // =============================================================================
 // Controle de Ruptura.
@@ -78,8 +79,10 @@ export interface ColetaLocal {
   grupoNome: string;
   setor: string;
   iniciadaEm: string;
+  // Área do mapa marcada como "Estou em" (cada leitura guarda a área da hora).
+  areaId?: string | null;
   // EAN lido -> código interno (null = não é do grupo)
-  lidos: { ean: string; codigoInterno: string | null; produto: string | null; em: string }[];
+  lidos: { ean: string; codigoInterno: string | null; produto: string | null; em: string; areaId?: string | null }[];
 }
 
 const CHAVE_COLETA = 'ruptura:coletaAtual';
@@ -325,6 +328,15 @@ export async function enviarColeta(
   for (let i = 0; i < linhas.length; i += 500) {
     const { error: e2 } = await supabase.from('ruptura_coleta_itens').insert(linhas.slice(i, i + 500));
     if (e2) throw new Error(e2.message);
+  }
+  // Onde cada produto bipado estava no mapa (não trava a coleta se falhar).
+  const comArea = coleta.lidos.filter((l) => l.codigoInterno && l.areaId) as { codigoInterno: string; produto: string | null; areaId: string }[];
+  if (comArea.length) {
+    try {
+      await salvarLocalizacoesDaColeta(comArea, coleta.grupoId, feitaPor);
+    } catch {
+      // fica para a próxima coleta
+    }
   }
 }
 
