@@ -1,0 +1,7 @@
+-- Mapa por sub-sortimento (já aplicado no Supabase: migração mapa_subsortimento)
+--  • mapa_subsortimento (classe_2, classe_3, classe_4 → mapa_area_id)
+--  • subsortimentos_mapa(): cada sub-sortimento com nº de produtos, 3 exemplos
+--    (com estoque e que mais venderam em 30 dias) e a área já marcada
+--  • produto_areas(p_codigos text[]): área de cada produto — local próprio
+--    (produto_localizacao: coleta/manual) e, se não tiver, a do sub-sortimento
+-- Corpo completo na migração "mapa_subsortimento" do Supabase.

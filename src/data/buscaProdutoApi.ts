@@ -1,4 +1,5 @@
 import { supabase } from '../lib/supabase';
+import { buscarAreasProdutos } from './rupturaMapaApi';
 
 // Busca produto: acha pelo nome, código interno ou código de barras e abre a
 // ficha (estoque, preço, dias de estoque, dias sem venda e onde fica no mapa).
@@ -29,6 +30,7 @@ export interface FichaProduto {
   grupoNome: string | null;
   grupoSetor: string | null;
   grupoAreaId: string | null;
+  subAreaId: string | null; // área do sub-sortimento (classe 4)
   classe: string | null;
   estoqueCd: number | null;
   // calculados
@@ -59,8 +61,12 @@ function diasEntre(de: string, ate: string): number {
 }
 
 export async function buscarFicha(codigoInterno: string): Promise<FichaProduto | null> {
-  const { data, error } = await supabase.rpc('produto_info', { p_codigo: codigoInterno });
+  const [{ data, error }, areas] = await Promise.all([
+    supabase.rpc('produto_info', { p_codigo: codigoInterno }),
+    buscarAreasProdutos([codigoInterno]).catch(() => ({} as Record<string, { areaId: string; fonte: string }>)),
+  ]);
   if (error) throw new Error(error.message);
+  const a = areas[codigoInterno];
   const l = (data ?? [])[0];
   if (!l) return null;
   const qtd = num(l.quantidade), preco = num(l.preco_venda), v30 = Number(l.venda_30d || 0);
@@ -83,6 +89,7 @@ export async function buscarFicha(codigoInterno: string): Promise<FichaProduto |
     grupoNome: l.grupo_nome,
     grupoSetor: l.grupo_setor,
     grupoAreaId: l.grupo_area_id,
+    subAreaId: a && a.fonte === 'subsortimento' ? a.areaId : null,
     classe: l.classe_5 ?? l.classe_2 ?? null,
     estoqueCd: num(l.estoque_cd),
     diasSemVenda: ref && l.ultima_venda ? diasEntre(l.ultima_venda, ref) : null,

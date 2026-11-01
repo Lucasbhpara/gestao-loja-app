@@ -9,6 +9,7 @@ import MapaPlanta from '../components/MapaPlanta';
 import SeletorAreaMapa from '../components/SeletorAreaMapa';
 import { AreaMapa } from '../data/mapaLojaApi';
 import { buscarAreasComCache, salvarLocalManual } from '../data/rupturaMapaApi';
+import MapearSubsortimentosScreen from './MapearSubsortimentosScreen';
 import { FichaProduto, ProdutoLista, buscarFicha, buscarProdutos } from '../data/buscaProdutoApi';
 
 // Busca produto: abre pelo ícone de código de barras no topo do Início.
@@ -34,6 +35,7 @@ export default function BuscaProdutoScreen({ onVoltar, abrirLeitor = true }: { o
   const [abrindo, setAbrindo] = useState(false);
   const [areas, setAreas] = useState<AreaMapa[]>([]);
   const [marcarLocal, setMarcarLocal] = useState(false);
+  const [mapear, setMapear] = useState(false);
   const pedido = useRef(0);
 
   useEffect(() => { buscarAreasComCache().then(setAreas).catch(() => setAreas([])); }, []);
@@ -80,7 +82,7 @@ export default function BuscaProdutoScreen({ onVoltar, abrirLeitor = true }: { o
       if (!f) { Alert.alert('Produto não encontrado'); return; }
       setFicha(f);
       // sem lugar no mapa (nem dele, nem do grupo): já abre o mapa para marcar
-      if (!f.areaId && !f.grupoAreaId && areas.length) setMarcarLocal(true);
+      if (!f.areaId && !f.subAreaId && !f.grupoAreaId && areas.length) setMarcarLocal(true);
     } catch (e: any) {
       Alert.alert('Não consegui abrir o produto', e?.message ?? '');
     } finally {
@@ -108,11 +110,14 @@ export default function BuscaProdutoScreen({ onVoltar, abrirLeitor = true }: { o
     buscar(t, true);
   };
 
+  if (mapear) return <MapearSubsortimentosScreen onVoltar={() => { setMapear(false); buscarAreasComCache().then(setAreas).catch(() => {}); }} />;
+
   // ---------------------------------------------------------- ficha ----
   if (ficha) {
-    const areaId = ficha.areaId ?? ficha.grupoAreaId;
+    const areaId = ficha.areaId ?? ficha.subAreaId ?? ficha.grupoAreaId;
     const area = areas.find((a) => a.id === areaId) ?? null;
-    const doGrupo = !ficha.areaId && !!ficha.grupoAreaId;
+    const doSub = !ficha.areaId && !!ficha.subAreaId;
+    const doGrupo = !ficha.areaId && !ficha.subAreaId && !!ficha.grupoAreaId;
     const largura = Dimensions.get('window').width - spacing.lg * 2 - spacing.md * 2;
     const de = ficha.diasEstoque;
     const corDias = de == null ? colors.navy900 : de < 3 ? '#C0352B' : de > 60 ? '#B4650E' : '#178553';
@@ -159,9 +164,10 @@ export default function BuscaProdutoScreen({ onVoltar, abrirLeitor = true }: { o
               <Feather name="map-pin" size={16} color={AZUL} />
               <Text style={styles.mapaTitulo} numberOfLines={2}>{area ? area.nome : 'Sem lugar no mapa'}</Text>
               <TouchableOpacity onPress={() => setMarcarLocal(true)} disabled={!areas.length}>
-                <Text style={styles.link}>{area ? (doGrupo ? 'Confirmar' : 'Trocar') : 'Marcar'}</Text>
+                <Text style={styles.link}>{area ? (doGrupo || doSub ? 'Confirmar' : 'Trocar') : 'Marcar'}</Text>
               </TouchableOpacity>
             </View>
+            {doSub && <Text style={styles.nota}>Local do sub-sortimento. Toque em Confirmar se este produto fica mesmo aí.</Text>}
             {doGrupo && <Text style={styles.nota}>Local do grupo {ficha.grupoNome}. Toque em Confirmar se o produto fica mesmo aí.</Text>}
             {ficha.areaFonte === 'coleta' && <Text style={styles.nota}>Local aprendido na coleta da Ruptura.</Text>}
             {areas.length > 0 && (
@@ -252,6 +258,10 @@ export default function BuscaProdutoScreen({ onVoltar, abrirLeitor = true }: { o
             <Text style={styles.vazio}>Toque no leitor para bipar o produto, ou digite pelo menos 3 letras do nome.</Text>
           </View>
         )}
+        <TouchableOpacity style={styles.btnMapear} onPress={() => setMapear(true)}>
+          <Feather name="map" size={16} color={AZUL} />
+          <Text style={styles.btnMapearTexto}>Mapear sub-sortimentos (3 exemplos de cada)</Text>
+        </TouchableOpacity>
       </ScrollView>
       <LeitorCodigo visivel={lendo} modo="barras" onLido={lido} onCancelar={() => setLendo(false)} />
     </View>
@@ -282,4 +292,6 @@ const styles = StyleSheet.create({
   mapaTopo: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   mapaTitulo: { flex: 1, fontSize: 15, fontWeight: '800', color: colors.navy900 },
   link: { color: AZUL, fontWeight: '800' },
+  btnMapear: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#E3EDFF', borderRadius: radius.md, paddingVertical: 12, marginTop: spacing.xl },
+  btnMapearTexto: { color: colors.navy900, fontWeight: '800', fontSize: 13.5 },
 });

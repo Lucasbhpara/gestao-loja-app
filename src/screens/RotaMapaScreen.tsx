@@ -7,7 +7,7 @@ import CabecalhoTela from '../components/CabecalhoTela';
 import MapaPlanta, { DestaqueArea } from '../components/MapaPlanta';
 import SeletorAreaMapa from '../components/SeletorAreaMapa';
 import { AreaMapa } from '../data/mapaLojaApi';
-import { ENTRADA, buscarAreasComCache, buscarAreasDosGrupos, buscarLocalizacoes, ordenarRota, salvarLocalManual } from '../data/rupturaMapaApi';
+import { ENTRADA, FonteLocal, buscarAreasComCache, buscarAreasDosGrupos, buscarAreasProdutos, ordenarRota, salvarLocalManual } from '../data/rupturaMapaApi';
 
 // Rota no mapa: pega uma lista de produtos (ex.: tratativas filtradas), acha
 // a área de cada um (onde foi bipado na Ruptura ou, se ainda não, a área do
@@ -22,7 +22,7 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
   const { usuarioAtual } = useAuth();
   const quem = usuarioAtual?.nome ?? '';
   const [areas, setAreas] = useState<AreaMapa[]>([]);
-  const [local, setLocal] = useState<Record<string, string>>({});
+  const [local, setLocal] = useState<Record<string, { areaId: string; fonte: FonteLocal }>>({});
   const [doGrupo, setDoGrupo] = useState<Record<string, string>>({});
   const [carregando, setCarregando] = useState(true);
   const [conferidos, setConferidos] = useState<Set<string>>(new Set());
@@ -34,7 +34,7 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
       const [a, g, l] = await Promise.all([
         buscarAreasComCache(),
         buscarAreasDosGrupos(),
-        buscarLocalizacoes(itens.map((i) => i.codigoInterno)).catch(() => ({} as Record<string, string>)),
+        buscarAreasProdutos(itens.map((i) => i.codigoInterno)).catch(() => ({} as Record<string, { areaId: string; fonte: FonteLocal }>)),
       ]);
       setAreas(a);
       setDoGrupo(g);
@@ -48,14 +48,16 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
   useEffect(() => { carregar(); }, [carregar]);
 
   const porId = useMemo(() => new Map(areas.map((a) => [a.id, a])), [areas]);
-  const areaDe = (it: ItemRota): { id: string; certeza: 'bipado' | 'grupo' } | null => {
-    if (local[it.codigoInterno] && porId.has(local[it.codigoInterno])) return { id: local[it.codigoInterno], certeza: 'bipado' };
+  type Certeza = 'bipado' | 'sub' | 'grupo';
+  const areaDe = (it: ItemRota): { id: string; certeza: Certeza } | null => {
+    const l = local[it.codigoInterno];
+    if (l && porId.has(l.areaId)) return { id: l.areaId, certeza: l.fonte === 'subsortimento' ? 'sub' : 'bipado' };
     if (it.grupoId && doGrupo[it.grupoId] && porId.has(doGrupo[it.grupoId])) return { id: doGrupo[it.grupoId], certeza: 'grupo' };
     return null;
   };
 
   const { paradas, semLocal } = useMemo(() => {
-    const grupos = new Map<string, { item: ItemRota; certeza: 'bipado' | 'grupo' }[]>();
+    const grupos = new Map<string, { item: ItemRota; certeza: Certeza }[]>();
     const sem: ItemRota[] = [];
     for (const it of itens) {
       const a = areaDe(it);
@@ -89,7 +91,7 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
     const it = definir;
     setDefinir(null);
     if (!it) return;
-    setLocal((m) => ({ ...m, [it.codigoInterno]: a.id }));
+    setLocal((m) => ({ ...m, [it.codigoInterno]: { areaId: a.id, fonte: 'manual' } }));
     try {
       await salvarLocalManual(it.codigoInterno, it.produto, a.id, it.grupoId, quem);
     } catch (e: any) {
@@ -133,7 +135,7 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
                       <View style={{ flex: 1 }}>
                         <Text style={[styles.itemNome, ok && styles.riscado]}>{item.produto}</Text>
                         <Text style={styles.itemDet}>
-                          {item.codigoInterno}{item.detalhe ? ` · ${item.detalhe}` : ''}{certeza === 'grupo' ? ' · local do grupo' : ''}
+                          {item.codigoInterno}{item.detalhe ? ` · ${item.detalhe}` : ''}{certeza === 'grupo' ? ' · local do grupo' : certeza === 'sub' ? ' · local do sub-sortimento' : ''}
                         </Text>
                       </View>
                     </TouchableOpacity>
@@ -146,7 +148,7 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
           {semLocal.length > 0 && (
             <View style={[styles.parada, { borderStyle: 'dashed' }]}>
               <Text style={styles.paradaNome}>Sem local no mapa ({semLocal.length})</Text>
-              <Text style={styles.itemDet}>Ainda não foram bipados com “Estou em” e o grupo não tem área. Toque para marcar no mapa.</Text>
+              <Text style={styles.itemDet}>Sem local próprio, sem sub-sortimento mapeado e sem área do grupo. Toque para marcar no mapa.</Text>
               {semLocal.map((item) => (
                 <TouchableOpacity key={item.codigoInterno} style={styles.item} onPress={() => setDefinir(item)}>
                   <Feather name="map-pin" size={18} color={AZUL} />
