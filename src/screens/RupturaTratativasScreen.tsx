@@ -17,6 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import CabecalhoTela from '../components/CabecalhoTela';
+import RotaMapaScreen, { ItemRota } from './RotaMapaScreen';
 import { SetorKey } from '../data/employees';
 import { supabase } from '../lib/supabase';
 import { enviarFotoTarefa } from '../data/tarefasApi';
@@ -64,6 +65,8 @@ type EstoqueAtual = { q: number; ean: string; em: string };
 const IDADES: [Idade, string][] = [['todas', 'Qualquer'], ['hoje', 'Abertas hoje'], ['3', '+3 dias'], ['7', '+7 dias']];
 const ORDENS: [Ordem, string][] = [['antigas', 'Mais antigas'], ['recentes', 'Mais recentes'], ['nome', 'Nome A–Z']];
 const DIAS_ATRASADA = 7;
+const paraRota = (lista: Tratativa[]): ItemRota[] =>
+  lista.map((t) => ({ codigoInterno: t.codigoInterno, produto: t.produto, grupoId: t.grupoId, detalhe: `${SITUACOES[t.situacao].emoji} ${SITUACOES[t.situacao].titulo}` }));
 const semAcento = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
 
 // Saldo de agora no Estoque Loja (o "saldo" da tratativa é o da coleta).
@@ -124,6 +127,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const [ordem, setOrdem] = useState<Ordem>('antigas');
   const [painelFiltros, setPainelFiltros] = useState(false);
   const [estoque, setEstoque] = useState<Map<string, EstoqueAtual>>(new Map());
+  const [rota, setRota] = useState<ItemRota[] | null>(null);
 
   const carregar = useCallback(async (auto = false) => {
     setCarregando(true);
@@ -303,6 +307,9 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   }
 
   const selecionadas = abertas.filter((t) => marcadas.has(t.id));
+  const listaDaAba = aba === 'abertas' ? abertas : aba === 'validar' ? paraValidar : aba === 'encarregado' ? comEncarregado : resolvidas.filter(passa);
+
+  if (rota) return <RotaMapaScreen itens={rota} titulo="Rota das tratativas" onVoltar={() => setRota(null)} />;
 
   return (
     <View style={styles.tela}>
@@ -394,6 +401,14 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
               ))}
             </View>
           </View>
+        )}
+        {listaDaAba.length > 0 && aba !== 'resolvidas' && (
+          <TouchableOpacity style={styles.btnRota} onPress={() => setRota(paraRota(selecionadas.length ? selecionadas : listaDaAba))}>
+            <Feather name="navigation" size={16} color={AZUL} />
+            <Text style={styles.btnRotaTexto}>
+              Rota no mapa · {selecionadas.length && aba === 'abertas' ? `${selecionadas.length} marcados` : `${listaDaAba.length} produtos`}
+            </Text>
+          </TouchableOpacity>
         )}
         {algumFiltro && (
           <View style={styles.resumoFiltro}>
@@ -580,6 +595,7 @@ function TelaEncarregado({ onVoltar }: { onVoltar: () => void }) {
   const quem = usuarioAtual?.nome ?? '';
   const setor = usuarioAtual?.setor ?? '';
   const [lista, setLista] = useState<Tratativa[]>([]);
+  const [rota, setRota] = useState<ItemRota[] | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [ocupado, setOcupado] = useState<string | null>(null);
   const [naoAchei, setNaoAchei] = useState<Tratativa | null>(null);
@@ -628,10 +644,18 @@ function TelaEncarregado({ onVoltar }: { onVoltar: () => void }) {
     }
   }
 
+  if (rota) return <RotaMapaScreen itens={rota} titulo="Rota para conferir" onVoltar={() => setRota(null)} />;
+
   return (
     <View style={styles.tela}>
       <CabecalhoTela titulo="Ruptura · tratativas" subtitulo="Responda produto por produto" icone="check-square" onVoltar={onVoltar} />
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 40 }} refreshControl={<RefreshControl refreshing={carregando} onRefresh={carregar} />}>
+        {lista.length > 1 && (
+          <TouchableOpacity style={styles.btnRota} onPress={() => setRota(paraRota(lista))}>
+            <Feather name="navigation" size={16} color={AZUL} />
+            <Text style={styles.btnRotaTexto}>Ver rota no mapa · {lista.length} produtos</Text>
+          </TouchableOpacity>
+        )}
         {lista.map((t) => {
           const ehParado = !!t.acao && ['sem_preco', 'mal_exposto', 'validade'].includes(t.acao);
           const oque = (t.acao && PEDIDO_ENCARREGADO[t.acao]) || PEDIDO_ENCARREGADO[t.situacao] || '';
@@ -711,6 +735,8 @@ const styles = StyleSheet.create({
   foto: { width: '100%', height: 220, borderRadius: radius.sm, marginTop: spacing.sm, backgroundColor: colors.gray100 },
   vazio: { textAlign: 'center', color: colors.gray600, marginTop: spacing.xl },
   link: { color: AZUL, fontWeight: '700' },
+  btnRota: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#E3EDFF', borderRadius: radius.md, paddingVertical: 11, marginBottom: spacing.md },
+  btnRotaTexto: { color: colors.navy900, fontWeight: '800', fontSize: 13.5 },
   busca: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
   buscaInput: { flex: 1, paddingVertical: 10, fontSize: 14, color: colors.gray900 },
   painel: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md },
