@@ -38,6 +38,7 @@ import ChegadasScreen from './ChegadasScreen';
 import OlhoValidadeScreen from './OlhoValidadeScreen';
 import VendaDiaScreen from './VendaDiaScreen';
 import RelatorioMensalScreen from './RelatorioMensalScreen';
+import BuscaProdutoScreen from './BuscaProdutoScreen';
 import ResultadosInventarioScreen from './ResultadosInventarioScreen';
 import InicioUlva2, { GrupoId, GRUPOS_ULVA2 } from './InicioUlva2';
 import RelatorioDiarioScreen from './RelatorioDiarioScreen';
@@ -94,6 +95,7 @@ export default function HomeAdminScreen() {
     | 'olhoValidade'
     | 'vendaDia'
     | 'relatorioMensal'
+    | 'buscaProduto'
     | 'resultadosInventario'
     | 'ruptura'
     | 'rupturaTratativas'
@@ -350,6 +352,9 @@ export default function HomeAdminScreen() {
   if (tela === 'vendaDia') {
     return <VendaDiaScreen onVoltar={() => setTela('home')} />;
   }
+  if (tela === 'buscaProduto') {
+    return <BuscaProdutoScreen onVoltar={() => setTela('home')} />;
+  }
   // Relatório mensal: só o Lucas (mesma trava do Relatório diário).
   if (tela === 'relatorioMensal' && ehDono) {
     return <RelatorioMensalScreen onVoltar={() => setTela('home')} />;
@@ -361,6 +366,7 @@ export default function HomeAdminScreen() {
         nome={usuarioAtual.nome}
         usandoNuvem={usandoNuvem}
         podeVerDono={MATRICULAS_GIRO.includes(String(usuarioAtual.matricula))}
+        mostrarBuscaProduto
         grupos={
           ehDono
             ? GRUPOS_ULVA2.map((g) =>

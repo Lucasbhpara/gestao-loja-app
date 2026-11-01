@@ -8,6 +8,7 @@ import VisitaTecnicaScreen from './VisitaTecnicaScreen';
 import PerdasAdminScreen from './PerdasAdminScreen';
 import VendasLojaScreen from './VendasLojaScreen';
 import VendaDiaScreen from './VendaDiaScreen';
+import BuscaProdutoScreen from './BuscaProdutoScreen';
 import VendasScreen from './VendasScreen';
 import GiroProdutosScreen from './GiroProdutosScreen';
 import EstoqueLojaScreen from './EstoqueLojaScreen';
@@ -95,6 +96,8 @@ export default function HomeSupervisorScreen() {
       return <VendasLojaScreen onVoltar={voltar} />;
     case 'vendaDia':
       return <VendaDiaScreen onVoltar={voltar} />;
+    case 'buscaProduto':
+      return <BuscaProdutoScreen onVoltar={voltar} />;
     case 'vendas':
       return <VendasScreen onVoltar={voltar} />;
     case 'giro':
@@ -112,6 +115,7 @@ export default function HomeSupervisorScreen() {
       nome={usuarioAtual.nome}
       usandoNuvem
       podeVerDono
+      mostrarBuscaProduto
       podeUsarIA={false}
       qtdVencendo={validades ? validades.length : null}
       qtdUrgentes={validades ? validades.filter((v) => diasRestantes(v.dataValidade) < 5).length : 0}
