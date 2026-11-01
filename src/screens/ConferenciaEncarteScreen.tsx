@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, Keyboard, Platform, useWindowDimensions } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
@@ -17,7 +17,7 @@ import { htmlEncarte } from '../data/encarteHtml';
 // gravado no item do jornal para o período inteiro (e no Estoque do Jornal).
 
 const AZUL = '#2F7BFF';
-type Toque = { pagina: number; x: number; y: number; texto: string; preco: string | null };
+type Toque = { pagina: number; x: number; y: number; texto: string; preco: string | null; codigo?: string | null };
 const precoNum = (s: string | null | undefined) => {
   if (!s) return null;
   const v = Number(String(s).replace(/[^\d,]/g, '').replace(',', '.'));
@@ -185,6 +185,29 @@ function Gaveta({
   const [buscando, setBuscando] = useState(false);
   const [marcados, setMarcados] = useState<Map<string, ProdutoLista>>(new Map());
   const [salvando, setSalvando] = useState(false);
+  const [doEncarte, setDoEncarte] = useState<ProdutoLista[]>([]); // produto pelo código impresso no encarte
+  // O Modal fica numa janela própria: o espaço do teclado da raiz do app não
+  // vale aqui, então a gaveta sobe sozinha a altura do teclado.
+  const [teclado, setTeclado] = useState(0);
+  const { height: alturaTela } = useWindowDimensions();
+  useEffect(() => {
+    const a = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', (e) => setTeclado(e.endCoordinates?.height ?? 0));
+    const f = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setTeclado(0));
+    return () => { a.remove(); f.remove(); };
+  }, []);
+
+  // código interno impresso no encarte: já acha e deixa marcado
+  useEffect(() => {
+    const c = toque?.codigo;
+    if (!c || item) return;
+    buscarProdutos(c)
+      .then((r) => {
+        const certo = r.filter((p) => p.codigoInterno === c);
+        setDoEncarte(certo);
+        if (certo.length) setMarcados((m) => { const n = new Map(m); certo.forEach((p) => n.set(p.codigoInterno ?? p.produto, p)); return n; });
+      })
+      .catch(() => {});
+  }, [toque, item]);
 
   // sugestões de itens que já vieram da planilha do jornal
   const parecidos = useMemo(() => (toque && !item ? itensParecidos(toque.texto, itens.filter((i) => i.pagina == null)) : []), [toque, item, itens]);
@@ -211,7 +234,8 @@ function Gaveta({
 
   const chaveP = (p: ProdutoLista) => p.codigoInterno ?? p.produto;
   const jaLigado = (p: ProdutoLista) => ligados.some((l) => (p.codigoInterno && l.codigo === p.codigoInterno) || l.produto === p.produto);
-  const disponiveis = resultados.filter((p) => !jaLigado(p));
+  const doCodigo = (p: ProdutoLista) => doEncarte.some((d) => chaveP(d) === chaveP(p));
+  const disponiveis = resultados.filter((p) => !jaLigado(p) && !doCodigo(p));
   const todosMarcados = disponiveis.length > 0 && disponiveis.every((p) => marcados.has(chaveP(p)));
 
   function alternar(p: ProdutoLista) {
@@ -273,9 +297,9 @@ function Gaveta({
 
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onFechar}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.fundo}>
+      <View style={styles.fundo}>
         <TouchableOpacity style={{ flex: 1 }} onPress={onFechar} activeOpacity={1} />
-        <View style={styles.gaveta}>
+        <View style={[styles.gaveta, { marginBottom: teclado, maxHeight: Math.max(260, alturaTela * 0.9 - teclado) }]}>
           <View style={styles.alca} />
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: spacing.lg }}>
             <Text style={styles.rotulo}>Produto no jornal</Text>
@@ -313,6 +337,27 @@ function Gaveta({
               </>
             )}
 
+            {doEncarte.length > 0 && (
+              <>
+                <Text style={styles.rotulo}>Código no encarte: {toque?.codigo}</Text>
+                {doEncarte.map((p) => {
+                  const ja = jaLigado(p);
+                  const m = marcados.has(chaveP(p));
+                  return (
+                    <TouchableOpacity key={'enc' + chaveP(p)} style={[styles.resultado, m && styles.resultadoMarcado]} onPress={() => alternar(p)} disabled={ja}>
+                      <Feather name={ja ? 'check' : m ? 'check-square' : 'square'} size={20} color={ja ? colors.green500 : m ? AZUL : colors.gray400} />
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.prodNome}>{p.produto}</Text>
+                        <Text style={styles.prodDet}>Cód. {p.codigoInterno}{ja ? ' · já ligado' : ' · do encarte'}</Text>
+                      </View>
+                      <Text style={[styles.qtd, (p.quantidade ?? 0) <= 0 && { color: colors.red500 }]}>{qtdBr(p.quantidade)}</Text>
+                    </TouchableOpacity>
+                  );
+                })}
+                <Text style={styles.prodDet}>Outras fragrâncias/sabores: busque abaixo e marque as caixinhas.</Text>
+              </>
+            )}
+
             <Text style={styles.rotulo}>Adicionar produtos da loja</Text>
             <View style={styles.busca}>
               <Feather name="search" size={16} color={colors.gray400} />
@@ -325,7 +370,7 @@ function Gaveta({
                 <Text style={styles.todosTexto}>{todosMarcados ? 'Desmarcar todos' : `Marcar todos (${disponiveis.length})`}</Text>
               </TouchableOpacity>
             )}
-            {resultados.map((p) => {
+            {resultados.filter((p) => !doCodigo(p)).map((p) => {
               const ja = jaLigado(p);
               const m = marcados.has(chaveP(p));
               return (
@@ -351,7 +396,7 @@ function Gaveta({
             <Text style={styles.btnSalvarTexto}>{marcados.size ? `Salvar e ligar ${marcados.size} produto${marcados.size === 1 ? '' : 's'}` : 'Salvar'}</Text>
           </TouchableOpacity>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }

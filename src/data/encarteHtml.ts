@@ -5,7 +5,7 @@
 //
 // Mensagens para o app (window.ReactNativeWebView.postMessage, JSON):
 //   { tipo: 'pronto', paginas }            { tipo: 'erro', mensagem }
-//   { tipo: 'toque', pagina, x, y, texto, preco }
+//   { tipo: 'toque', pagina, x, y, texto, preco, codigo }  (codigo = código interno impresso no encarte, se houver)
 //   { tipo: 'item', id }                   (tocou num marcador)
 
 export function htmlEncarte(urlPdf: string): string {
@@ -47,25 +47,41 @@ export function htmlEncarte(urlPdf: string): string {
   }
 
   function textoPerto(pagina, x, y){
-    var lista = (textos[pagina] || []).filter(function(it){
-      var cx = it.x + it.w/2, cy = it.y + it.h/2;
-      return Math.abs(cx - x) < 0.18 && Math.abs(cy - y) < 0.12;
+    var todos = textos[pagina] || [];
+    var cx = function(it){ return it.x + it.w/2; }, cy = function(it){ return it.y + it.h/2; };
+    var ehPreco = function(t){ return /(\\d{1,3}(?:\\.\\d{3})*),(\\d{2})/.test(t); };
+    var ehCodigo = function(t){ return /^\\d{5,7}$/.test(t.trim()); };
+    var ehLixo = function(t){ t = t.trim(); return !t || /^r\\$$/i.test(t) || /^[\\d.,]+$/.test(t) || /^(de|por):?$/i.test(t); };
+    var dist = function(it){ return Math.hypot(cx(it) - x, (cy(it) - y) * 1.6); };
+    var perto = todos.filter(function(it){ return Math.abs(cx(it) - x) < 0.18 && Math.abs(cy(it) - y) < 0.12; }).sort(function(a,b){ return dist(a) - dist(b); });
+    // Encarte em tabela (como o Varejo MG): cada produto tem o código interno
+    // impresso. Ele vira a âncora: nome = linhas logo acima dele na mesma coluna.
+    var cod = null;
+    for (var k = 0; k < perto.length; k++) if (ehCodigo(perto[k].t)) { cod = perto[k]; break; }
+    var blocoNome, blocoPreco;
+    if (cod) {
+      var kx = cx(cod), ky = cy(cod);
+      blocoNome = todos.filter(function(it){ return Math.abs(cx(it) - kx) < 0.1 && cy(it) < ky && cy(it) > ky - 0.09; });
+      // preço fica à direita do código, na mesma célula
+      blocoPreco = todos.filter(function(it){ var d = cx(it) - kx; return d > -0.02 && d < 0.16 && cy(it) < ky + 0.005 && cy(it) > ky - 0.09; });
+    } else {
+      blocoNome = perto.filter(function(it){ return Math.abs(cx(it) - x) < 0.17; });
+      blocoPreco = perto;
+    }
+    var preco = null, precoH = 0;
+    blocoPreco.forEach(function(it){
+      var m = it.t.match(/(\\d{1,3}(?:\\.\\d{3})*),(\\d{2})/);
+      if (m && it.h > precoH * 1.05) { preco = m[0]; precoH = it.h; } // a maior letra = preço "POR"
     });
-    lista.sort(function(a,b){
-      var da = Math.hypot(a.x + a.w/2 - x, (a.y + a.h/2 - y)*1.6), db = Math.hypot(b.x + b.w/2 - x, (b.y + b.h/2 - y)*1.6);
-      return da - db;
+    var vistos = {}, palavras = [];
+    blocoNome.forEach(function(it){
+      var t = it.t.trim();
+      if (ehLixo(t) || ehPreco(t) || ehCodigo(t) || vistos[t]) return;
+      vistos[t] = 1; palavras.push(it);
     });
-    var preco = null, palavras = [];
-    lista.forEach(function(it){
-      var t = it.t.trim(); if (!t) return;
-      var m = t.match(/(\\d{1,3}(?:\\.\\d{3})*),(\\d{2})/);
-      if (m && preco === null) { preco = m[0]; return; }
-      if (/^r\\$$/i.test(t) || /^[\\d.,]+$/.test(t)) return;
-      if (palavras.length < 8) palavras.push(it);
-    });
-    // na ordem de leitura (de cima para baixo, esquerda para direita)
+    palavras = palavras.sort(function(a,b){ return dist(a) - dist(b); }).slice(0, 8);
     palavras.sort(function(a,b){ return Math.abs(a.y - b.y) > 0.008 ? a.y - b.y : a.x - b.x; });
-    return { texto: palavras.map(function(p){ return p.t.trim(); }).join(' ').replace(/\\s+/g,' ').trim(), preco: preco };
+    return { texto: palavras.map(function(p){ return p.t.trim(); }).join(' ').replace(/\\s+/g,' ').trim(), preco: preco, codigo: cod ? cod.t.trim() : null };
   }
 
   function aoTocar(ev, pagina, el){
@@ -75,7 +91,7 @@ export function htmlEncarte(urlPdf: string): string {
     var t = document.createElement('div'); t.className = 'toque'; t.style.left = (x*100)+'%'; t.style.top = (y*100)+'%';
     el.appendChild(t); setTimeout(function(){ t.remove(); }, 900);
     var p = textoPerto(pagina, x, y);
-    enviar({ tipo:'toque', pagina:pagina, x:x, y:y, texto:p.texto, preco:p.preco });
+    enviar({ tipo:'toque', pagina:pagina, x:x, y:y, texto:p.texto, preco:p.preco, codigo:p.codigo });
   }
 
   if (!window.pdfjsLib) { document.getElementById('msg').textContent = 'Sem internet para abrir o encarte.'; enviar({ tipo:'erro', mensagem:'pdf.js não carregou' }); return; }
