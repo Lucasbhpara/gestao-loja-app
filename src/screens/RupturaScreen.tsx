@@ -20,6 +20,7 @@ import CabecalhoTela from '../components/CabecalhoTela';
 import RupturaTratativasScreen from './RupturaTratativasScreen';
 import { abrirTratativasDaColeta } from '../data/rupturaTratativasApi';
 import SeletorAreaMapa from '../components/SeletorAreaMapa';
+import MapearSubsortimentosScreen from './MapearSubsortimentosScreen';
 import { AreaMapa } from '../data/mapaLojaApi';
 import { buscarAreasComCache, buscarAreasDosGrupos, moverProdutoDeGrupo, salvarAreaDoGrupo } from '../data/rupturaMapaApi';
 import {
@@ -69,7 +70,7 @@ const dataHoraBR = (d: string) => {
   return x.toLocaleDateString('pt-BR') + ' ' + x.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 };
 
-type Etapa = 'grupos' | 'coleta' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas';
+type Etapa = 'grupos' | 'coleta' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas' | 'subsortimentos';
 
 export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -226,6 +227,10 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
     return <TelaHistorico onVoltar={() => setEtapa('grupos')} quem={quem} />;
   }
 
+  if (etapa === 'subsortimentos') {
+    return <MapearSubsortimentosScreen onVoltar={() => setEtapa('grupos')} />;
+  }
+
   if (etapa === 'descontinuados') {
     return <TelaDescontinuados onVoltar={() => setEtapa('grupos')} />;
   }
@@ -331,6 +336,12 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
           <Feather name="clock" size={16} color={colors.navy700} />
           <Text style={styles.btnSecundarioTexto}>Histórico e lista de pedido</Text>
         </TouchableOpacity>
+        {String(usuarioAtual?.matricula ?? '') === '7990353' && (
+          <TouchableOpacity style={styles.btnSecundario} onPress={() => setEtapa('subsortimentos')}>
+            <Feather name="map" size={16} color={colors.navy700} />
+            <Text style={styles.btnSecundarioTexto}>Mapear sub-sortimentos no mapa</Text>
+          </TouchableOpacity>
+        )}
         <TouchableOpacity style={styles.btnSecundario} onPress={() => setEtapa('descontinuados')}>
           <Feather name="slash" size={16} color={colors.navy700} />
           <Text style={styles.btnSecundarioTexto}>Produtos descontinuados</Text>

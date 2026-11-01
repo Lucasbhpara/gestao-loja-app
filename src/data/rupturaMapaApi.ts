@@ -151,3 +151,50 @@ export function ordenarRota(areas: AreaMapa[]): AreaMapa[] {
   }
   return ordem.map((i) => areas[i]);
 }
+
+// ------------------------------------------------------- sub-sortimento ----
+// Área por sub-sortimento (classe 4 do cadastro): marca uma vez, com 3
+// produtos de exemplo, e vale para todos os produtos dele que ainda não têm
+// local próprio (bipado na coleta ou marcado na Busca produto).
+// Tabela mapa_subsortimento; funções subsortimentos_mapa e produto_areas.
+
+export interface Subsortimento {
+  classe2: string;
+  classe3: string;
+  classe4: string;
+  produtos: number;
+  exemplos: string[];
+  areaId: string | null;
+}
+
+// classes do cadastro que não são produto de gôndola
+const CLASSES_FORA = ['ALMOX/RH/MANUT/EPI/ARTES', 'DIVERSOS', 'EMBALAGEM/GARRAFEIRA/GF', 'EMBALAGENS', 'MANUTENCAO', 'NI'];
+
+export async function buscarSubsortimentos(): Promise<Subsortimento[]> {
+  const { data, error } = await supabase.rpc('subsortimentos_mapa');
+  if (error) throw new Error(error.message);
+  return (data ?? [])
+    .filter((l: any) => !CLASSES_FORA.includes(l.classe_2))
+    .map((l: any) => ({ classe2: l.classe_2, classe3: l.classe_3, classe4: l.classe_4, produtos: l.produtos, exemplos: l.exemplos ?? [], areaId: l.area_id }));
+}
+
+export async function salvarAreaSubsortimento(s: Subsortimento, areaId: string, por: string): Promise<void> {
+  const { error } = await supabase.from('mapa_subsortimento').upsert({
+    classe_2: s.classe2, classe_3: s.classe3, classe_4: s.classe4, mapa_area_id: areaId, definido_por: por, atualizado_em: new Date().toISOString(),
+  });
+  if (error) throw new Error(error.message);
+}
+
+export type FonteLocal = 'coleta' | 'manual' | 'subsortimento';
+
+// codigo_interno → área (local próprio do produto > área do sub-sortimento)
+export async function buscarAreasProdutos(codigos: string[]): Promise<Record<string, { areaId: string; fonte: FonteLocal }>> {
+  const m: Record<string, { areaId: string; fonte: FonteLocal }> = {};
+  const unicos = [...new Set(codigos)];
+  for (let i = 0; i < unicos.length; i += 300) {
+    const { data, error } = await supabase.rpc('produto_areas', { p_codigos: unicos.slice(i, i + 300) });
+    if (error) throw new Error(error.message);
+    (data ?? []).forEach((l: any) => { m[l.codigo_interno] = { areaId: l.area_id, fonte: l.fonte }; });
+  }
+  return m;
+}
