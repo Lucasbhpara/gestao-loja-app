@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
 import LogoUlva from '../components/LogoUlva';
-import { Feather } from '@expo/vector-icons';
+import { Feather, MaterialCommunityIcons } from '@expo/vector-icons';
 
 // ULVA 2.0 — Início com as ferramentas agrupadas (Rotina, Comercial,
 // Resultados, Estoque). Cada grupo abre uma página com as ferramentas dele.
@@ -15,7 +15,7 @@ export type TelaFerramenta =
   | 'ofertas' | 'precificacao' | 'pesquisaPreco' | 'mapaLoja' | 'pontasExtras'
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
-  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'relatorioMensal' | 'olhoValidade' | 'resultadosInventario'
+  | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'relatorioMensal' | 'buscaProduto' | 'olhoValidade' | 'resultadosInventario'
   | 'pedidos' | 'relatorioDiario' | 'ruptura' | 'rupturaTratativas';
 
 export type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
@@ -105,6 +105,7 @@ type Props = {
   mostrarSeloDados?: boolean; // padrão: true
   mostrarColaboradores?: boolean; // atalho "Colaboradores" (padrão: true)
   conteudoExtra?: React.ReactNode; // ex.: avisos urgentes e prioridades do setor
+  mostrarBuscaProduto?: boolean; // ícone de código de barras no canto superior esquerdo
 };
 
 export default function InicioUlva2(p: Props) {
@@ -156,6 +157,11 @@ export default function InicioUlva2(p: Props) {
       <View style={s.topo}>
         <View style={s.topoLinha}>
           <View style={s.marca}>
+            {p.mostrarBuscaProduto && (
+              <TouchableOpacity onPress={() => p.onAbrir('buscaProduto')} style={s.buscaProduto} accessibilityLabel="Busca produto" hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                <MaterialCommunityIcons name="barcode-scan" size={20} color="#FFFFFF" />
+              </TouchableOpacity>
+            )}
             <LogoUlva tamanho={34} />
             <Text style={s.marcaTxt}>ULVA</Text>
           </View>
@@ -265,6 +271,7 @@ const s = StyleSheet.create({
   topo: { backgroundColor: '#0E1B2C', paddingTop: 52, paddingBottom: 60, paddingHorizontal: 20, borderBottomLeftRadius: 28, borderBottomRightRadius: 28 },
   topoLinha: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 18 },
   marca: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  buscaProduto: { width: 36, height: 36, borderRadius: 10, backgroundColor: 'rgba(255,255,255,0.14)', alignItems: 'center', justifyContent: 'center', marginRight: 2 },
   marcaIcone: { width: 30, height: 30, borderRadius: 8 },
   marcaTxt: { color: '#FFFFFF', fontWeight: '800', fontSize: 20, letterSpacing: 0.5 },
   conta: { width: 44, height: 44, borderRadius: 999, borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)', backgroundColor: 'rgba(255,255,255,0.08)', alignItems: 'center', justifyContent: 'center' },

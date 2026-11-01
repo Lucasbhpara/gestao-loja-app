@@ -1,0 +1,8 @@
+-- Busca produto (já aplicado no Supabase: migração busca_produto)
+--  • produto_buscar(p_termo): lista por nome (todas as palavras), código interno
+--    ou código de barras (sem diferença de zeros à esquerda), do Estoque Loja.
+--  • produto_info(p_codigo): ficha do produto — estoque, preço, última venda
+--    (contando os filhos de produtos_pai_filho), venda dos últimos 30 dias,
+--    local no mapa (produto_localizacao), grupo da Ruptura (movido > classe 5 >
+--    prefixo mais longo) e a área do grupo (ruptura_grupo_area).
+-- O corpo completo das funções está na migração "busca_produto" do Supabase.
