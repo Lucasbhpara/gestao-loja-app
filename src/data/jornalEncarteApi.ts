@@ -1,3 +1,4 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '../lib/supabase';
 import { JornalOferta } from './jornalOfertasApi';
 import { CampanhaJornal, SituacaoJornal } from './jornalEstoqueApi';
@@ -250,12 +251,92 @@ export async function juntarRepetidos(campanhaId: string): Promise<number> {
   return juntados;
 }
 
-export async function marcarConferencia(itemId: string, status: StatusConferencia | null, por: string): Promise<void> {
+export async function marcarConferencia(itemId: string, status: StatusConferencia | null, por: string, em?: string): Promise<void> {
   const { error } = await supabase
     .from('jornal_itens')
-    .update({ conf_status: status, conf_por: status ? por : null, conf_em: status ? new Date().toISOString() : null })
+    .update({ conf_status: status, conf_por: status ? por : null, conf_em: status ? em ?? new Date().toISOString() : null })
     .eq('id', itemId);
   if (error) throw new Error(error.message);
+}
+
+// ------------------------------------------- conferência sem internet ----
+// Marcação que não conseguiu chegar ao servidor (sem sinal) fica numa fila no
+// celular e é enviada sozinha quando a internet volta. Vale a última marcação
+// de cada item; guarda a hora em que foi feita na loja.
+export type MarcacaoPendente = { itemId: string; status: StatusConferencia | null; por: string; em: string };
+const CHAVE_FILA = 'conf_jornal_fila_v1';
+
+export const ehErroDeRede = (e: any) =>
+  /fetch failed|network|failed to connect|connectexception|timeout|timed out|unable to resolve|internet|aborted/i.test(String(e?.message ?? e ?? ''));
+
+export async function lerFilaConferencia(): Promise<MarcacaoPendente[]> {
+  try { return JSON.parse((await AsyncStorage.getItem(CHAVE_FILA)) ?? '[]'); } catch { return []; }
+}
+async function gravarFila(f: MarcacaoPendente[]) {
+  await AsyncStorage.setItem(CHAVE_FILA, JSON.stringify(f));
+}
+
+// Tenta salvar; sem internet, guarda na fila. Devolve true se ficou na fila.
+export async function marcarConferenciaOuGuardar(itemId: string, status: StatusConferencia | null, por: string): Promise<boolean> {
+  const em = new Date().toISOString();
+  const fila = await lerFilaConferencia();
+  // se já tem coisa na fila deste item, a nova marcação entra depois dela
+  if (!fila.some((m) => m.itemId === itemId)) {
+    try {
+      await marcarConferencia(itemId, status, por, em);
+      return false;
+    } catch (e) {
+      if (!ehErroDeRede(e)) throw e;
+    }
+  }
+  await gravarFila([...fila.filter((m) => m.itemId !== itemId), { itemId, status, por, em }]);
+  return true;
+}
+
+// Envia o que está na fila. Devolve quantas ainda ficaram (sem internet).
+export async function enviarFilaConferencia(): Promise<number> {
+  const fila = await lerFilaConferencia();
+  if (!fila.length) return 0;
+  const resto: MarcacaoPendente[] = [];
+  for (const m of fila) {
+    try {
+      await marcarConferencia(m.itemId, m.status, m.por, m.em);
+    } catch (e) {
+      if (ehErroDeRede(e)) resto.push(m); // continua sem sinal
+      // outro erro (item apagado etc.): descarta para não travar a fila
+    }
+  }
+  // pode ter entrado marcação nova enquanto enviava
+  const agora = await lerFilaConferencia();
+  const enviados = new Set(fila.filter((m) => !resto.includes(m)).map((m) => m.itemId + m.em));
+  const final = agora.filter((m) => !enviados.has(m.itemId + m.em));
+  await gravarFila(final);
+  return final.length;
+}
+
+// Põe por cima da lista do servidor o que ainda está na fila do celular.
+export function aplicarFila(itens: ItemEncarte[], fila: MarcacaoPendente[]): ItemEncarte[] {
+  if (!fila.length) return itens;
+  const m = new Map(fila.map((f) => [f.itemId, f]));
+  return itens.map((i) => {
+    const f = m.get(i.id);
+    return f ? { ...i, confStatus: f.status, confPor: f.status ? f.por : null, confEm: f.status ? f.em : null } : i;
+  });
+}
+
+// Última lista aberta, para conseguir abrir a conferência sem internet.
+const CHAVE_CACHE = 'conf_jornal_cache_v1';
+export type CacheConferencia = { jornal: JornalOferta | null; campanha: CampanhaJornal; itens: ItemEncarte[] };
+export async function guardarCacheConferencia(c: CacheConferencia) {
+  try { await AsyncStorage.setItem(CHAVE_CACHE + ':' + c.campanha.id, JSON.stringify(c)); if ((c.campanha.tipo ?? 'folheto') === 'folheto') await AsyncStorage.setItem(CHAVE_CACHE, c.campanha.id); } catch {}
+}
+export async function lerCacheConferencia(campanhaId?: string): Promise<CacheConferencia | null> {
+  try {
+    const id = campanhaId ?? (await AsyncStorage.getItem(CHAVE_CACHE));
+    if (!id) return null;
+    const s = await AsyncStorage.getItem(CHAVE_CACHE + ':' + id);
+    return s ? JSON.parse(s) : null;
+  } catch { return null; }
 }
 
 // Zera só o OK/Ruptura/Falta Explosivo (os produtos ligados continuam).

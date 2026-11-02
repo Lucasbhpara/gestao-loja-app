@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, Keyboard, Platform, useWindowDimensions, RefreshControl, Linking, Share } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, Keyboard, Platform, useWindowDimensions, RefreshControl, Linking, Share, AppState } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
@@ -13,6 +13,13 @@ import {
   StatusConferencia,
   atualizarItemEncarte,
   campanhaDoJornal,
+  aplicarFila,
+  ehErroDeRede,
+  enviarFilaConferencia,
+  guardarCacheConferencia,
+  lerCacheConferencia,
+  lerFilaConferencia,
+  marcarConferenciaOuGuardar,
   criarCampanhaTv,
   criarItemManual,
   excluirItem,
@@ -73,16 +80,61 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
   const [novaOferta, setNovaOferta] = useState(false);
   const ehTv = modo === 'tv';
 
+  // Sem internet: marcações ficam na fila do celular (naFila) e vão sozinhas
+  // quando o sinal volta; a lista abre da última cópia guardada.
+  const [naFila, setNaFila] = useState(0);
+  const [semInternet, setSemInternet] = useState(false);
+  const jornalRef = React.useRef<JornalOferta | null>(null);
+  jornalRef.current = jornal;
   const recarregar = useCallback(async (c: CampanhaJornal) => {
-    const l = await listarItensEncarte(c.id);
-    setItens(l);
-    return l;
+    try {
+      const l = aplicarFila(await listarItensEncarte(c.id), await lerFilaConferencia());
+      setItens(l);
+      setSemInternet(false);
+      guardarCacheConferencia({ jornal: jornalRef.current, campanha: c, itens: l });
+      return l;
+    } catch (e) {
+      if (!ehErroDeRede(e)) throw e;
+      const cache = await lerCacheConferencia(c.id);
+      if (!cache) throw e;
+      const l = aplicarFila(cache.itens, await lerFilaConferencia());
+      setItens(l);
+      setSemInternet(true);
+      return l;
+    }
   }, []);
+
+  const tentarEnviarFila = useCallback(async () => {
+    const antes = (await lerFilaConferencia()).length;
+    if (!antes) { setNaFila(0); return; }
+    const resto = await enviarFilaConferencia();
+    setNaFila(resto);
+    if (resto < antes) setSemInternet(false);
+  }, []);
+  useEffect(() => {
+    tentarEnviarFila();
+    const t = setInterval(tentarEnviarFila, 15000);
+    const sub = AppState.addEventListener('change', (st) => { if (st === 'active') tentarEnviarFila(); });
+    return () => { clearInterval(t); sub.remove(); };
+  }, [tentarEnviarFila]);
 
   useEffect(() => {
     (async () => {
       try {
-        const j = await buscarJornalAtual();
+        let j: JornalOferta | null;
+        try {
+          j = await buscarJornalAtual();
+        } catch (e) {
+          // sem internet: abre a última conferência guardada no celular
+          const cache = ehErroDeRede(e) ? await lerCacheConferencia() : null;
+          if (!cache) throw e;
+          setJornal(cache.jornal);
+          setCampanha(cache.campanha);
+          setCampFolheto(cache.campanha);
+          setItens(aplicarFila(cache.itens, await lerFilaConferencia()));
+          setSemInternet(true);
+          return;
+        }
         if (!j) { setErro('Nenhum jornal enviado ainda. Suba o PDF no portal (Ofertas → Jornal de Ofertas).'); return; }
         setJornal(j);
         const c = await campanhaDoJornal(j, por);
@@ -125,14 +177,16 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
   }
 
   async function marcar(i: ItemEncarte, status: StatusConferencia | null) {
-    setSalvando(i.id);
+    // já marca na tela; se não tiver internet, guarda e envia depois
+    const antes = itens.find((x) => x.id === i.id);
+    setItens((l) => l.map((x) => (x.id === i.id ? { ...x, confStatus: status, confPor: status ? por : null } : x)));
     try {
-      await marcarConferencia(i.id, status, por);
-      setItens((l) => l.map((x) => (x.id === i.id ? { ...x, confStatus: status, confPor: status ? por : null } : x)));
+      const guardou = await marcarConferenciaOuGuardar(i.id, status, por);
+      if (guardou) { setSemInternet(true); setNaFila((await lerFilaConferencia()).length); }
+      if (campanha) guardarCacheConferencia({ jornal, campanha, itens: itens.map((x) => (x.id === i.id ? { ...x, confStatus: status, confPor: status ? por : null } : x)) });
     } catch (e: any) {
+      if (antes) setItens((l) => l.map((x) => (x.id === i.id ? antes : x)));
       Alert.alert('Não consegui salvar', e?.message ?? '');
-    } finally {
-      setSalvando(null);
     }
   }
 
@@ -365,6 +419,14 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
         <>
           <View style={styles.progressoBox}>
             <Text style={styles.progressoTexto}>{feitos} de {itens.length} conferidos</Text>
+            {(naFila > 0 || semInternet) && (
+              <TouchableOpacity style={styles.avisoRede} onPress={() => { tentarEnviarFila(); if (campanha) recarregar(campanha).catch(() => {}); }}>
+                <Feather name="wifi-off" size={14} color="#8A5A00" />
+                <Text style={styles.avisoRedeTexto}>
+                  {naFila > 0 ? `Sem internet: ${naFila} marcação(ões) guardada(s) no celular. Envio sozinho quando o sinal voltar.` : 'Sem internet: mostrando a última lista guardada. Pode continuar conferindo.'}
+                </Text>
+              </TouchableOpacity>
+            )}
             <View style={styles.barraFundo}><View style={[styles.barra, { width: `${itens.length ? (feitos / itens.length) * 100 : 0}%` }]} /></View>
             <View style={styles.linhaAcoesTopo}>
               {jornal && !ehTv && (
@@ -843,6 +905,8 @@ const styles = StyleSheet.create({
   produtosTexto: { flex: 1, fontSize: 12.5, fontWeight: '700', color: colors.navy900 },
   itemAcoes: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'center', justifyContent: 'space-between' },
   btnOk: { flex: 1, backgroundColor: colors.green500, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' },
+  avisoRede: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: '#FFF4D6', borderRadius: radius.md, padding: 8, marginTop: 6 },
+  avisoRedeTexto: { flex: 1, fontSize: 12, color: '#8A5A00', fontWeight: '600' },
   abas: { flexDirection: 'row', gap: 6, paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.sm },
   aba: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: radius.md, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100 },
   abaAtiva: { backgroundColor: '#0E1B2C', borderColor: '#0E1B2C' },
