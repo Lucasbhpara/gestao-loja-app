@@ -153,36 +153,97 @@ export function itensParecidos(texto: string, itens: ItemEncarte[], limite = 4):
 // ------------------------------------------------- conferência em lista ----
 const normal = (s: string) => semAcento(s.toUpperCase()).replace(/[^A-Z0-9]+/g, ' ').trim();
 
-// Cria os itens lidos do PDF que ainda não existem na campanha e já liga o
-// produto do código impresso no encarte. Devolve quantos itens novos entraram.
-export async function criarItensLidos(campanhaId: string, lidos: ItemLido[], existentes: ItemEncarte[], por: string): Promise<number> {
-  const codigos = new Set(existentes.map((e) => e.codigo).filter(Boolean) as string[]);
-  const nomes = new Set(existentes.map((e) => normal(e.descricao)));
-  const novos = lidos.filter((l) => (l.codigo ? !codigos.has(l.codigo) : true) && !nomes.has(normal(l.descricao)) && (l.descricao || l.codigo));
-  if (!novos.length) return 0;
-  let ordem = existentes.reduce((m, e) => Math.max(m, e.ordem), 0);
+// Junta o que foi lido do PDF com os itens da campanha:
+//  • item que já existe (mesmo código, ou mesma página e posição) → corrige o
+//    nome se o novo for mais completo (célula cortada na virada da página) e
+//    completa o código se faltava;
+//  • item novo → cria;
+//  • em ambos, liga o produto do código impresso.
+// Sempre lê os itens do banco na hora (não confia na lista da tela) para não
+// duplicar se duas leituras rodarem juntas.
+export async function criarItensLidos(campanhaId: string, lidos: ItemLido[], _existentes: ItemEncarte[], por: string): Promise<{ novos: number; corrigidos: number }> {
+  const { data: atual, error: e0 } = await supabase.from('jornal_itens').select('id, ordem, descricao, codigo, pagina, pos_x, pos_y').eq('campanha_id', campanhaId);
+  if (e0) throw new Error(e0.message);
+  const existentes = (atual ?? []) as any[];
+  const usados = new Set<string>();
+  const acharExistente = (l: ItemLido) =>
+    existentes.find((e) => !usados.has(e.id) && l.codigo && e.codigo === l.codigo) ??
+    existentes.find((e) => !usados.has(e.id) && e.pagina === l.pagina && e.pos_x != null && Math.abs(Number(e.pos_x) - l.x) < 0.03 && Math.abs(Number(e.pos_y) - l.y) < 0.03) ??
+    existentes.find((e) => !usados.has(e.id) && normal(e.descricao) === normal(l.descricao) && !!l.descricao);
+  const novos: ItemLido[] = [];
+  const paraLigar: { id: string; codigo: string }[] = [];
+  let corrigidos = 0;
+  for (const l of lidos) {
+    if (!l.descricao && !l.codigo) continue;
+    const e = acharExistente(l);
+    if (!e) { novos.push(l); continue; }
+    usados.add(e.id);
+    const upd: any = {};
+    const nomeVelho = normal(e.descricao), nomeNovo = normal(l.descricao);
+    if (nomeNovo && nomeNovo !== nomeVelho && nomeNovo.length > nomeVelho.length && nomeNovo.includes(nomeVelho)) upd.descricao = l.descricao;
+    if (!e.codigo && l.codigo) upd.codigo = l.codigo;
+    if (e.pagina == null) { upd.pagina = l.pagina; upd.pos_x = l.x; upd.pos_y = l.y; }
+    if (Object.keys(upd).length) {
+      const { error } = await supabase.from('jornal_itens').update(upd).eq('id', e.id);
+      if (error) throw new Error(error.message);
+      if (upd.descricao || upd.codigo) corrigidos++;
+    }
+    if (l.codigo) paraLigar.push({ id: e.id, codigo: l.codigo });
+  }
+  let ordem = existentes.reduce((m, e) => Math.max(m, e.ordem ?? 0), 0);
   const linhas = novos.map((l) => ({
     campanha_id: campanhaId, ordem: ++ordem, descricao: l.descricao || `Código ${l.codigo}`, preco: l.preco,
     codigo: l.codigo, pagina: l.pagina, pos_x: l.x, pos_y: l.y,
   }));
-  const criados: { id: string; codigo: string | null }[] = [];
   for (let i = 0; i < linhas.length; i += 200) {
     const { data, error } = await supabase.from('jornal_itens').insert(linhas.slice(i, i + 200)).select('id, codigo');
     if (error) throw new Error(error.message);
-    criados.push(...((data ?? []) as any));
+    (data ?? []).forEach((c: any) => { if (c.codigo) paraLigar.push({ id: c.id, codigo: c.codigo }); });
   }
   // produto do código: nome como está no Estoque Loja
-  const comCodigo = criados.filter((c) => c.codigo);
-  if (comCodigo.length) {
-    const { data: est } = await supabase.from('estoque_loja_itens').select('codigo_interno, produto').in('codigo_interno', comCodigo.map((c) => c.codigo));
+  if (paraLigar.length) {
+    const { data: est } = await supabase.from('estoque_loja_itens').select('codigo_interno, produto').in('codigo_interno', [...new Set(paraLigar.map((c) => c.codigo))]);
     const nome = new Map((est ?? []).map((e: any) => [String(e.codigo_interno), e.produto as string]));
-    const links = comCodigo.filter((c) => nome.has(c.codigo!)).map((c) => ({ item_id: c.id, codigo: c.codigo, produto: nome.get(c.codigo!)!, origem: 'auto', criado_por: por }));
-    if (links.length) {
-      const { error } = await supabase.from('jornal_item_produtos').upsert(links, { onConflict: 'item_id,produto' });
+    const links = paraLigar.filter((c) => nome.has(c.codigo)).map((c) => ({ item_id: c.id, codigo: c.codigo, produto: nome.get(c.codigo)!, origem: 'auto', criado_por: por }));
+    for (let i = 0; i < links.length; i += 300) {
+      const { error } = await supabase.from('jornal_item_produtos').upsert(links.slice(i, i + 300), { onConflict: 'item_id,produto', ignoreDuplicates: true });
       if (error) throw new Error(error.message);
     }
   }
-  return criados.length;
+  return { novos: linhas.length, corrigidos };
+}
+
+// Itens repetidos na campanha (mesmo nome e preço): fica o primeiro (de
+// preferência o que tem lugar no PDF), os produtos dos outros passam para ele
+// e os repetidos saem. Devolve quantos foram juntados.
+export async function juntarRepetidos(campanhaId: string): Promise<number> {
+  const { data, error } = await supabase.from('jornal_itens').select('id, ordem, descricao, preco, pagina, conf_status, conf_por, conf_em').eq('campanha_id', campanhaId).order('ordem');
+  if (error) throw new Error(error.message);
+  const grupos = new Map<string, any[]>();
+  (data ?? []).forEach((i: any) => {
+    const k = normal(i.descricao) + '|' + (i.preco == null ? '' : Number(i.preco).toFixed(2));
+    grupos.set(k, [...(grupos.get(k) ?? []), i]);
+  });
+  let juntados = 0;
+  for (const lista of grupos.values()) {
+    if (lista.length < 2) continue;
+    const fica = lista.find((i) => i.pagina != null) ?? lista[0];
+    const saem = lista.filter((i) => i.id !== fica.id);
+    const { data: links } = await supabase.from('jornal_item_produtos').select('codigo, produto, origem, criado_por').in('item_id', saem.map((i) => i.id));
+    if (links?.length) {
+      const { error: e1 } = await supabase.from('jornal_item_produtos').upsert(
+        links.map((l: any) => ({ item_id: fica.id, codigo: l.codigo, produto: l.produto, origem: l.origem, criado_por: l.criado_por })),
+        { onConflict: 'item_id,produto', ignoreDuplicates: true },
+      );
+      if (e1) throw new Error(e1.message);
+    }
+    const comStatus = !fica.conf_status ? saem.find((i) => i.conf_status) : null;
+    if (comStatus) await supabase.from('jornal_itens').update({ conf_status: comStatus.conf_status, conf_por: comStatus.conf_por, conf_em: comStatus.conf_em }).eq('id', fica.id);
+    const { error: e2 } = await supabase.from('jornal_itens').delete().in('id', saem.map((i) => i.id));
+    if (e2) throw new Error(e2.message);
+    juntados += saem.length;
+  }
+  return juntados;
 }
 
 export async function marcarConferencia(itemId: string, status: StatusConferencia | null, por: string): Promise<void> {
