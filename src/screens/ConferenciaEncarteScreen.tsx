@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, Keyboard, Platform, useWindowDimensions, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, Keyboard, Platform, useWindowDimensions, RefreshControl, Linking, Share } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
@@ -165,6 +165,53 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
     }
   }
 
+  // Relatório do folheto para o WhatsApp: resumo + rupturas + sem explosivo
+  // (+ o que ficou pendente, se finalizar antes de terminar).
+  function textoRelatorio(): string {
+    const dt = (d: string) => d.split('-').reverse().slice(0, 2).join('/');
+    const agora = new Date();
+    const hora = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+    const rup = itens.filter((i) => i.confStatus === 'ruptura');
+    const semExp = itens.filter((i) => i.confStatus === 'falta_explosivo');
+    const ok = itens.filter((i) => i.confStatus === 'ok').length;
+    const pend = itens.filter((i) => !i.confStatus);
+    const linha = (i: ItemEncarte) => `• ${i.descricao}${i.preco != null ? ` — ${reais(i.preco)}` : ''}${i.codigo ? ` (cód. ${i.codigo})` : ''}`;
+    const partes = [
+      '*📰 Conferência do folheto*',
+      campanha ? `${campanha.titulo.replace(/\s*\(.*\)$/, '')} · ${dt(campanha.inicio)} a ${dt(campanha.fim)}` : '',
+      `Conferido em ${hora}${por ? ` por ${por}` : ''}`,
+      '',
+      `Itens: *${itens.length}*`,
+      `✅ OK: ${ok}`,
+      `⚠️ Ruptura: ${rup.length}`,
+      `🏷️ Sem explosivo: ${semExp.length}`,
+      ...(pend.length ? [`⏳ Não conferidos: ${pend.length}`] : []),
+    ];
+    if (rup.length) partes.push('', `*⚠️ RUPTURAS (${rup.length})*`, ...rup.map(linha));
+    if (semExp.length) partes.push('', `*🏷️ SEM EXPLOSIVO (${semExp.length})*`, ...semExp.map(linha));
+    if (pend.length) partes.push('', `*⏳ NÃO CONFERIDOS (${pend.length})*`, ...pend.map(linha));
+    if (!rup.length && !semExp.length && !pend.length) partes.push('', 'Tudo certo: todos os itens com produto e explosivo. 👏');
+    return partes.filter((x, k, a) => !(x === '' && a[k - 1] === '')).join('\n');
+  }
+  async function enviarRelatorio() {
+    const texto = textoRelatorio();
+    const url = 'whatsapp://send?text=' + encodeURIComponent(texto);
+    try {
+      if (await Linking.canOpenURL(url)) { await Linking.openURL(url); return; }
+    } catch {
+      // cai para o compartilhar do celular
+    }
+    await Share.share({ message: texto });
+  }
+  function finalizar() {
+    const pend = itens.filter((i) => !i.confStatus).length;
+    if (!pend) { enviarRelatorio(); return; }
+    Alert.alert('Finalizar conferência', `Ainda faltam ${pend} item(ns). Eles vão no relatório como "não conferidos".`, [
+      { text: 'Continuar conferindo', style: 'cancel' },
+      { text: 'Enviar assim', onPress: enviarRelatorio },
+    ]);
+  }
+
   const feitos = itens.filter((i) => i.confStatus).length;
   const lista = useMemo(() => {
     const t = busca.trim().toLowerCase();
@@ -184,7 +231,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
     return (
       <RotaMapaScreen
         itens={rota}
-        titulo="Rota da conferência do jornal"
+        titulo="Rota da conferência do folheto"
         onVoltar={() => setRota(null)}
         feito={(it) => !!porId.get(it.chave!)?.confStatus}
         acoes={(it) => {
@@ -211,7 +258,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
 
   return (
     <View style={styles.flex}>
-      <CabecalhoTela titulo="Conferência do jornal" subtitulo={campanha ? campanha.titulo : 'Jornal de Ofertas'} icone="clipboard" onVoltar={onVoltar} />
+      <CabecalhoTela titulo="Conferência folheto" subtitulo={campanha ? campanha.titulo : 'Jornal de Ofertas'} icone="clipboard" onVoltar={onVoltar} />
 
       {carregando ? (
         <View style={styles.centro}><ActivityIndicator color={colors.navy700} size="large" /></View>
@@ -230,6 +277,12 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
               <TouchableOpacity onPress={() => setLendo(true)} disabled={lendo}><Text style={styles.link}>{lendo ? 'Lendo o jornal…' : '↻ Ler itens do jornal'}</Text></TouchableOpacity>
               {feitos > 0 && <TouchableOpacity onPress={reiniciar}><Text style={[styles.link, { color: colors.red500 }]}>Reiniciar</Text></TouchableOpacity>}
             </View>
+            {feitos > 0 && (
+              <TouchableOpacity style={styles.btnFinalizar} onPress={finalizar}>
+                <Feather name="send" size={16} color={colors.white} />
+                <Text style={styles.btnFinalizarTexto}>{feitos === itens.length ? 'Finalizar e enviar no WhatsApp' : 'Enviar relatório no WhatsApp'}</Text>
+              </TouchableOpacity>
+            )}
           </View>
 
           <ScrollView
@@ -515,6 +568,8 @@ const styles = StyleSheet.create({
   produtosTexto: { flex: 1, fontSize: 12.5, fontWeight: '700', color: colors.navy900 },
   itemAcoes: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'center', justifyContent: 'space-between' },
   btnOk: { flex: 1, backgroundColor: colors.green500, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' },
+  btnFinalizar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#178553', borderRadius: radius.md, paddingVertical: 11, marginTop: spacing.sm },
+  btnFinalizarTexto: { color: colors.white, fontWeight: '800', fontSize: 14 },
   btnOkTexto: { color: colors.white, fontWeight: '800', fontSize: 14 },
   btnDivergencia: { flex: 1, backgroundColor: '#FBDEDC', borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' },
   btnDivergenciaTexto: { color: colors.red500, fontWeight: '800', fontSize: 13.5 },

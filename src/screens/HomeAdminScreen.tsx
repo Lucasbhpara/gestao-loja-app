@@ -40,6 +40,7 @@ import VendaDiaScreen from './VendaDiaScreen';
 import RelatorioMensalScreen from './RelatorioMensalScreen';
 import BuscaProdutoScreen from './BuscaProdutoScreen';
 import ResultadosInventarioScreen from './ResultadosInventarioScreen';
+import ConferenciaEncarteScreen from './ConferenciaEncarteScreen';
 import InicioUlva2, { GrupoId, GRUPOS_ULVA2 } from './InicioUlva2';
 import RelatorioDiarioScreen from './RelatorioDiarioScreen';
 import * as Notifications from 'expo-notifications';
@@ -95,6 +96,7 @@ export default function HomeAdminScreen() {
     | 'olhoValidade'
     | 'vendaDia'
     | 'relatorioMensal'
+    | 'conferenciaFolheto'
     | 'buscaProduto'
     | 'resultadosInventario'
     | 'ruptura'
@@ -356,6 +358,10 @@ export default function HomeAdminScreen() {
   if (tela === 'buscaProduto' && ehDono) {
     return <BuscaProdutoScreen onVoltar={() => setTela('home')} />;
   }
+  // Conferência folheto (Rotina da Loja): por enquanto só o Lucas.
+  if (tela === 'conferenciaFolheto' && ehDono) {
+    return <ConferenciaEncarteScreen onVoltar={() => setTela('home')} />;
+  }
   // Relatório mensal: só o Lucas (mesma trava do Relatório diário).
   if (tela === 'relatorioMensal' && ehDono) {
     return <RelatorioMensalScreen onVoltar={() => setTela('home')} />;
@@ -373,7 +379,9 @@ export default function HomeAdminScreen() {
             ? GRUPOS_ULVA2.map((g) =>
                 g.id === 'resultados'
                   ? { ...g, ferramentas: [{ nome: 'Relatório diário', desc: 'Venda, meta, folgas e quebra — PDF', icone: 'file-text', tela: 'relatorioDiario' }, { nome: 'Relatório mensal', desc: 'Meta, caixas, horários, quebras, turnover e PDF', icone: 'file-text', tela: 'relatorioMensal' }, ...g.ferramentas] }
-                  : g,
+                  : g.id === 'rotina'
+                    ? { ...g, ferramentas: [{ nome: 'Conferência folheto', desc: 'OK, ruptura e sem explosivo + relatório no WhatsApp', icone: 'clipboard', tela: 'conferenciaFolheto' }, ...g.ferramentas] }
+                    : g,
               )
             : undefined
         }
@@ -508,6 +516,7 @@ export default function HomeAdminScreen() {
             { label: 'Vendas da Loja', icone: 'pie-chart' as const, onPress: () => setTela('vendasLoja'), somenteDono: true },
             { label: 'Venda do dia', icone: 'calendar' as const, onPress: () => setTela('vendaDia'), somenteDono: true },
             ...(ehDono ? [{ label: 'Relatório mensal', icone: 'file-text' as const, onPress: () => setTela('relatorioMensal') }] : []),
+            ...(ehDono ? [{ label: 'Conferência folheto', icone: 'clipboard' as const, onPress: () => setTela('conferenciaFolheto') }] : []),
             { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },
             // Produtos sem venda / parados, por setor → subcategoria.
             // Por enquanto só Lucas e Rodrigo (MATRICULAS_GIRO) — pra liberar
