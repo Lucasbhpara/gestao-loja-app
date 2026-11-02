@@ -13,6 +13,7 @@ import {
   StatusConferencia,
   atualizarItemEncarte,
   campanhaDoJornal,
+  codigosDosItens,
   criarItensLidos,
   juntarRepetidos,
   ligarVarios,
@@ -23,6 +24,8 @@ import {
 import { lerItensDoJornal, TextoPdf } from '../data/jornalLeituraPdf';
 import { ProdutoLista, buscarProdutos } from '../data/buscaProdutoApi';
 import { htmlLerTextos } from '../data/encarteHtml';
+import { buscarAreasProdutos } from '../data/rupturaMapaApi';
+import RotaMapaScreen, { ItemRota } from './RotaMapaScreen';
 
 // Conferência do jornal, no mesmo formato da Conferência: a lista de itens do
 // Jornal de Ofertas (lida do próprio PDF: nome, preço "POR" e código interno)
@@ -53,6 +56,8 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
   const [salvando, setSalvando] = useState<string | null>(null);
   const [gaveta, setGaveta] = useState<ItemEncarte | null>(null);
   const [verJornal, setVerJornal] = useState(false);
+  const [rota, setRota] = useState<ItemRota[] | null>(null);
+  const [montandoRota, setMontandoRota] = useState(false);
 
   const recarregar = useCallback(async (c: CampanhaJornal) => {
     const l = await listarItensEncarte(c.id);
@@ -130,6 +135,36 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
     ]);
   }
 
+  // Rota: itens pendentes, cada um pelo produto ligado que já tem lugar no
+  // mapa (bipado na Ruptura/Busca ou pelo sub-sortimento). Sem produto ligado
+  // não dá para localizar — ficam fora e avisamos.
+  async function abrirRota() {
+    const pend = itens.filter((i) => !i.confStatus);
+    if (!pend.length) { Alert.alert('Tudo conferido', 'Não há itens pendentes.'); return; }
+    setMontandoRota(true);
+    try {
+      const cods = await codigosDosItens(pend.map((i) => i.id));
+      const todos = [...new Set(Object.values(cods).flat())];
+      const areas = todos.length ? await buscarAreasProdutos(todos) : {};
+      const peso = (c: string) => { const a = areas[c]; return !a ? 0 : a.fonte === 'subsortimento' || a.fonte === 'sub_coleta' ? 1 : 2; };
+      const r: ItemRota[] = [];
+      let semProduto = 0;
+      for (const i of pend) {
+        const l = cods[i.id] ?? (i.codigo ? [i.codigo] : []);
+        if (!l.length) { semProduto++; continue; }
+        const melhor = [...l].sort((a, b) => peso(b) - peso(a))[0];
+        r.push({ codigoInterno: melhor, produto: i.descricao, grupoId: null, chave: i.id, detalhe: reais(i.preco) + (i.produtos > 1 ? ` · ${i.produtos} produtos` : '') });
+      }
+      if (!r.length) { Alert.alert('Sem rota', 'Ligue os produtos aos itens primeiro.'); return; }
+      if (semProduto) Alert.alert('Rota montada', `${semProduto} item(ns) sem produto ligado ficaram fora da rota.`);
+      setRota(r);
+    } catch (e: any) {
+      Alert.alert('Não consegui montar a rota', e?.message ?? '');
+    } finally {
+      setMontandoRota(false);
+    }
+  }
+
   const feitos = itens.filter((i) => i.confStatus).length;
   const lista = useMemo(() => {
     const t = busca.trim().toLowerCase();
@@ -143,6 +178,36 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
       <Text style={[styles.chipTexto, filtro === k && { color: colors.white }]}>{r}</Text>
     </TouchableOpacity>
   );
+
+  if (rota) {
+    const porId = new Map(itens.map((x) => [x.id, x]));
+    return (
+      <RotaMapaScreen
+        itens={rota}
+        titulo="Rota da conferência do jornal"
+        onVoltar={() => setRota(null)}
+        feito={(it) => !!porId.get(it.chave!)?.confStatus}
+        acoes={(it) => {
+          const i = porId.get(it.chave!);
+          if (!i) return null;
+          const st = i.confStatus ? STATUS[i.confStatus] : null;
+          const ocupado = salvando === i.id;
+          return st ? (
+            <View style={[styles.linhaAcoesTopo, { paddingLeft: 30, paddingBottom: 6 }]}>
+              <Text style={{ color: st.cor, fontWeight: '800' }}>{st.texto}</Text>
+              <TouchableOpacity onPress={() => marcar(i, null)} disabled={!!salvando}><Text style={styles.link}>Refazer</Text></TouchableOpacity>
+            </View>
+          ) : (
+            <View style={{ flexDirection: 'row', gap: 6, paddingLeft: 30, paddingBottom: 8 }}>
+              <TouchableOpacity style={[styles.btnOk, ocupado && styles.btnDesabilitado]} onPress={() => marcar(i, 'ok')} disabled={!!salvando}><Text style={styles.btnOkTexto}>✓ OK</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.btnDivergencia, ocupado && styles.btnDesabilitado]} onPress={() => marcar(i, 'ruptura')} disabled={!!salvando}><Text style={styles.btnDivergenciaTexto}>⚠ Ruptura</Text></TouchableOpacity>
+              <TouchableOpacity style={[styles.btnFaltaExplosivo, ocupado && styles.btnDesabilitado]} onPress={() => marcar(i, 'falta_explosivo')} disabled={!!salvando}><Text style={styles.btnFaltaExplosivoTexto}>🏷 Falta</Text></TouchableOpacity>
+            </View>
+          );
+        }}
+      />
+    );
+  }
 
   return (
     <View style={styles.flex}>
@@ -161,6 +226,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
               {jornal && (
                 <TouchableOpacity onPress={() => setVerJornal(true)}><Text style={styles.link}>📄 Ver jornal</Text></TouchableOpacity>
               )}
+              <TouchableOpacity onPress={abrirRota} disabled={montandoRota}><Text style={styles.link}>{montandoRota ? 'Montando rota…' : '🗺 Rota'}</Text></TouchableOpacity>
               <TouchableOpacity onPress={() => setLendo(true)} disabled={lendo}><Text style={styles.link}>{lendo ? 'Lendo o jornal…' : '↻ Ler itens do jornal'}</Text></TouchableOpacity>
               {feitos > 0 && <TouchableOpacity onPress={reiniciar}><Text style={[styles.link, { color: colors.red500 }]}>Reiniciar</Text></TouchableOpacity>}
             </View>

@@ -259,3 +259,14 @@ export async function reiniciarConferenciaJornal(campanhaId: string): Promise<vo
   const { error } = await supabase.from('jornal_itens').update({ conf_status: null, conf_por: null, conf_em: null }).eq('campanha_id', campanhaId);
   if (error) throw new Error(error.message);
 }
+
+// Códigos dos produtos ligados a cada item (para montar a rota no mapa).
+export async function codigosDosItens(ids: string[]): Promise<Record<string, string[]>> {
+  const r: Record<string, string[]> = {};
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await supabase.from('jornal_item_produtos').select('item_id, codigo').in('item_id', ids.slice(i, i + 200));
+    if (error) throw new Error(error.message);
+    (data ?? []).forEach((l: any) => { if (l.codigo) (r[l.item_id] = r[l.item_id] ?? []).push(String(l.codigo)); });
+  }
+  return r;
+}

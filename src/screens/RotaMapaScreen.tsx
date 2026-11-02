@@ -14,11 +14,22 @@ import { ENTRADA, FonteLocal, buscarAreasComCache, buscarAreasDosGrupos, buscarA
 // grupo) e monta a ordem de visita saindo da entrada da loja. Cada parada
 // aparece numerada no mapa e na lista; dá para ir marcando o que já conferiu.
 
-export type ItemRota = { codigoInterno: string; produto: string; grupoId: string | null; detalhe?: string };
+// chave: identifica o item na lista quando dois itens podem ter o mesmo código
+// (padrão = código). feito/acoes: a tela que chamou controla o "conferido" e
+// mostra os próprios botões embaixo de cada item (ex.: OK / Ruptura do jornal).
+export type ItemRota = { codigoInterno: string; produto: string; grupoId: string | null; detalhe?: string; chave?: string };
+type Props = {
+  itens: ItemRota[];
+  titulo?: string;
+  onVoltar: () => void;
+  feito?: (it: ItemRota) => boolean;
+  acoes?: (it: ItemRota) => React.ReactNode;
+};
+const chaveDe = (it: ItemRota) => it.chave ?? it.codigoInterno;
 
 const AZUL = '#2F7BFF';
 
-export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVoltar }: { itens: ItemRota[]; titulo?: string; onVoltar: () => void }) {
+export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVoltar, feito, acoes }: Props) {
   const { usuarioAtual } = useAuth();
   const quem = usuarioAtual?.nome ?? '';
   const [areas, setAreas] = useState<AreaMapa[]>([]);
@@ -73,12 +84,13 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [itens, local, doGrupo, porId]);
 
+  const estaFeito = (it: ItemRota) => (feito ? feito(it) : conferidos.has(chaveDe(it)));
   const destaques: Record<string, DestaqueArea> = {};
   paradas.forEach((p) => {
-    const tudo = p.itens.every((x) => conferidos.has(x.item.codigoInterno));
+    const tudo = p.itens.every((x) => estaFeito(x.item));
     destaques[p.area.id] = { numero: p.numero, cor: tudo ? '#178553' : AZUL };
   });
-  const totalConferidos = itens.filter((i) => conferidos.has(i.codigoInterno)).length;
+  const totalConferidos = itens.filter(estaFeito).length;
   const largura = Dimensions.get('window').width - spacing.md * 2;
 
   const alternar = (cod: string) => {
@@ -113,13 +125,13 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
           </View>
           <View style={styles.resumo}>
             <Text style={styles.resumoTexto}>Saindo da entrada, siga os números. {totalConferidos} de {itens.length} conferidos.</Text>
-            {totalConferidos > 0 && (
+            {totalConferidos > 0 && !feito && (
               <TouchableOpacity onPress={() => setConferidos(new Set())}><Text style={styles.link}>Zerar</Text></TouchableOpacity>
             )}
           </View>
 
           {paradas.map((p) => {
-            const feitos = p.itens.filter((x) => conferidos.has(x.item.codigoInterno)).length;
+            const feitos = p.itens.filter((x) => estaFeito(x.item)).length;
             return (
               <View key={p.area.id} style={[styles.parada, feitos === p.itens.length && { borderColor: '#178553' }]}>
                 <View style={styles.paradaTopo}>
@@ -128,17 +140,20 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
                   <Text style={styles.paradaQtd}>{feitos}/{p.itens.length}</Text>
                 </View>
                 {p.itens.map(({ item, certeza }) => {
-                  const ok = conferidos.has(item.codigoInterno);
+                  const ok = estaFeito(item);
                   return (
-                    <TouchableOpacity key={item.codigoInterno} style={styles.item} onPress={() => alternar(item.codigoInterno)} onLongPress={() => setDefinir(item)}>
-                      <Feather name={ok ? 'check-circle' : 'circle'} size={20} color={ok ? '#178553' : colors.gray400} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={[styles.itemNome, ok && styles.riscado]}>{item.produto}</Text>
-                        <Text style={styles.itemDet}>
-                          {item.codigoInterno}{item.detalhe ? ` · ${item.detalhe}` : ''}{certeza === 'grupo' ? ' · local do grupo' : certeza === 'sub' ? ' · local do sub-sortimento' : ''}
-                        </Text>
-                      </View>
-                    </TouchableOpacity>
+                    <View key={chaveDe(item)}>
+                      <TouchableOpacity style={styles.item} onPress={() => (feito ? undefined : alternar(chaveDe(item)))} onLongPress={() => setDefinir(item)} activeOpacity={feito ? 1 : 0.6}>
+                        <Feather name={ok ? 'check-circle' : 'circle'} size={20} color={ok ? '#178553' : colors.gray400} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.itemNome, ok && styles.riscado]}>{item.produto}</Text>
+                          <Text style={styles.itemDet}>
+                            {item.codigoInterno}{item.detalhe ? ` · ${item.detalhe}` : ''}{certeza === 'grupo' ? ' · local do grupo' : certeza === 'sub' ? ' · local do sub-sortimento' : ''}
+                          </Text>
+                        </View>
+                      </TouchableOpacity>
+                      {acoes ? acoes(item) : null}
+                    </View>
                   );
                 })}
               </View>
@@ -150,7 +165,7 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
               <Text style={styles.paradaNome}>Sem local no mapa ({semLocal.length})</Text>
               <Text style={styles.itemDet}>Sem local próprio, sem sub-sortimento mapeado e sem área do grupo. Toque para marcar no mapa.</Text>
               {semLocal.map((item) => (
-                <TouchableOpacity key={item.codigoInterno} style={styles.item} onPress={() => setDefinir(item)}>
+                <TouchableOpacity key={chaveDe(item)} style={styles.item} onPress={() => setDefinir(item)}>
                   <Feather name="map-pin" size={18} color={AZUL} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.itemNome}>{item.produto}</Text>
