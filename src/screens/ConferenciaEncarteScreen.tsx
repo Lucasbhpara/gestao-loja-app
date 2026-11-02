@@ -13,6 +13,10 @@ import {
   StatusConferencia,
   atualizarItemEncarte,
   campanhaDoJornal,
+  criarCampanhaTv,
+  criarItemManual,
+  excluirItem,
+  listarCampanhasTv,
   codigosDosItens,
   criarItensLidos,
   juntarRepetidos,
@@ -58,6 +62,12 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
   const [verJornal, setVerJornal] = useState(false);
   const [rota, setRota] = useState<ItemRota[] | null>(null);
   const [montandoRota, setMontandoRota] = useState(false);
+  // Folheto (jornal PDF) ou Ofertas de TV (7 dias, itens à mão)
+  const [modo, setModo] = useState<'folheto' | 'tv'>('folheto');
+  const [campFolheto, setCampFolheto] = useState<CampanhaJornal | null>(null);
+  const [tvs, setTvs] = useState<CampanhaJornal[]>([]);
+  const [novoItem, setNovoItem] = useState(false);
+  const ehTv = modo === 'tv';
 
   const recarregar = useCallback(async (c: CampanhaJornal) => {
     const l = await listarItensEncarte(c.id);
@@ -73,6 +83,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
         setJornal(j);
         const c = await campanhaDoJornal(j, por);
         setCampanha(c);
+        setCampFolheto(c);
         const l = await recarregar(c);
         if (!l.length) setLendo(true); // primeira vez: monta a lista a partir do PDF
       } catch (e: any) {
@@ -87,7 +98,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
   async function aoLerTextos(ev: any) {
     let m: any;
     try { m = JSON.parse(ev.nativeEvent.data); } catch { return; }
-    if (!campanha) return;
+    if (!campFolheto) return;
     if (m.tipo === 'erro') {
       setLendo(false);
       Alert.alert('Não consegui ler o jornal', m.mensagem ?? '');
@@ -96,9 +107,9 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
     if (m.tipo !== 'textos') return;
     try {
       const lidos = lerItensDoJornal((m.paginas ?? []) as TextoPdf[][]);
-      const { novos: n, corrigidos } = await criarItensLidos(campanha.id, lidos, itens, por);
-      const juntados = await juntarRepetidos(campanha.id);
-      await recarregar(campanha);
+      const { novos: n, corrigidos } = await criarItensLidos(campFolheto.id, lidos, itens, por);
+      const juntados = await juntarRepetidos(campFolheto.id);
+      if (modo === 'folheto') await recarregar(campFolheto);
       if (corrigidos || juntados) Alert.alert('Lista corrigida', [corrigidos ? `${corrigidos} nome(s)/código(s) corrigido(s)` : '', juntados ? `${juntados} item(ns) repetido(s) juntado(s)` : '', n ? `${n} item(ns) novo(s)` : ''].filter(Boolean).join('\n'));
       if (!lidos.length) Alert.alert('Jornal sem lista', 'Não achei os itens no texto do PDF (ele pode ser só imagem).');
       else if (n === 0 && !corrigidos && !juntados && itens.length) Alert.alert('Nada novo', 'Todos os itens do jornal já estão na lista.');
@@ -132,6 +143,43 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
           try { await reiniciarConferenciaJornal(campanha.id); await recarregar(campanha); } catch (e: any) { Alert.alert('Erro', e?.message ?? ''); }
         },
       },
+    ]);
+  }
+
+  const hojeIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+  async function abrirCampanha(c: CampanhaJornal | null) {
+    setCampanha(c);
+    setItens([]);
+    setFiltro('pendentes');
+    if (c) { try { await recarregar(c); } catch (e: any) { Alert.alert('Erro', e?.message ?? ''); } }
+  }
+  async function trocarModo(m: 'folheto' | 'tv') {
+    if (m === modo) return;
+    setModo(m);
+    if (m === 'folheto') { await abrirCampanha(campFolheto); return; }
+    try {
+      const l = await listarCampanhasTv();
+      setTvs(l);
+      const h = hojeIso();
+      await abrirCampanha(l.find((c) => c.inicio <= h && c.fim >= h) ?? l[0] ?? null);
+    } catch (e: any) {
+      Alert.alert('Erro', e?.message ?? '');
+    }
+  }
+  function novaSemanaTv() {
+    const criar = async (dias: number) => {
+      try {
+        const d = new Date(); d.setDate(d.getDate() + dias);
+        const c = await criarCampanhaTv(d, por);
+        setTvs((l) => [c, ...l]);
+        await abrirCampanha(c);
+        setNovoItem(true);
+      } catch (e: any) { Alert.alert('Não consegui criar', e?.message ?? ''); }
+    };
+    Alert.alert('Nova oferta de TV', 'Vale por 7 dias. Começa quando?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Amanhã', onPress: () => criar(1) },
+      { text: 'Hoje', onPress: () => criar(0) },
     ]);
   }
 
@@ -177,8 +225,8 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
     const pend = itens.filter((i) => !i.confStatus);
     const linha = (i: ItemEncarte) => `• ${i.descricao}${i.preco != null ? ` — ${reais(i.preco)}` : ''}${i.codigo ? ` (cód. ${i.codigo})` : ''}`;
     const partes = [
-      '*📰 Conferência do folheto*',
-      campanha ? `${campanha.titulo.replace(/\s*\(.*\)$/, '')} · ${dt(campanha.inicio)} a ${dt(campanha.fim)}` : '',
+      ehTv ? '*📺 Conferência ofertas de TV*' : '*📰 Conferência do folheto*',
+      campanha ? (ehTv ? `${dt(campanha.inicio)} a ${dt(campanha.fim)}` : `${campanha.titulo.replace(/\s*\(.*\)$/, '')} · ${dt(campanha.inicio)} a ${dt(campanha.fim)}`) : '',
       `Conferido em ${hora}${por ? ` por ${por}` : ''}`,
       '',
       `Itens: *${itens.length}*`,
@@ -231,7 +279,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
     return (
       <RotaMapaScreen
         itens={rota}
-        titulo="Rota da conferência do folheto"
+        titulo={ehTv ? 'Rota das ofertas de TV' : 'Rota da conferência do folheto'}
         onVoltar={() => setRota(null)}
         feito={(it) => !!porId.get(it.chave!)?.confStatus}
         acoes={(it) => {
@@ -262,19 +310,49 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
 
       {carregando ? (
         <View style={styles.centro}><ActivityIndicator color={colors.navy700} size="large" /></View>
-      ) : erro ? (
-        <View style={styles.centro}><Text style={styles.vazio}>{erro}</Text></View>
       ) : (
+        <>
+          <View style={styles.abas}>
+            {(['folheto', 'tv'] as const).map((m) => (
+              <TouchableOpacity key={m} style={[styles.aba, modo === m && styles.abaAtiva]} onPress={() => trocarModo(m)}>
+                <Text style={[styles.abaTexto, modo === m && { color: colors.white }]}>{m === 'folheto' ? '📰 Folheto' : '📺 Ofertas de TV'}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {ehTv && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={{ paddingHorizontal: spacing.lg, gap: 6, paddingBottom: spacing.sm }}>
+              {tvs.map((c) => {
+                const ativa = campanha?.id === c.id, h = hojeIso();
+                const vigente = c.inicio <= h && c.fim >= h;
+                return (
+                  <TouchableOpacity key={c.id} style={[styles.chip, ativa && styles.chipAtivo]} onPress={() => abrirCampanha(c)}>
+                    <Text style={[styles.chipTexto, ativa && { color: colors.white }]}>{c.titulo.replace('Ofertas de TV ', '')}{vigente ? ' · vigente' : c.fim < h ? ' · encerrada' : ''}</Text>
+                  </TouchableOpacity>
+                );
+              })}
+              <TouchableOpacity style={[styles.chip, { borderStyle: 'dashed' }]} onPress={novaSemanaTv}>
+                <Text style={[styles.chipTexto, { color: AZUL }]}>+ Nova oferta de TV</Text>
+              </TouchableOpacity>
+            </ScrollView>
+          )}
+          {!ehTv && erro ? (
+            <View style={styles.centro}><Text style={styles.vazio}>{erro}</Text></View>
+          ) : ehTv && !campanha ? (
+            <View style={styles.centro}>
+              <Text style={styles.vazio}>Nenhuma oferta de TV ainda. Toque em "+ Nova oferta de TV": vale 7 dias e você adiciona os itens à mão.</Text>
+            </View>
+          ) : (
         <>
           <View style={styles.progressoBox}>
             <Text style={styles.progressoTexto}>{feitos} de {itens.length} conferidos</Text>
             <View style={styles.barraFundo}><View style={[styles.barra, { width: `${itens.length ? (feitos / itens.length) * 100 : 0}%` }]} /></View>
             <View style={styles.linhaAcoesTopo}>
-              {jornal && (
+              {jornal && !ehTv && (
                 <TouchableOpacity onPress={() => setVerJornal(true)}><Text style={styles.link}>📄 Ver jornal</Text></TouchableOpacity>
               )}
+              {ehTv && <TouchableOpacity onPress={() => setNovoItem(true)}><Text style={styles.link}>+ Item</Text></TouchableOpacity>}
               <TouchableOpacity onPress={abrirRota} disabled={montandoRota}><Text style={styles.link}>{montandoRota ? 'Montando rota…' : '🗺 Rota'}</Text></TouchableOpacity>
-              <TouchableOpacity onPress={() => setLendo(true)} disabled={lendo}><Text style={styles.link}>{lendo ? 'Lendo o jornal…' : '↻ Ler itens do jornal'}</Text></TouchableOpacity>
+              {!ehTv && <TouchableOpacity onPress={() => setLendo(true)} disabled={lendo}><Text style={styles.link}>{lendo ? 'Lendo o jornal…' : '↻ Ler itens do jornal'}</Text></TouchableOpacity>}
               {feitos > 0 && <TouchableOpacity onPress={reiniciar}><Text style={[styles.link, { color: colors.red500 }]}>Reiniciar</Text></TouchableOpacity>}
             </View>
             {feitos > 0 && (
@@ -298,7 +376,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
             </ScrollView>
             <View style={styles.busca}>
               <Feather name="search" size={15} color={colors.gray400} />
-              <TextInput style={styles.buscaInput} value={busca} onChangeText={setBusca} placeholder="Buscar item do jornal ou código" placeholderTextColor={colors.gray400} />
+              <TextInput style={styles.buscaInput} value={busca} onChangeText={setBusca} placeholder={ehTv ? 'Buscar item ou código' : 'Buscar item do jornal ou código'} placeholderTextColor={colors.gray400} />
             </View>
 
             {lendo && !itens.length ? (
@@ -363,14 +441,16 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
               );
             })}
             {!lendo && !lista.length && (
-              <Text style={styles.vazio}>{itens.length ? (filtro === 'pendentes' ? 'Tudo conferido! 🎉' : 'Nada com esse filtro.') : 'Nenhum item ainda. Toque em "Ler itens do jornal".'}</Text>
+              <Text style={styles.vazio}>{itens.length ? (filtro === 'pendentes' ? 'Tudo conferido! 🎉' : 'Nada com esse filtro.') : (ehTv ? 'Nenhum item ainda. Toque em "+ Item".' : 'Nenhum item ainda. Toque em "Ler itens do jornal".')}</Text>
             )}
           </ScrollView>
+        </>
+          )}
         </>
       )}
 
       {/* leitura do PDF escondida (pdf.js) */}
-      {lendo && jornal && (
+      {lendo && jornal && !ehTv && (
         <View style={{ width: 1, height: 1, opacity: 0, position: 'absolute' }}>
           <WebView originWhitelist={['*']} source={{ html: htmlLerTextos(jornal.arquivoUrl), baseUrl: 'https://ulva.com.br/' }} onMessage={aoLerTextos} javaScriptEnabled />
         </View>
@@ -382,6 +462,27 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
           por={por}
           onFechar={() => setGaveta(null)}
           onSalvo={async () => { setGaveta(null); if (campanha) await recarregar(campanha); }}
+          onExcluir={ehTv ? async () => {
+            const it = gaveta;
+            Alert.alert('Excluir item', it.descricao, [
+              { text: 'Cancelar', style: 'cancel' },
+              { text: 'Excluir', style: 'destructive', onPress: async () => {
+                try { await excluirItem(it.id); setGaveta(null); if (campanha) await recarregar(campanha); } catch (e: any) { Alert.alert('Erro', e?.message ?? ''); }
+              } },
+            ]);
+          } : undefined}
+        />
+      )}
+      {novoItem && campanha && (
+        <NovoItemTv
+          onFechar={() => setNovoItem(false)}
+          onCriar={async (descricao, preco) => {
+            const id = await criarItemManual(campanha.id, descricao, preco);
+            const l = await recarregar(campanha);
+            setNovoItem(false);
+            const it = l.find((x) => x.id === id);
+            if (it) setGaveta(it); // já escolhe os produtos (fragrâncias)
+          }}
         />
       )}
       {jornal && <VisualizadorJornalModal visible={verJornal} arquivoUrl={jornal.arquivoUrl} onFechar={() => setVerJornal(false)} />}
@@ -390,7 +491,45 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
 }
 
 // ------------------------------------------------- gaveta de produtos ----
-function GavetaProdutos({ item, por, onFechar, onSalvo }: { item: ItemEncarte; por: string; onFechar: () => void; onSalvo: () => void }) {
+// ------------------------------------------- novo item (ofertas de TV) ----
+function NovoItemTv({ onFechar, onCriar }: { onFechar: () => void; onCriar: (descricao: string, preco: number | null) => Promise<void> }) {
+  const [descricao, setDescricao] = useState('');
+  const [preco, setPreco] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [teclado, setTeclado] = useState(0);
+  useEffect(() => {
+    const a = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', (e) => setTeclado(e.endCoordinates?.height ?? 0));
+    const f = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setTeclado(0));
+    return () => { a.remove(); f.remove(); };
+  }, []);
+  async function criar() {
+    const d = descricao.trim();
+    if (!d) { Alert.alert('Falta o nome', 'Escreva o nome do item da oferta.'); return; }
+    const p = preco.trim() ? Number(preco.replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.')) : null;
+    setSalvando(true);
+    try { await onCriar(d.toUpperCase(), p != null && isFinite(p) ? p : null); } catch (e: any) { Alert.alert('Não consegui criar', e?.message ?? ''); } finally { setSalvando(false); }
+  }
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onFechar}>
+      <View style={styles.fundo}>
+        <TouchableOpacity style={{ flex: 1 }} onPress={onFechar} activeOpacity={1} />
+        <View style={[styles.gaveta, { marginBottom: teclado }]}>
+          <View style={styles.alca} />
+          <Text style={styles.rotulo}>Item da oferta de TV</Text>
+          <TextInput style={styles.input} value={descricao} onChangeText={setDescricao} placeholder="Ex.: Sabão em pó Omo 1,6kg" placeholderTextColor={colors.gray400} autoFocus />
+          <Text style={styles.rotulo}>Preço da oferta</Text>
+          <TextInput style={styles.input} value={preco} onChangeText={setPreco} placeholder="Ex.: 19,90" placeholderTextColor={colors.gray400} keyboardType="decimal-pad" />
+          <TouchableOpacity style={[styles.btnSalvar, salvando && { opacity: 0.6 }]} onPress={criar} disabled={salvando}>
+            {salvando ? <ActivityIndicator color={colors.white} /> : <Feather name="plus" size={18} color={colors.white} />}
+            <Text style={styles.btnSalvarTexto}>Adicionar e escolher produtos</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function GavetaProdutos({ item, por, onFechar, onSalvo, onExcluir }: { item: ItemEncarte; por: string; onFechar: () => void; onSalvo: () => void; onExcluir?: () => void }) {
   const [descricao, setDescricao] = useState(item.descricao);
   const [ligados, setLigados] = useState<ProdutoLigado[] | null>(null);
   const [termo, setTermo] = useState('');
@@ -536,6 +675,11 @@ function GavetaProdutos({ item, por, onFechar, onSalvo }: { item: ItemEncarte; p
             {salvando ? <ActivityIndicator color={colors.white} /> : <Feather name="check" size={18} color={colors.white} />}
             <Text style={styles.btnSalvarTexto}>{marcados.size ? `Salvar e ligar ${marcados.size} produto${marcados.size === 1 ? '' : 's'}` : 'Salvar'}</Text>
           </TouchableOpacity>
+          {onExcluir && (
+            <TouchableOpacity onPress={onExcluir} style={{ alignItems: 'center', paddingTop: spacing.sm }}>
+              <Text style={[styles.link, { color: colors.red500 }]}>Excluir este item</Text>
+            </TouchableOpacity>
+          )}
         </View>
       </View>
     </Modal>
@@ -568,6 +712,10 @@ const styles = StyleSheet.create({
   produtosTexto: { flex: 1, fontSize: 12.5, fontWeight: '700', color: colors.navy900 },
   itemAcoes: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'center', justifyContent: 'space-between' },
   btnOk: { flex: 1, backgroundColor: colors.green500, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' },
+  abas: { flexDirection: 'row', gap: 6, paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.sm },
+  aba: { flex: 1, alignItems: 'center', paddingVertical: 9, borderRadius: radius.md, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100 },
+  abaAtiva: { backgroundColor: '#0E1B2C', borderColor: '#0E1B2C' },
+  abaTexto: { fontWeight: '800', fontSize: 13.5, color: colors.navy900 },
   btnFinalizar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#178553', borderRadius: radius.md, paddingVertical: 11, marginTop: spacing.sm },
   btnFinalizarTexto: { color: colors.white, fontWeight: '800', fontSize: 14 },
   btnOkTexto: { color: colors.white, fontWeight: '800', fontSize: 14 },
