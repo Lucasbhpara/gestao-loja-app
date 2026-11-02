@@ -14,6 +14,7 @@ import {
   atualizarItemEncarte,
   campanhaDoJornal,
   criarItensLidos,
+  juntarRepetidos,
   ligarVarios,
   listarItensEncarte,
   marcarConferencia,
@@ -90,10 +91,12 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
     if (m.tipo !== 'textos') return;
     try {
       const lidos = lerItensDoJornal((m.paginas ?? []) as TextoPdf[][]);
-      const n = await criarItensLidos(campanha.id, lidos, itens, por);
+      const { novos: n, corrigidos } = await criarItensLidos(campanha.id, lidos, itens, por);
+      const juntados = await juntarRepetidos(campanha.id);
       await recarregar(campanha);
+      if (corrigidos || juntados) Alert.alert('Lista corrigida', [corrigidos ? `${corrigidos} nome(s)/código(s) corrigido(s)` : '', juntados ? `${juntados} item(ns) repetido(s) juntado(s)` : '', n ? `${n} item(ns) novo(s)` : ''].filter(Boolean).join('\n'));
       if (!lidos.length) Alert.alert('Jornal sem lista', 'Não achei os itens no texto do PDF (ele pode ser só imagem).');
-      else if (n === 0 && itens.length) Alert.alert('Nada novo', 'Todos os itens do jornal já estão na lista.');
+      else if (n === 0 && !corrigidos && !juntados && itens.length) Alert.alert('Nada novo', 'Todos os itens do jornal já estão na lista.');
     } catch (e: any) {
       Alert.alert('Não consegui montar a lista', e?.message ?? '');
     } finally {
@@ -322,16 +325,26 @@ function GavetaProdutos({ item, por, onFechar, onSalvo }: { item: ItemEncarte; p
   const todosMarcados = disponiveis.length > 0 && disponiveis.every((p) => marcados.has(chaveP(p)));
   const totalEstoque = (ligados ?? []).reduce((a, l) => a + Math.max(0, l.estoque ?? 0), 0);
 
+  // Atualização em função do estado anterior: toques rápidos em vários itens
+  // não se perdem (antes o 2º toque usava a lista velha e desmarcava o 1º).
   function alternar(p: ProdutoLista) {
-    const m = new Map(marcados);
-    m.has(chaveP(p)) ? m.delete(chaveP(p)) : m.set(chaveP(p), p);
-    setMarcados(m);
+    Keyboard.dismiss();
+    const k = chaveP(p);
+    setMarcados((ant) => {
+      const m = new Map(ant);
+      m.has(k) ? m.delete(k) : m.set(k, p);
+      return m;
+    });
   }
   function marcarTodos() {
-    const m = new Map(marcados);
-    if (todosMarcados) disponiveis.forEach((p) => m.delete(chaveP(p)));
-    else disponiveis.forEach((p) => m.set(chaveP(p), p));
-    setMarcados(m);
+    Keyboard.dismiss();
+    setMarcados((ant) => {
+      const m = new Map(ant);
+      const todos = disponiveis.length > 0 && disponiveis.every((p) => m.has(chaveP(p)));
+      if (todos) disponiveis.forEach((p) => m.delete(chaveP(p)));
+      else disponiveis.forEach((p) => m.set(chaveP(p), p));
+      return m;
+    });
   }
   async function tirar(l: ProdutoLigado) {
     try { await removerProduto(l.id); setLigados((x) => (x ?? []).filter((y) => y.id !== l.id)); } catch (e: any) { Alert.alert('Erro', e?.message ?? ''); }
