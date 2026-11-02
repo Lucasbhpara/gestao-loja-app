@@ -275,7 +275,7 @@ export async function codigosDosItens(ids: string[]): Promise<Record<string, str
 // Campanha tipo 'tv': vale 7 dias, itens cadastrados à mão. Usa as mesmas
 // tabelas do folheto, então a conferência, a rota, o relatório e o Estoque do
 // Jornal funcionam igual.
-const isoDia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export const isoDia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 const brDia = (iso: string) => iso.split('-').reverse().slice(0, 2).join('/');
 
 export async function listarCampanhasTv(): Promise<CampanhaJornal[]> {
@@ -284,16 +284,20 @@ export async function listarCampanhasTv(): Promise<CampanhaJornal[]> {
   return (data ?? []) as CampanhaJornal[];
 }
 
-export async function criarCampanhaTv(inicio: Date, por: string): Promise<CampanhaJornal> {
-  const fimD = new Date(inicio); fimD.setDate(fimD.getDate() + 6);
-  const ini = isoDia(inicio), fim = isoDia(fimD);
+export async function criarCampanhaTv(inicio: string, fim: string, por: string): Promise<CampanhaJornal> {
   const { data, error } = await supabase
     .from('jornal_campanhas')
-    .insert({ titulo: `Ofertas de TV ${brDia(ini)} a ${brDia(fim)}`, inicio: ini, fim, tipo: 'tv', criado_por: por })
+    .insert({ titulo: `Ofertas de TV ${brDia(inicio)} a ${brDia(fim)}`, inicio, fim, tipo: 'tv', criado_por: por })
     .select('id, titulo, inicio, fim, tipo')
     .single();
   if (error) throw new Error(error.message);
   return data as CampanhaJornal;
+}
+
+// Apaga a oferta de TV com os itens e os produtos ligados (cascata no banco).
+export async function excluirCampanhaTv(id: string): Promise<void> {
+  const { error } = await supabase.from('jornal_campanhas').delete().eq('id', id).eq('tipo', 'tv');
+  if (error) throw new Error(error.message);
 }
 
 export async function criarItemManual(campanhaId: string, descricao: string, preco: number | null): Promise<string> {
