@@ -14,6 +14,7 @@ export interface CampanhaJornal {
   titulo: string;
   inicio: string;
   fim: string;
+  tipo?: string; // 'folheto' (jornal PDF) ou 'tv' (ofertas de TV, 7 dias)
 }
 
 export interface ItemJornal {
@@ -47,7 +48,7 @@ export interface ProdutoLigado {
 const num = (v: any): number | null => (v == null ? null : Number(v));
 
 export async function listarCampanhas(): Promise<CampanhaJornal[]> {
-  const { data, error } = await supabase.from('jornal_campanhas').select('id, titulo, inicio, fim').order('inicio', { ascending: false }).limit(20);
+  const { data, error } = await supabase.from('jornal_campanhas').select('id, titulo, inicio, fim, tipo').order('inicio', { ascending: false }).limit(20);
   if (error) throw error;
   return data ?? [];
 }
@@ -55,7 +56,8 @@ export async function listarCampanhas(): Promise<CampanhaJornal[]> {
 export function campanhaAtual(lista: CampanhaJornal[]): CampanhaJornal | null {
   const d = new Date();
   const hoje = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
-  return lista.find((c) => c.inicio <= hoje && c.fim >= hoje) ?? lista[0] ?? null;
+  const folheto = lista.filter((c) => (c.tipo ?? 'folheto') === 'folheto');
+  return folheto.find((c) => c.inicio <= hoje && c.fim >= hoje) ?? folheto[0] ?? lista[0] ?? null;
 }
 
 export async function listarItens(campanhaId: string): Promise<ItemJornal[]> {

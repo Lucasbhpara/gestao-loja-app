@@ -63,7 +63,7 @@ export async function campanhaDoJornal(j: JornalOferta, por: string): Promise<Ca
   if (ligada.error) throw new Error(ligada.error.message);
   if (ligada.data?.length) return ligada.data[0] as CampanhaJornal;
   const p = periodoDoNome(j.nomeArquivo, j.enviadoEm);
-  const mesma = await supabase.from('jornal_campanhas').select(sel).eq('inicio', p.inicio).is('jornal_oferta_id', null).limit(1);
+  const mesma = await supabase.from('jornal_campanhas').select(sel).eq('inicio', p.inicio).eq('tipo', 'folheto').is('jornal_oferta_id', null).limit(1);
   if (mesma.data?.length) {
     await supabase.from('jornal_campanhas').update({ jornal_oferta_id: j.id }).eq('id', mesma.data[0].id);
     return mesma.data[0] as CampanhaJornal;
@@ -269,4 +269,45 @@ export async function codigosDosItens(ids: string[]): Promise<Record<string, str
     (data ?? []).forEach((l: any) => { if (l.codigo) (r[l.item_id] = r[l.item_id] ?? []).push(String(l.codigo)); });
   }
   return r;
+}
+
+// ------------------------------------------------ Ofertas de TV -------
+// Campanha tipo 'tv': vale 7 dias, itens cadastrados à mão. Usa as mesmas
+// tabelas do folheto, então a conferência, a rota, o relatório e o Estoque do
+// Jornal funcionam igual.
+const isoDia = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const brDia = (iso: string) => iso.split('-').reverse().slice(0, 2).join('/');
+
+export async function listarCampanhasTv(): Promise<CampanhaJornal[]> {
+  const { data, error } = await supabase.from('jornal_campanhas').select('id, titulo, inicio, fim, tipo').eq('tipo', 'tv').order('inicio', { ascending: false }).limit(12);
+  if (error) throw new Error(error.message);
+  return (data ?? []) as CampanhaJornal[];
+}
+
+export async function criarCampanhaTv(inicio: Date, por: string): Promise<CampanhaJornal> {
+  const fimD = new Date(inicio); fimD.setDate(fimD.getDate() + 6);
+  const ini = isoDia(inicio), fim = isoDia(fimD);
+  const { data, error } = await supabase
+    .from('jornal_campanhas')
+    .insert({ titulo: `Ofertas de TV ${brDia(ini)} a ${brDia(fim)}`, inicio: ini, fim, tipo: 'tv', criado_por: por })
+    .select('id, titulo, inicio, fim, tipo')
+    .single();
+  if (error) throw new Error(error.message);
+  return data as CampanhaJornal;
+}
+
+export async function criarItemManual(campanhaId: string, descricao: string, preco: number | null): Promise<string> {
+  const { data: ult } = await supabase.from('jornal_itens').select('ordem').eq('campanha_id', campanhaId).order('ordem', { ascending: false }).limit(1);
+  const { data, error } = await supabase
+    .from('jornal_itens')
+    .insert({ campanha_id: campanhaId, ordem: (ult?.[0]?.ordem ?? 0) + 1, descricao, preco })
+    .select('id')
+    .single();
+  if (error) throw new Error(error.message);
+  return data.id as string;
+}
+
+export async function excluirItem(itemId: string): Promise<void> {
+  const { error } = await supabase.from('jornal_itens').delete().eq('id', itemId);
+  if (error) throw new Error(error.message);
 }
