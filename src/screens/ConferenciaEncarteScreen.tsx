@@ -1,44 +1,63 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, Keyboard, Platform, useWindowDimensions } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, TextInput, ActivityIndicator, Alert, Modal, Keyboard, Platform, useWindowDimensions, RefreshControl } from 'react-native';
 import { WebView } from 'react-native-webview';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import CabecalhoTela from '../components/CabecalhoTela';
+import VisualizadorJornalModal from '../components/VisualizadorJornalModal';
 import { buscarJornalAtual, JornalOferta } from '../data/jornalOfertasApi';
 import { CampanhaJornal, ProdutoLigado, produtosDoItem, removerProduto, qtdBr } from '../data/jornalEstoqueApi';
-import { ItemEncarte, atualizarItemEncarte, campanhaDoJornal, criarItemEncarte, itensParecidos, ligarVarios, listarItensEncarte } from '../data/jornalEncarteApi';
+import {
+  ItemEncarte,
+  StatusConferencia,
+  atualizarItemEncarte,
+  campanhaDoJornal,
+  criarItensLidos,
+  ligarVarios,
+  listarItensEncarte,
+  marcarConferencia,
+  reiniciarConferenciaJornal,
+} from '../data/jornalEncarteApi';
+import { lerItensDoJornal, TextoPdf } from '../data/jornalLeituraPdf';
 import { ProdutoLista, buscarProdutos } from '../data/buscaProdutoApi';
-import { htmlEncarte } from '../data/encarteHtml';
+import { htmlLerTextos } from '../data/encarteHtml';
 
-// Conferência no encarte: o jornal aparece como é (PDF). Toque num produto
-// do encarte → gaveta com o nome/preço lido ali, a busca de produtos com
-// caixinhas para escolher todas as fragrâncias/sabores, e salvar. Fica
-// gravado no item do jornal para o período inteiro (e no Estoque do Jornal).
+// Conferência do jornal, no mesmo formato da Conferência: a lista de itens do
+// Jornal de Ofertas (lida do próprio PDF: nome, preço "POR" e código interno)
+// com OK / Ruptura / Falta Explosivo. Em "Produtos" você escolhe, uma vez, os
+// produtos da loja de cada item (todas as fragrâncias, com caixinhas) — fica
+// gravado para o período inteiro e alimenta o Estoque do Jornal.
 
 const AZUL = '#2F7BFF';
-type Toque = { pagina: number; x: number; y: number; texto: string; preco: string | null; codigo?: string | null };
-const precoNum = (s: string | null | undefined) => {
-  if (!s) return null;
-  const v = Number(String(s).replace(/[^\d,]/g, '').replace(',', '.'));
-  return isFinite(v) && v > 0 ? v : null;
+type Filtro = 'pendentes' | 'feitos' | 'todos';
+const reais = (v: number | null) => (v == null ? '' : 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const STATUS: Record<StatusConferencia, { texto: string; cor: string; fundo: string }> = {
+  ok: { texto: '✓ OK', cor: colors.green500, fundo: '#DFF3E9' },
+  ruptura: { texto: '⚠ Ruptura', cor: colors.red500, fundo: '#FBDEDC' },
+  falta_explosivo: { texto: '🏷 Falta Explosivo', cor: '#B4650E', fundo: '#FBEBD4' },
 };
-const reais = (v: number | null) => (v == null ? '' : v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 
 export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
   const por = usuarioAtual?.nome ?? '';
-  const web = useRef<WebView>(null);
   const [jornal, setJornal] = useState<JornalOferta | null>(null);
   const [campanha, setCampanha] = useState<CampanhaJornal | null>(null);
   const [itens, setItens] = useState<ItemEncarte[]>([]);
-  const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(true);
-  const [pronto, setPronto] = useState(false);
-  const [gaveta, setGaveta] = useState<{ toque: Toque | null; item: ItemEncarte | null } | null>(null);
-  const [verLista, setVerLista] = useState(false);
+  const [lendo, setLendo] = useState(false); // lendo os itens do PDF
+  const [erro, setErro] = useState<string | null>(null);
+  const [filtro, setFiltro] = useState<Filtro>('pendentes');
+  const [busca, setBusca] = useState('');
+  const [salvando, setSalvando] = useState<string | null>(null);
+  const [gaveta, setGaveta] = useState<ItemEncarte | null>(null);
+  const [verJornal, setVerJornal] = useState(false);
 
-  const carregarItens = useCallback(async (c: CampanhaJornal) => setItens(await listarItensEncarte(c.id)), []);
+  const recarregar = useCallback(async (c: CampanhaJornal) => {
+    const l = await listarItensEncarte(c.id);
+    setItens(l);
+    return l;
+  }, []);
 
   useEffect(() => {
     (async () => {
@@ -48,7 +67,8 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
         setJornal(j);
         const c = await campanhaDoJornal(j, por);
         setCampanha(c);
-        await carregarItens(c);
+        const l = await recarregar(c);
+        if (!l.length) setLendo(true); // primeira vez: monta a lista a partir do PDF
       } catch (e: any) {
         setErro(e?.message ?? 'Não consegui abrir o jornal.');
       } finally {
@@ -58,136 +78,205 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // manda os marcadores para o encarte
-  useEffect(() => {
-    if (!pronto) return;
-    const m = itens.filter((i) => i.pagina != null && i.posX != null && i.posY != null).map((i) => ({ id: i.id, pagina: i.pagina, x: i.posX, y: i.posY, produtos: i.produtos, situacao: i.situacao }));
-    web.current?.injectJavaScript(`window.setMarcadores && window.setMarcadores(${JSON.stringify(m)}); true;`);
-  }, [itens, pronto]);
-
-  const html = useMemo(() => (jornal ? htmlEncarte(jornal.arquivoUrl) : ''), [jornal]);
-  const noEncarte = itens.filter((i) => i.pagina != null).length;
-  const conferidos = itens.filter((i) => i.produtos > 0).length;
-
-  function aoMensagem(ev: any) {
+  async function aoLerTextos(ev: any) {
     let m: any;
     try { m = JSON.parse(ev.nativeEvent.data); } catch { return; }
-    if (m.tipo === 'pronto') setPronto(true);
-    else if (m.tipo === 'erro') setErro('Não consegui desenhar o encarte: ' + (m.mensagem ?? ''));
-    else if (m.tipo === 'toque') setGaveta({ toque: m, item: null });
-    else if (m.tipo === 'item') {
-      const it = itens.find((i) => i.id === m.id);
-      if (it) setGaveta({ toque: null, item: it });
+    if (!campanha) return;
+    if (m.tipo === 'erro') {
+      setLendo(false);
+      Alert.alert('Não consegui ler o jornal', m.mensagem ?? '');
+      return;
+    }
+    if (m.tipo !== 'textos') return;
+    try {
+      const lidos = lerItensDoJornal((m.paginas ?? []) as TextoPdf[][]);
+      const n = await criarItensLidos(campanha.id, lidos, itens, por);
+      await recarregar(campanha);
+      if (!lidos.length) Alert.alert('Jornal sem lista', 'Não achei os itens no texto do PDF (ele pode ser só imagem).');
+      else if (n === 0 && itens.length) Alert.alert('Nada novo', 'Todos os itens do jornal já estão na lista.');
+    } catch (e: any) {
+      Alert.alert('Não consegui montar a lista', e?.message ?? '');
+    } finally {
+      setLendo(false);
     }
   }
 
+  async function marcar(i: ItemEncarte, status: StatusConferencia | null) {
+    setSalvando(i.id);
+    try {
+      await marcarConferencia(i.id, status, por);
+      setItens((l) => l.map((x) => (x.id === i.id ? { ...x, confStatus: status, confPor: status ? por : null } : x)));
+    } catch (e: any) {
+      Alert.alert('Não consegui salvar', e?.message ?? '');
+    } finally {
+      setSalvando(null);
+    }
+  }
+
+  function reiniciar() {
+    if (!campanha) return;
+    Alert.alert('Reiniciar conferência', 'Todos os itens voltam para pendente. Os produtos ligados continuam.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Reiniciar',
+        style: 'destructive',
+        onPress: async () => {
+          try { await reiniciarConferenciaJornal(campanha.id); await recarregar(campanha); } catch (e: any) { Alert.alert('Erro', e?.message ?? ''); }
+        },
+      },
+    ]);
+  }
+
+  const feitos = itens.filter((i) => i.confStatus).length;
+  const lista = useMemo(() => {
+    const t = busca.trim().toLowerCase();
+    return itens
+      .filter((i) => (filtro === 'pendentes' ? !i.confStatus : filtro === 'feitos' ? !!i.confStatus : true))
+      .filter((i) => !t || i.descricao.toLowerCase().includes(t) || (i.codigo ?? '').includes(t));
+  }, [itens, filtro, busca]);
+
+  const chip = (k: Filtro, r: string) => (
+    <TouchableOpacity key={k} style={[styles.chip, filtro === k && styles.chipAtivo]} onPress={() => setFiltro(k)}>
+      <Text style={[styles.chipTexto, filtro === k && { color: colors.white }]}>{r}</Text>
+    </TouchableOpacity>
+  );
+
   return (
     <View style={styles.flex}>
-      <CabecalhoTela
-        titulo="Conferir no encarte"
-        subtitulo={campanha ? `${campanha.titulo} · ${conferidos} de ${itens.length} itens com produto` : 'Toque no produto do jornal'}
-        icone="book-open"
-        onVoltar={onVoltar}
-        acao={
-          itens.length ? (
-            <TouchableOpacity onPress={() => setVerLista(true)} style={styles.btnLista}>
-              <Feather name="list" size={16} color={colors.white} />
-              <Text style={styles.btnListaTexto}>Itens</Text>
-            </TouchableOpacity>
-          ) : undefined
-        }
-      />
+      <CabecalhoTela titulo="Conferência do jornal" subtitulo={campanha ? campanha.titulo : 'Jornal de Ofertas'} icone="clipboard" onVoltar={onVoltar} />
+
       {carregando ? (
         <View style={styles.centro}><ActivityIndicator color={colors.navy700} size="large" /></View>
-      ) : erro && !jornal ? (
+      ) : erro ? (
         <View style={styles.centro}><Text style={styles.vazio}>{erro}</Text></View>
       ) : (
         <>
-          <Text style={styles.dica}>
-            Toque em cima do produto no encarte. Os números são quantos produtos já estão ligados (verde = ok, vermelho = zerado ou vai faltar). {noEncarte} marcados.
-          </Text>
-          {erro ? <Text style={[styles.dica, { color: colors.red500 }]}>{erro}</Text> : null}
-          <WebView
-            ref={web}
-            originWhitelist={['*']}
-            source={{ html, baseUrl: 'https://ulva.com.br/' }}
-            onMessage={aoMensagem}
-            javaScriptEnabled
-            domStorageEnabled
-            setBuiltInZoomControls
-            setDisplayZoomControls={false}
+          <View style={styles.progressoBox}>
+            <Text style={styles.progressoTexto}>{feitos} de {itens.length} conferidos</Text>
+            <View style={styles.barraFundo}><View style={[styles.barra, { width: `${itens.length ? (feitos / itens.length) * 100 : 0}%` }]} /></View>
+            <View style={styles.linhaAcoesTopo}>
+              {jornal && (
+                <TouchableOpacity onPress={() => setVerJornal(true)}><Text style={styles.link}>📄 Ver jornal</Text></TouchableOpacity>
+              )}
+              <TouchableOpacity onPress={() => setLendo(true)} disabled={lendo}><Text style={styles.link}>{lendo ? 'Lendo o jornal…' : '↻ Ler itens do jornal'}</Text></TouchableOpacity>
+              {feitos > 0 && <TouchableOpacity onPress={reiniciar}><Text style={[styles.link, { color: colors.red500 }]}>Reiniciar</Text></TouchableOpacity>}
+            </View>
+          </View>
+
+          <ScrollView
             style={styles.flex}
-          />
+            contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}
+            keyboardShouldPersistTaps="handled"
+            refreshControl={<RefreshControl refreshing={false} onRefresh={() => campanha && recarregar(campanha)} />}
+          >
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
+              {chip('pendentes', `Pendentes (${itens.length - feitos})`)}
+              {chip('feitos', `Conferidos (${feitos})`)}
+              {chip('todos', `Todos (${itens.length})`)}
+            </ScrollView>
+            <View style={styles.busca}>
+              <Feather name="search" size={15} color={colors.gray400} />
+              <TextInput style={styles.buscaInput} value={busca} onChangeText={setBusca} placeholder="Buscar item do jornal ou código" placeholderTextColor={colors.gray400} />
+            </View>
+
+            {lendo && !itens.length ? (
+              <View style={styles.lendo}>
+                <ActivityIndicator color={AZUL} />
+                <Text style={styles.vazio}>Lendo os produtos do jornal…</Text>
+              </View>
+            ) : null}
+
+            {lista.map((i) => {
+              const st = i.confStatus ? STATUS[i.confStatus] : null;
+              const ocupado = salvando === i.id;
+              return (
+                <View key={i.id} style={styles.itemCard}>
+                  <View style={styles.itemTopo}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.itemProduto}>{i.descricao}</Text>
+                      <Text style={styles.itemMeta}>
+                        {i.codigo ? `Cód. ${i.codigo} · ` : ''}{reais(i.preco)}{i.pagina ? ` · pág. ${i.pagina}` : ''}
+                      </Text>
+                    </View>
+                    {st && (
+                      <View style={[styles.chipStatus, { backgroundColor: st.fundo }]}>
+                        <Text style={[styles.chipStatusTexto, { color: st.cor }]}>{st.texto}</Text>
+                      </View>
+                    )}
+                  </View>
+
+                  <TouchableOpacity style={styles.produtosLinha} onPress={() => setGaveta(i)}>
+                    <Feather name="package" size={15} color={i.produtos ? AZUL : colors.red500} />
+                    <Text style={[styles.produtosTexto, !i.produtos && { color: colors.red500 }]}>
+                      {i.produtos ? `${i.produtos} produto${i.produtos === 1 ? '' : 's'} · estoque ${qtdBr(i.estoque)}` : 'Nenhum produto ligado'}
+                    </Text>
+                    <Text style={styles.link}>{i.produtos ? 'Produtos ›' : 'Escolher ›'}</Text>
+                  </TouchableOpacity>
+
+                  {!i.confStatus ? (
+                    <View>
+                      <View style={styles.itemAcoes}>
+                        <TouchableOpacity style={[styles.btnOk, ocupado && styles.btnDesabilitado]} onPress={() => marcar(i, 'ok')} disabled={!!salvando}>
+                          <Text style={styles.btnOkTexto}>✓ OK</Text>
+                        </TouchableOpacity>
+                      </View>
+                      <View style={styles.itemAcoes}>
+                        <TouchableOpacity style={[styles.btnDivergencia, ocupado && styles.btnDesabilitado]} onPress={() => marcar(i, 'ruptura')} disabled={!!salvando}>
+                          <Text style={styles.btnDivergenciaTexto}>⚠ Ruptura</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity style={[styles.btnFaltaExplosivo, ocupado && styles.btnDesabilitado]} onPress={() => marcar(i, 'falta_explosivo')} disabled={!!salvando}>
+                          <Text style={styles.btnFaltaExplosivoTexto}>🏷 Falta Explosivo</Text>
+                        </TouchableOpacity>
+                      </View>
+                    </View>
+                  ) : (
+                    <View style={styles.itemAcoes}>
+                      <Text style={styles.itemMeta}>{i.confPor ?? ''}</Text>
+                      <TouchableOpacity onPress={() => marcar(i, null)} disabled={!!salvando}>
+                        <Text style={styles.btnRefazerTexto}>Refazer</Text>
+                      </TouchableOpacity>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+            {!lendo && !lista.length && (
+              <Text style={styles.vazio}>{itens.length ? (filtro === 'pendentes' ? 'Tudo conferido! 🎉' : 'Nada com esse filtro.') : 'Nenhum item ainda. Toque em "Ler itens do jornal".'}</Text>
+            )}
+          </ScrollView>
         </>
       )}
 
-      {gaveta && campanha && (
-        <Gaveta
-          toque={gaveta.toque}
-          item={gaveta.item}
-          itens={itens}
-          campanhaId={campanha.id}
-          por={por}
-          onFechar={() => setGaveta(null)}
-          onSalvo={async () => { setGaveta(null); await carregarItens(campanha); }}
-        />
+      {/* leitura do PDF escondida (pdf.js) */}
+      {lendo && jornal && (
+        <View style={{ width: 1, height: 1, opacity: 0, position: 'absolute' }}>
+          <WebView originWhitelist={['*']} source={{ html: htmlLerTextos(jornal.arquivoUrl), baseUrl: 'https://ulva.com.br/' }} onMessage={aoLerTextos} javaScriptEnabled />
+        </View>
       )}
 
-      <Modal visible={verLista} animationType="slide" onRequestClose={() => setVerLista(false)}>
-        <View style={[styles.flex, { paddingTop: 44 }]}>
-          <View style={styles.listaTopo}>
-            <TouchableOpacity onPress={() => setVerLista(false)}><Feather name="x" size={24} color={colors.navy900} /></TouchableOpacity>
-            <Text style={styles.listaTitulo}>Itens do jornal ({itens.length})</Text>
-          </View>
-          <ScrollView contentContainerStyle={{ padding: spacing.lg }}>
-            {itens.map((i) => (
-              <TouchableOpacity key={i.id} style={styles.linhaItem} onPress={() => { setVerLista(false); setGaveta({ toque: null, item: i }); }}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.itemNome}>{i.descricao}</Text>
-                  <Text style={styles.itemDet}>
-                    {i.produtos} produto{i.produtos === 1 ? '' : 's'} · estoque {qtdBr(i.estoque)}{i.pagina != null ? ` · pág. ${i.pagina}` : ' · sem lugar no encarte'}
-                  </Text>
-                </View>
-                <Feather name="chevron-right" size={18} color={colors.gray400} />
-              </TouchableOpacity>
-            ))}
-          </ScrollView>
-        </View>
-      </Modal>
+      {gaveta && (
+        <GavetaProdutos
+          item={gaveta}
+          por={por}
+          onFechar={() => setGaveta(null)}
+          onSalvo={async () => { setGaveta(null); if (campanha) await recarregar(campanha); }}
+        />
+      )}
+      {jornal && <VisualizadorJornalModal visible={verJornal} arquivoUrl={jornal.arquivoUrl} onFechar={() => setVerJornal(false)} />}
     </View>
   );
 }
 
-// ------------------------------------------------------------- gaveta ----
-function Gaveta({
-  toque,
-  item: itemInicial,
-  itens,
-  campanhaId,
-  por,
-  onFechar,
-  onSalvo,
-}: {
-  toque: Toque | null;
-  item: ItemEncarte | null;
-  itens: ItemEncarte[];
-  campanhaId: string;
-  por: string;
-  onFechar: () => void;
-  onSalvo: () => void;
-}) {
-  const [item, setItem] = useState<ItemEncarte | null>(itemInicial);
-  const [descricao, setDescricao] = useState(itemInicial?.descricao ?? toque?.texto ?? '');
-  const [preco, setPreco] = useState(itemInicial?.preco != null ? reais(itemInicial.preco) : toque?.preco ?? '');
-  const [ligados, setLigados] = useState<ProdutoLigado[]>([]);
+// ------------------------------------------------- gaveta de produtos ----
+function GavetaProdutos({ item, por, onFechar, onSalvo }: { item: ItemEncarte; por: string; onFechar: () => void; onSalvo: () => void }) {
+  const [descricao, setDescricao] = useState(item.descricao);
+  const [ligados, setLigados] = useState<ProdutoLigado[] | null>(null);
   const [termo, setTermo] = useState('');
   const [resultados, setResultados] = useState<ProdutoLista[]>([]);
   const [buscando, setBuscando] = useState(false);
   const [marcados, setMarcados] = useState<Map<string, ProdutoLista>>(new Map());
   const [salvando, setSalvando] = useState(false);
-  const [doEncarte, setDoEncarte] = useState<ProdutoLista[]>([]); // produto pelo código impresso no encarte
-  // O Modal fica numa janela própria: o espaço do teclado da raiz do app não
-  // vale aqui, então a gaveta sobe sozinha a altura do teclado.
+  // Modal = janela própria: a gaveta sobe sozinha a altura do teclado.
   const [teclado, setTeclado] = useState(0);
   const { height: alturaTela } = useWindowDimensions();
   useEffect(() => {
@@ -196,47 +285,42 @@ function Gaveta({
     return () => { a.remove(); f.remove(); };
   }, []);
 
-  // código interno impresso no encarte: já acha e deixa marcado
   useEffect(() => {
-    const c = toque?.codigo;
-    if (!c || item) return;
-    buscarProdutos(c)
-      .then((r) => {
-        const certo = r.filter((p) => p.codigoInterno === c);
-        setDoEncarte(certo);
-        if (certo.length) setMarcados((m) => { const n = new Map(m); certo.forEach((p) => n.set(p.codigoInterno ?? p.produto, p)); return n; });
+    produtosDoItem(item.id)
+      .then((l) => {
+        setLigados(l);
+        // Busca inicial: o cadastro abrevia os nomes ("BEB.LAC.BH MORANGO 1100G FR"),
+        // então usa a 1ª palavra do produto do código + o tamanho → "BEB.LAC.BH 1100G"
+        // traz todos os sabores. Sem produto ligado, usa o nome do jornal.
+        const ref = l[0]?.produto;
+        if (ref) {
+          const tam = ref.toUpperCase().match(/\d+(?:[.,]\d+)?\s?(?:KG|G|ML|L|M|UN)\b/);
+          // + palavras que aparecem no jornal e no cadastro (marca, ex.: "BH")
+          const sa = (x: string) => x.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase();
+          const doJornal = new Set(sa(item.descricao).split(/[^A-Z0-9]+/));
+          const primeira = ref.split(' ')[0];
+          const comuns = sa(ref).split(/[^A-Z0-9]+/).filter((w) => w.length >= 2 && !/\d/.test(w) && doJornal.has(w) && !sa(primeira).includes(w));
+          setTermo([primeira, ...comuns.slice(0, 1), tam ? tam[0].replace(/\s/g, '') : ''].filter(Boolean).join(' '));
+        } else {
+          setTermo(item.descricao.split(' ').filter((w) => w.length > 2 && !/^\d/.test(w)).slice(0, 2).join(' '));
+        }
       })
-      .catch(() => {});
-  }, [toque, item]);
-
-  // sugestões de itens que já vieram da planilha do jornal
-  const parecidos = useMemo(() => (toque && !item ? itensParecidos(toque.texto, itens.filter((i) => i.pagina == null)) : []), [toque, item, itens]);
-
-  useEffect(() => {
-    if (!item) { setLigados([]); return; }
-    produtosDoItem(item.id).then(setLigados).catch(() => setLigados([]));
+      .catch(() => setLigados([]));
   }, [item]);
-
-  // já busca pelo texto lido no encarte (as 3 primeiras palavras)
-  useEffect(() => {
-    if (!item && toque?.texto) setTermo(toque.texto.split(' ').filter((w) => w.length > 2 && !/^\d/.test(w)).slice(0, 3).join(' '));
-  }, [toque, item]);
 
   useEffect(() => {
     const t = termo.trim();
     if (t.length < 3) { setResultados([]); return; }
     setBuscando(true);
-    const id = setTimeout(() => {
-      buscarProdutos(t).then(setResultados).catch(() => setResultados([])).finally(() => setBuscando(false));
-    }, 350);
+    const id = setTimeout(() => buscarProdutos(t).then(setResultados).catch(() => setResultados([])).finally(() => setBuscando(false)), 350);
     return () => clearTimeout(id);
   }, [termo]);
 
   const chaveP = (p: ProdutoLista) => p.codigoInterno ?? p.produto;
-  const jaLigado = (p: ProdutoLista) => ligados.some((l) => (p.codigoInterno && l.codigo === p.codigoInterno) || l.produto === p.produto);
-  const doCodigo = (p: ProdutoLista) => doEncarte.some((d) => chaveP(d) === chaveP(p));
-  const disponiveis = resultados.filter((p) => !jaLigado(p) && !doCodigo(p));
+  const jaLigado = (p: ProdutoLista) => (ligados ?? []).some((l) => (p.codigoInterno && l.codigo === p.codigoInterno) || l.produto === p.produto);
+  const disponiveis = resultados.filter((p) => !jaLigado(p));
   const todosMarcados = disponiveis.length > 0 && disponiveis.every((p) => marcados.has(chaveP(p)));
+  const totalEstoque = (ligados ?? []).reduce((a, l) => a + Math.max(0, l.estoque ?? 0), 0);
 
   function alternar(p: ProdutoLista) {
     const m = new Map(marcados);
@@ -249,23 +333,14 @@ function Gaveta({
     else disponiveis.forEach((p) => m.set(chaveP(p), p));
     setMarcados(m);
   }
-
+  async function tirar(l: ProdutoLigado) {
+    try { await removerProduto(l.id); setLigados((x) => (x ?? []).filter((y) => y.id !== l.id)); } catch (e: any) { Alert.alert('Erro', e?.message ?? ''); }
+  }
   async function salvar() {
-    const d = descricao.trim();
-    if (!d) { Alert.alert('Falta o nome', 'Escreva o nome do produto como está no jornal.'); return; }
     setSalvando(true);
     try {
-      let id = item?.id;
-      if (!id) {
-        id = await criarItemEncarte(campanhaId, { descricao: d, preco: precoNum(preco), pagina: toque!.pagina, x: toque!.x, y: toque!.y });
-      } else {
-        await atualizarItemEncarte(id, {
-          descricao: d,
-          preco: precoNum(preco),
-          ...(toque ? { pagina: toque.pagina, x: toque.x, y: toque.y } : {}),
-        });
-      }
-      await ligarVarios(id, [...marcados.values()].map((p) => ({ codigo: p.codigoInterno, produto: p.produto })), por);
+      if (descricao.trim() && descricao.trim() !== item.descricao) await atualizarItemEncarte(item.id, { descricao: descricao.trim() });
+      await ligarVarios(item.id, [...marcados.values()].map((p) => ({ codigo: p.codigoInterno, produto: p.produto })), por);
       onSalvo();
     } catch (e: any) {
       Alert.alert('Não consegui salvar', e?.message ?? '');
@@ -274,92 +349,31 @@ function Gaveta({
     }
   }
 
-  async function tirar(l: ProdutoLigado) {
-    try {
-      await removerProduto(l.id);
-      setLigados((x) => x.filter((y) => y.id !== l.id));
-    } catch (e: any) {
-      Alert.alert('Não consegui tirar', e?.message ?? '');
-    }
-  }
-
-  async function tirarDoEncarte() {
-    if (!item) return;
-    try {
-      await atualizarItemEncarte(item.id, { pagina: null, x: null, y: null });
-      onSalvo();
-    } catch (e: any) {
-      Alert.alert('Erro', e?.message ?? '');
-    }
-  }
-
-  const totalEstoque = ligados.reduce((a, l) => a + Math.max(0, l.estoque ?? 0), 0);
-
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onFechar}>
       <View style={styles.fundo}>
         <TouchableOpacity style={{ flex: 1 }} onPress={onFechar} activeOpacity={1} />
         <View style={[styles.gaveta, { marginBottom: teclado, maxHeight: Math.max(260, alturaTela * 0.9 - teclado) }]}>
           <View style={styles.alca} />
-          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: spacing.lg }}>
-            <Text style={styles.rotulo}>Produto no jornal</Text>
-            <TextInput style={styles.input} value={descricao} onChangeText={setDescricao} placeholder="Ex.: Lava roupas Omo 3L" placeholderTextColor={colors.gray400} multiline />
-            <View style={{ flexDirection: 'row', gap: spacing.sm, alignItems: 'center', marginTop: spacing.sm }}>
-              <Text style={styles.rotuloInline}>Preço R$</Text>
-              <TextInput style={[styles.input, { flex: 1 }]} value={preco} onChangeText={setPreco} keyboardType="decimal-pad" placeholder="0,00" placeholderTextColor={colors.gray400} />
-            </View>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: spacing.md }}>
+            <Text style={styles.rotulo}>Item do jornal{item.codigo ? ` · cód. ${item.codigo}` : ''}{item.preco != null ? ` · ${reais(item.preco)}` : ''}</Text>
+            <TextInput style={styles.input} value={descricao} onChangeText={setDescricao} multiline />
 
-            {parecidos.length > 0 && (
-              <>
-                <Text style={styles.rotulo}>É um destes itens do jornal?</Text>
-                {parecidos.map((p) => (
-                  <TouchableOpacity key={p.id} style={styles.sugestao} onPress={() => { setItem(p); setDescricao(p.descricao); setPreco(p.preco != null ? reais(p.preco) : preco); }}>
-                    <Feather name="corner-down-right" size={14} color={AZUL} />
-                    <Text style={styles.sugestaoTexto}>{p.descricao}{p.produtos ? ` · ${p.produtos} produtos` : ''}</Text>
-                  </TouchableOpacity>
-                ))}
-              </>
-            )}
+            <Text style={styles.rotulo}>Produtos ligados ({ligados?.length ?? 0}) · estoque {qtdBr(totalEstoque)}</Text>
+            {ligados === null ? <ActivityIndicator color={AZUL} /> : null}
+            {ligados?.map((l) => (
+              <View key={l.id} style={styles.ligado}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.prodNome}>{l.produto}</Text>
+                  <Text style={styles.prodDet}>{l.codigo ? `Cód. ${l.codigo}` : 'sem código'}{l.origem === 'auto' ? ' · do código do jornal' : ''}</Text>
+                </View>
+                <Text style={[styles.qtd, (l.estoque ?? 0) <= 0 && { color: colors.red500 }]}>{qtdBr(l.estoque)}</Text>
+                <TouchableOpacity onPress={() => tirar(l)} style={styles.btnX}><Feather name="x" size={14} color={colors.red500} /></TouchableOpacity>
+              </View>
+            ))}
 
-            {item && (
-              <>
-                <Text style={styles.rotulo}>Produtos ligados ({ligados.length}) · estoque {qtdBr(totalEstoque)}</Text>
-                {ligados.map((l) => (
-                  <View key={l.id} style={styles.ligado}>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.prodNome}>{l.produto}</Text>
-                      <Text style={styles.prodDet}>{l.codigo ? `Cód. ${l.codigo}` : 'sem código'}{l.origem === 'sugestao' ? ' · sugestão' : ''}</Text>
-                    </View>
-                    <Text style={[styles.qtd, (l.estoque ?? 0) <= 0 && { color: colors.red500 }]}>{qtdBr(l.estoque)}</Text>
-                    <TouchableOpacity onPress={() => tirar(l)} style={styles.btnX}><Feather name="x" size={14} color={colors.red500} /></TouchableOpacity>
-                  </View>
-                ))}
-              </>
-            )}
-
-            {doEncarte.length > 0 && (
-              <>
-                <Text style={styles.rotulo}>Código no encarte: {toque?.codigo}</Text>
-                {doEncarte.map((p) => {
-                  const ja = jaLigado(p);
-                  const m = marcados.has(chaveP(p));
-                  return (
-                    <TouchableOpacity key={'enc' + chaveP(p)} style={[styles.resultado, m && styles.resultadoMarcado]} onPress={() => alternar(p)} disabled={ja}>
-                      <Feather name={ja ? 'check' : m ? 'check-square' : 'square'} size={20} color={ja ? colors.green500 : m ? AZUL : colors.gray400} />
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.prodNome}>{p.produto}</Text>
-                        <Text style={styles.prodDet}>Cód. {p.codigoInterno}{ja ? ' · já ligado' : ' · do encarte'}</Text>
-                      </View>
-                      <Text style={[styles.qtd, (p.quantidade ?? 0) <= 0 && { color: colors.red500 }]}>{qtdBr(p.quantidade)}</Text>
-                    </TouchableOpacity>
-                  );
-                })}
-                <Text style={styles.prodDet}>Outras fragrâncias/sabores: busque abaixo e marque as caixinhas.</Text>
-              </>
-            )}
-
-            <Text style={styles.rotulo}>Adicionar produtos da loja</Text>
-            <View style={styles.busca}>
+            <Text style={styles.rotulo}>Adicionar fragrâncias / sabores</Text>
+            <View style={styles.buscaG}>
               <Feather name="search" size={16} color={colors.gray400} />
               <TextInput style={styles.buscaInput} value={termo} onChangeText={setTermo} placeholder="Buscar (ex.: omo 3l)" placeholderTextColor={colors.gray400} autoCorrect={false} />
               {buscando ? <ActivityIndicator size="small" color={AZUL} /> : null}
@@ -370,7 +384,7 @@ function Gaveta({
                 <Text style={styles.todosTexto}>{todosMarcados ? 'Desmarcar todos' : `Marcar todos (${disponiveis.length})`}</Text>
               </TouchableOpacity>
             )}
-            {resultados.filter((p) => !doCodigo(p)).map((p) => {
+            {resultados.map((p) => {
               const ja = jaLigado(p);
               const m = marcados.has(chaveP(p));
               return (
@@ -385,11 +399,6 @@ function Gaveta({
               );
             })}
             {termo.trim().length >= 3 && !buscando && !resultados.length && <Text style={styles.prodDet}>Nenhum produto com esse nome.</Text>}
-            {item && item.pagina != null && (
-              <TouchableOpacity onPress={tirarDoEncarte} style={{ marginTop: spacing.lg, alignSelf: 'center' }}>
-                <Text style={{ color: colors.red500, fontWeight: '700' }}>Tirar o marcador do encarte</Text>
-              </TouchableOpacity>
-            )}
           </ScrollView>
           <TouchableOpacity style={[styles.btnSalvar, salvando && { opacity: 0.6 }]} onPress={salvar} disabled={salvando}>
             {salvando ? <ActivityIndicator color={colors.white} /> : <Feather name="check" size={18} color={colors.white} />}
@@ -404,30 +413,47 @@ function Gaveta({
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.gray50 },
   centro: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: spacing.xl },
-  vazio: { color: colors.gray600, textAlign: 'center', lineHeight: 20 },
-  dica: { fontSize: 11.5, color: colors.gray600, paddingHorizontal: spacing.lg, paddingVertical: spacing.sm, lineHeight: 16 },
-  btnLista: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: 'rgba(255,255,255,0.16)', paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.full },
-  btnListaTexto: { color: colors.white, fontWeight: '800', fontSize: 12.5 },
-  listaTopo: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, paddingHorizontal: spacing.lg, paddingBottom: spacing.sm },
-  listaTitulo: { fontSize: 17, fontWeight: '800', color: colors.navy900 },
-  linhaItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.sm },
-  itemNome: { fontSize: 13.5, fontWeight: '700', color: colors.navy900 },
-  itemDet: { fontSize: 11.5, color: colors.gray600, marginTop: 2 },
+  vazio: { color: colors.gray600, textAlign: 'center', lineHeight: 20, marginTop: spacing.md },
+  lendo: { alignItems: 'center', paddingVertical: spacing.xl },
+  progressoBox: { backgroundColor: colors.white, paddingHorizontal: spacing.lg, paddingVertical: spacing.md, borderBottomWidth: 1, borderBottomColor: colors.gray100 },
+  progressoTexto: { fontSize: 14, fontWeight: '800', color: colors.navy900 },
+  barraFundo: { height: 7, backgroundColor: colors.gray100, borderRadius: 4, overflow: 'hidden', marginTop: 6 },
+  barra: { height: '100%', backgroundColor: colors.green500 },
+  linhaAcoesTopo: { flexDirection: 'row', gap: spacing.lg, marginTop: spacing.sm, flexWrap: 'wrap' },
+  link: { color: AZUL, fontWeight: '800', fontSize: 12.5 },
+  chip: { borderWidth: 1, borderColor: colors.gray100, backgroundColor: colors.white, borderRadius: radius.full, paddingVertical: 7, paddingHorizontal: 12, marginRight: 6 },
+  chipAtivo: { backgroundColor: colors.navy700, borderColor: colors.navy700 },
+  chipTexto: { fontSize: 12, fontWeight: '700', color: colors.gray900 },
+  busca: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.white, borderRadius: radius.md, paddingHorizontal: spacing.md, marginBottom: spacing.md },
+  buscaInput: { flex: 1, paddingVertical: 9, fontSize: 14, color: colors.gray900 },
+  itemCard: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.md, marginBottom: spacing.md },
+  itemTopo: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.sm },
+  itemProduto: { fontSize: 14, fontWeight: '800', color: colors.gray900 },
+  itemMeta: { fontSize: 12, color: colors.gray600, marginTop: 3 },
+  chipStatus: { borderRadius: radius.full, paddingVertical: 4, paddingHorizontal: 10 },
+  chipStatusTexto: { fontSize: 11.5, fontWeight: '800' },
+  produtosLinha: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.gray50, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 9, marginTop: spacing.sm },
+  produtosTexto: { flex: 1, fontSize: 12.5, fontWeight: '700', color: colors.navy900 },
+  itemAcoes: { flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, alignItems: 'center', justifyContent: 'space-between' },
+  btnOk: { flex: 1, backgroundColor: colors.green500, borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' },
+  btnOkTexto: { color: colors.white, fontWeight: '800', fontSize: 14 },
+  btnDivergencia: { flex: 1, backgroundColor: '#FBDEDC', borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' },
+  btnDivergenciaTexto: { color: colors.red500, fontWeight: '800', fontSize: 13.5 },
+  btnFaltaExplosivo: { flex: 1, backgroundColor: '#FBEBD4', borderRadius: radius.md, paddingVertical: 11, alignItems: 'center' },
+  btnFaltaExplosivoTexto: { color: '#B4650E', fontWeight: '800', fontSize: 13.5 },
+  btnDesabilitado: { opacity: 0.5 },
+  btnRefazerTexto: { color: AZUL, fontWeight: '800', fontSize: 13 },
   fundo: { flex: 1, backgroundColor: 'rgba(0,0,0,0.35)' },
-  gaveta: { maxHeight: '88%', backgroundColor: colors.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.lg },
+  gaveta: { backgroundColor: colors.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, paddingHorizontal: spacing.lg, paddingTop: spacing.sm, paddingBottom: spacing.lg },
   alca: { width: 44, height: 5, borderRadius: 3, backgroundColor: colors.gray100, alignSelf: 'center', marginBottom: spacing.sm },
   rotulo: { fontSize: 11, fontWeight: '800', color: colors.gray600, textTransform: 'uppercase', marginTop: spacing.md, marginBottom: 6 },
-  rotuloInline: { fontSize: 12, fontWeight: '800', color: colors.gray600 },
   input: { borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 9, fontSize: 14, color: colors.gray900, backgroundColor: colors.gray50 },
-  sugestao: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#E3EDFF', borderRadius: radius.md, padding: spacing.sm, marginBottom: 6 },
-  sugestaoTexto: { flex: 1, fontSize: 12.5, fontWeight: '700', color: colors.navy900 },
   ligado: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.gray50 },
   prodNome: { fontSize: 12.5, fontWeight: '700', color: colors.gray900 },
   prodDet: { fontSize: 11, color: colors.gray600, marginTop: 1 },
   qtd: { fontSize: 13, fontWeight: '800', color: colors.navy900, minWidth: 36, textAlign: 'right' },
   btnX: { width: 28, height: 28, borderRadius: 14, borderWidth: 1, borderColor: colors.gray100, alignItems: 'center', justifyContent: 'center' },
-  busca: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: colors.gray50 },
-  buscaInput: { flex: 1, paddingVertical: 9, fontSize: 14, color: colors.gray900 },
+  buscaG: { flexDirection: 'row', alignItems: 'center', gap: 8, borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, paddingHorizontal: spacing.md, backgroundColor: colors.gray50 },
   todos: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 10 },
   todosTexto: { color: AZUL, fontWeight: '800', fontSize: 13 },
   resultado: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9, paddingHorizontal: 6, borderRadius: radius.sm },
