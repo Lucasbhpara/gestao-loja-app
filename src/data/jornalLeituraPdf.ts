@@ -9,18 +9,21 @@
 // juntado ao item (antes vinha só "480G", "KG", "COM SAL 500G").
 
 export type TextoPdf = { t: string; x: number; y: number; w: number; h: number }; // y = topo da letra
-export type ItemLido = { pagina: number; descricao: string; preco: number | null; codigo: string | null; x: number; y: number };
+export type ItemLido = { pagina: number; descricao: string; preco: number | null; codigo: string | null; x: number; y: number; outrosCodigos?: string[] };
 
 const cx = (i: TextoPdf) => i.x + i.w / 2;
 const cy = (i: TextoPdf) => i.y + i.h / 2;
 const RE_PRECO = /(\d{1,3}(?:\.\d{3})*),(\d{2})/;
 // o texto inteiro é um preço ("7,98", "R$ 12,70") — "GF. 2,25L" não conta
 const ehPreco = (t: string) => /^\s*(r\$\s*)?\d{1,3}(\.\d{3})*,\d{2}\s*$/i.test(t);
-// código interno: 5 a 7 dígitos sozinhos ou no começo ("300504" ou "300504 6,38")
-const codigoDe = (t: string): string | null => {
-  const m = t.trim().match(/^(\d{5,7})(?:\s|$)/);
-  return m ? m[1] : null;
+// código interno: 5 a 7 dígitos sozinhos ou no começo ("300504" ou "300504 6,38");
+// item com dois códigos vem "230277/301371"
+const RE_COD = /^(\d{5,7}(?:\s*\/\s*\d{5,7})*)(?:\s|$)/;
+const codigosDe = (t: string): string[] => {
+  const m = t.trim().match(RE_COD);
+  return m ? m[1].split('/').map((x) => x.trim()) : [];
 };
+const codigoDe = (t: string): string | null => codigosDe(t)[0] ?? null;
 const ehCodigo = (t: string) => codigoDe(t) !== null;
 const ehPor = (t: string) => /^por:?$/i.test(t.trim());
 const ehLixo = (t: string) => {
@@ -94,7 +97,7 @@ function lerPagina(itens: TextoPdf[], pagina: number, anterior: { itens: TextoPd
         .filter((i) => dentro(i) && cy(i) > cy(p) && cy(i) < cy(p) + alt * 0.5 && ehCodigo(i.t))
         .sort((a, b) => a.y - b.y)[0];
       const descricao = juntar(nome);
-      if (descricao || cod) saida.push({ pagina, descricao, preco, codigo: cod ? codigoDe(cod.t) : null, x: Math.min(1, p.x + larg / 2), y: Math.max(0, cy(p) - alt * 0.35) });
+      if (descricao || cod) saida.push({ pagina, descricao, preco, codigo: cod ? codigoDe(cod.t) : null, outrosCodigos: cod ? codigosDe(cod.t).slice(1) : [], x: Math.min(1, p.x + larg / 2), y: Math.max(0, cy(p) - alt * 0.35) });
     }
     return saida;
   }
@@ -106,7 +109,7 @@ function lerPagina(itens: TextoPdf[], pagina: number, anterior: { itens: TextoPd
     itens.filter((i) => { const d = cx(i) - kx; return d > -0.02 && d < 0.16 && cy(i) < ky + 0.005 && cy(i) > ky - 0.09 && ehPreco(i.t); }).forEach((i) => {
       if (i.h > h * 1.05) { preco = precoNum(i.t); h = i.h; }
     });
-    saida.push({ pagina, descricao: juntar(nome), preco, codigo: codigoDe(k.t), x: kx, y: ky - 0.04 });
+    saida.push({ pagina, descricao: juntar(nome), preco, codigo: codigoDe(k.t), outrosCodigos: codigosDe(k.t).slice(1), x: kx, y: ky - 0.04 });
   }
   return saida;
 }

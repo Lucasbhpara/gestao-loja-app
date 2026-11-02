@@ -189,6 +189,7 @@ export async function criarItensLidos(campanhaId: string, lidos: ItemLido[], _ex
       if (upd.descricao || upd.codigo) corrigidos++;
     }
     if (l.codigo) paraLigar.push({ id: e.id, codigo: l.codigo });
+    (l.outrosCodigos ?? []).forEach((c) => paraLigar.push({ id: e.id, codigo: c }));
   }
   let ordem = existentes.reduce((m, e) => Math.max(m, e.ordem ?? 0), 0);
   const linhas = novos.map((l) => ({
@@ -198,7 +199,10 @@ export async function criarItensLidos(campanhaId: string, lidos: ItemLido[], _ex
   for (let i = 0; i < linhas.length; i += 200) {
     const { data, error } = await supabase.from('jornal_itens').insert(linhas.slice(i, i + 200)).select('id, codigo');
     if (error) throw new Error(error.message);
-    (data ?? []).forEach((c: any) => { if (c.codigo) paraLigar.push({ id: c.id, codigo: c.codigo }); });
+    (data ?? []).forEach((c: any, k: number) => {
+      if (c.codigo) paraLigar.push({ id: c.id, codigo: c.codigo });
+      (novos[i + k]?.outrosCodigos ?? []).forEach((o) => paraLigar.push({ id: c.id, codigo: o }));
+    });
   }
   // produto do código: nome como está no Estoque Loja
   if (paraLigar.length) {
