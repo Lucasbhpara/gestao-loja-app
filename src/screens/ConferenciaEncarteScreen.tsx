@@ -16,6 +16,8 @@ import {
   criarCampanhaTv,
   criarItemManual,
   excluirItem,
+  excluirCampanhaTv,
+  isoDia,
   listarCampanhasTv,
   codigosDosItens,
   criarItensLidos,
@@ -29,6 +31,7 @@ import { lerItensDoJornal, TextoPdf } from '../data/jornalLeituraPdf';
 import { ProdutoLista, buscarProdutos } from '../data/buscaProdutoApi';
 import { htmlLerTextos } from '../data/encarteHtml';
 import { buscarAreasProdutos } from '../data/rupturaMapaApi';
+import SeletorDataValidade from '../components/SeletorDataValidade';
 import RotaMapaScreen, { ItemRota } from './RotaMapaScreen';
 
 // Conferência do jornal, no mesmo formato da Conferência: a lista de itens do
@@ -67,6 +70,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
   const [campFolheto, setCampFolheto] = useState<CampanhaJornal | null>(null);
   const [tvs, setTvs] = useState<CampanhaJornal[]>([]);
   const [novoItem, setNovoItem] = useState(false);
+  const [novaOferta, setNovaOferta] = useState(false);
   const ehTv = modo === 'tv';
 
   const recarregar = useCallback(async (c: CampanhaJornal) => {
@@ -166,20 +170,27 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
       Alert.alert('Erro', e?.message ?? '');
     }
   }
-  function novaSemanaTv() {
-    const criar = async (dias: number) => {
-      try {
-        const d = new Date(); d.setDate(d.getDate() + dias);
-        const c = await criarCampanhaTv(d, por);
-        setTvs((l) => [c, ...l]);
-        await abrirCampanha(c);
-        setNovoItem(true);
-      } catch (e: any) { Alert.alert('Não consegui criar', e?.message ?? ''); }
-    };
-    Alert.alert('Nova oferta de TV', 'Vale por 7 dias. Começa quando?', [
+  async function criarOfertaTv(inicio: string, fim: string) {
+    const c = await criarCampanhaTv(inicio, fim, por);
+    setTvs((l) => [c, ...l].sort((a, b) => b.inicio.localeCompare(a.inicio)));
+    setNovaOferta(false);
+    await abrirCampanha(c);
+    setNovoItem(true);
+  }
+  function excluirOfertaTv() {
+    const c = campanha;
+    if (!c || !ehTv) return;
+    Alert.alert('Excluir oferta de TV', `${c.titulo}\n\nApaga os ${itens.length} item(ns), os produtos ligados e a conferência.`, [
       { text: 'Cancelar', style: 'cancel' },
-      { text: 'Amanhã', onPress: () => criar(1) },
-      { text: 'Hoje', onPress: () => criar(0) },
+      { text: 'Excluir', style: 'destructive', onPress: async () => {
+        try {
+          await excluirCampanhaTv(c.id);
+          const resto = tvs.filter((x) => x.id !== c.id);
+          setTvs(resto);
+          const h = hojeIso();
+          await abrirCampanha(resto.find((x) => x.inicio <= h && x.fim >= h) ?? resto[0] ?? null);
+        } catch (e: any) { Alert.alert('Não consegui excluir', e?.message ?? ''); }
+      } },
     ]);
   }
 
@@ -326,11 +337,11 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
                 const vigente = c.inicio <= h && c.fim >= h;
                 return (
                   <TouchableOpacity key={c.id} style={[styles.chip, ativa && styles.chipAtivo]} onPress={() => abrirCampanha(c)}>
-                    <Text style={[styles.chipTexto, ativa && { color: colors.white }]}>{c.titulo.replace('Ofertas de TV ', '')}{vigente ? ' · vigente' : c.fim < h ? ' · encerrada' : ''}</Text>
+                    <Text style={[styles.chipTexto, ativa && { color: colors.white }]}>{c.titulo.replace('Ofertas de TV ', '')}{vigente ? ' · vigente' : c.fim < h ? ' · encerrada' : ' · futura'}</Text>
                   </TouchableOpacity>
                 );
               })}
-              <TouchableOpacity style={[styles.chip, { borderStyle: 'dashed' }]} onPress={novaSemanaTv}>
+              <TouchableOpacity style={[styles.chip, { borderStyle: 'dashed' }]} onPress={() => setNovaOferta(true)}>
                 <Text style={[styles.chipTexto, { color: AZUL }]}>+ Nova oferta de TV</Text>
               </TouchableOpacity>
             </ScrollView>
@@ -339,7 +350,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
             <View style={styles.centro}><Text style={styles.vazio}>{erro}</Text></View>
           ) : ehTv && !campanha ? (
             <View style={styles.centro}>
-              <Text style={styles.vazio}>Nenhuma oferta de TV ainda. Toque em "+ Nova oferta de TV": vale 7 dias e você adiciona os itens à mão.</Text>
+              <Text style={styles.vazio}>Nenhuma oferta de TV ainda. Toque em "+ Nova oferta de TV", coloque a vigência e adicione os produtos.</Text>
             </View>
           ) : (
         <>
@@ -350,7 +361,8 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
               {jornal && !ehTv && (
                 <TouchableOpacity onPress={() => setVerJornal(true)}><Text style={styles.link}>📄 Ver jornal</Text></TouchableOpacity>
               )}
-              {ehTv && <TouchableOpacity onPress={() => setNovoItem(true)}><Text style={styles.link}>+ Item</Text></TouchableOpacity>}
+              {ehTv && <TouchableOpacity onPress={() => setNovoItem(true)}><Text style={styles.link}>+ Produto</Text></TouchableOpacity>}
+              {ehTv && <TouchableOpacity onPress={excluirOfertaTv}><Text style={[styles.link, { color: colors.red500 }]}>Excluir oferta</Text></TouchableOpacity>}
               <TouchableOpacity onPress={abrirRota} disabled={montandoRota}><Text style={styles.link}>{montandoRota ? 'Montando rota…' : '🗺 Rota'}</Text></TouchableOpacity>
               {!ehTv && <TouchableOpacity onPress={() => setLendo(true)} disabled={lendo}><Text style={styles.link}>{lendo ? 'Lendo o jornal…' : '↻ Ler itens do jornal'}</Text></TouchableOpacity>}
               {feitos > 0 && <TouchableOpacity onPress={reiniciar}><Text style={[styles.link, { color: colors.red500 }]}>Reiniciar</Text></TouchableOpacity>}
@@ -441,7 +453,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
               );
             })}
             {!lendo && !lista.length && (
-              <Text style={styles.vazio}>{itens.length ? (filtro === 'pendentes' ? 'Tudo conferido! 🎉' : 'Nada com esse filtro.') : (ehTv ? 'Nenhum item ainda. Toque em "+ Item".' : 'Nenhum item ainda. Toque em "Ler itens do jornal".')}</Text>
+              <Text style={styles.vazio}>{itens.length ? (filtro === 'pendentes' ? 'Tudo conferido! 🎉' : 'Nada com esse filtro.') : (ehTv ? 'Nenhum produto ainda. Toque em "+ Produto".' : 'Nenhum item ainda. Toque em "Ler itens do jornal".')}</Text>
             )}
           </ScrollView>
         </>
@@ -476,53 +488,162 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
       {novoItem && campanha && (
         <NovoItemTv
           onFechar={() => setNovoItem(false)}
-          onCriar={async (descricao, preco) => {
+          onCriar={async (descricao, preco, produtos, continuar) => {
             const id = await criarItemManual(campanha.id, descricao, preco);
-            const l = await recarregar(campanha);
-            setNovoItem(false);
-            const it = l.find((x) => x.id === id);
-            if (it) setGaveta(it); // já escolhe os produtos (fragrâncias)
+            if (produtos.length) await ligarVarios(id, produtos, por);
+            await recarregar(campanha);
+            if (!continuar) setNovoItem(false);
           }}
         />
       )}
+      {novaOferta && <NovaOfertaTv onFechar={() => setNovaOferta(false)} onCriar={criarOfertaTv} />}
       {jornal && <VisualizadorJornalModal visible={verJornal} arquivoUrl={jornal.arquivoUrl} onFechar={() => setVerJornal(false)} />}
     </View>
   );
 }
 
 // ------------------------------------------------- gaveta de produtos ----
-// ------------------------------------------- novo item (ofertas de TV) ----
-function NovoItemTv({ onFechar, onCriar }: { onFechar: () => void; onCriar: (descricao: string, preco: number | null) => Promise<void> }) {
-  const [descricao, setDescricao] = useState('');
-  const [preco, setPreco] = useState('');
+// ------------------------------------------- nova oferta de TV ----
+function NovaOfertaTv({ onFechar, onCriar }: { onFechar: () => void; onCriar: (inicio: string, fim: string) => Promise<void> }) {
+  const mais = (iso: string, d: number) => { const [a, m, dd] = iso.split('-').map(Number); const x = new Date(a, m - 1, dd + d); return isoDia(x); };
+  const [inicio, setInicio] = useState(isoDia(new Date()));
+  const [fim, setFim] = useState(mais(isoDia(new Date()), 6));
+  const [fimMexido, setFimMexido] = useState(false);
   const [salvando, setSalvando] = useState(false);
-  const [teclado, setTeclado] = useState(0);
-  useEffect(() => {
-    const a = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', (e) => setTeclado(e.endCoordinates?.height ?? 0));
-    const f = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setTeclado(0));
-    return () => { a.remove(); f.remove(); };
-  }, []);
   async function criar() {
-    const d = descricao.trim();
-    if (!d) { Alert.alert('Falta o nome', 'Escreva o nome do item da oferta.'); return; }
-    const p = preco.trim() ? Number(preco.replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.')) : null;
+    if (fim < inicio) { Alert.alert('Vigência', 'O fim não pode ser antes do início.'); return; }
     setSalvando(true);
-    try { await onCriar(d.toUpperCase(), p != null && isFinite(p) ? p : null); } catch (e: any) { Alert.alert('Não consegui criar', e?.message ?? ''); } finally { setSalvando(false); }
+    try { await onCriar(inicio, fim); } catch (e: any) { Alert.alert('Não consegui criar', e?.message ?? ''); } finally { setSalvando(false); }
   }
   return (
     <Modal visible transparent animationType="slide" onRequestClose={onFechar}>
       <View style={styles.fundo}>
         <TouchableOpacity style={{ flex: 1 }} onPress={onFechar} activeOpacity={1} />
-        <View style={[styles.gaveta, { marginBottom: teclado }]}>
+        <View style={styles.gaveta}>
           <View style={styles.alca} />
-          <Text style={styles.rotulo}>Item da oferta de TV</Text>
-          <TextInput style={styles.input} value={descricao} onChangeText={setDescricao} placeholder="Ex.: Sabão em pó Omo 1,6kg" placeholderTextColor={colors.gray400} autoFocus />
-          <Text style={styles.rotulo}>Preço da oferta</Text>
-          <TextInput style={styles.input} value={preco} onChangeText={setPreco} placeholder="Ex.: 19,90" placeholderTextColor={colors.gray400} keyboardType="decimal-pad" />
+          <Text style={[styles.prodNome, { fontSize: 16, marginBottom: 4 }]}>Nova oferta de TV</Text>
+          <Text style={styles.rotulo}>Começa em</Text>
+          <SeletorDataValidade valor={inicio} onSelecionar={(v) => { setInicio(v); if (!fimMexido) setFim(mais(v, 6)); }} />
+          <Text style={styles.rotulo}>Termina em</Text>
+          <SeletorDataValidade valor={fim} onSelecionar={(v) => { setFim(v); setFimMexido(true); }} />
+          <Text style={styles.prodDet}>Pode criar antes de começar: ela aparece como "futura" e você já cadastra e confere os produtos.</Text>
           <TouchableOpacity style={[styles.btnSalvar, salvando && { opacity: 0.6 }]} onPress={criar} disabled={salvando}>
-            {salvando ? <ActivityIndicator color={colors.white} /> : <Feather name="plus" size={18} color={colors.white} />}
-            <Text style={styles.btnSalvarTexto}>Adicionar e escolher produtos</Text>
+            {salvando ? <ActivityIndicator color={colors.white} /> : <Feather name="check" size={18} color={colors.white} />}
+            <Text style={styles.btnSalvarTexto}>Criar e adicionar produtos</Text>
           </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// ------------------------------------------- novo produto (ofertas de TV) ----
+// Abre direto a busca: escreve o nome, marca o(s) produto(s) (várias
+// fragrâncias = um item só). O nome na oferta vem do 1º produto marcado e dá
+// para trocar; preço é opcional.
+function NovoItemTv({ onFechar, onCriar }: {
+  onFechar: () => void;
+  onCriar: (descricao: string, preco: number | null, produtos: { codigo: string | null; produto: string }[], continuar: boolean) => Promise<void>;
+}) {
+  const [termo, setTermo] = useState('');
+  const [resultados, setResultados] = useState<ProdutoLista[]>([]);
+  const [buscando, setBuscando] = useState(false);
+  const [marcados, setMarcados] = useState<Map<string, ProdutoLista>>(new Map());
+  const [nome, setNome] = useState('');
+  const [nomeMexido, setNomeMexido] = useState(false);
+  const [preco, setPreco] = useState('');
+  const [salvando, setSalvando] = useState(false);
+  const [feitos, setFeitos] = useState(0);
+  const [teclado, setTeclado] = useState(0);
+  const { height: alturaTela } = useWindowDimensions();
+  useEffect(() => {
+    const a = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillShow' : 'keyboardDidShow', (e) => setTeclado(e.endCoordinates?.height ?? 0));
+    const f = Keyboard.addListener(Platform.OS === 'ios' ? 'keyboardWillHide' : 'keyboardDidHide', () => setTeclado(0));
+    return () => { a.remove(); f.remove(); };
+  }, []);
+  useEffect(() => {
+    const t = termo.trim();
+    if (t.length < 3) { setResultados([]); return; }
+    setBuscando(true);
+    const id = setTimeout(() => buscarProdutos(t).then(setResultados).catch(() => setResultados([])).finally(() => setBuscando(false)), 350);
+    return () => clearTimeout(id);
+  }, [termo]);
+  const chaveP = (p: ProdutoLista) => p.codigoInterno ?? p.produto;
+  function alternar(p: ProdutoLista) {
+    const k = chaveP(p);
+    setMarcados((ant) => {
+      const m = new Map(ant);
+      m.has(k) ? m.delete(k) : m.set(k, p);
+      if (!nomeMexido) setNome(m.size ? [...m.values()][0].produto : '');
+      return m;
+    });
+  }
+  async function salvar(continuar: boolean) {
+    const d = (nome.trim() || termo.trim()).toUpperCase();
+    if (!marcados.size) { Alert.alert('Escolha o produto', 'Busque pelo nome e marque o produto da oferta.'); return; }
+    const p = preco.trim() ? Number(preco.replace(/[^\d,.]/g, '').replace(/\./g, '').replace(',', '.')) : null;
+    setSalvando(true);
+    try {
+      await onCriar(d, p != null && isFinite(p) ? p : null, [...marcados.values()].map((x) => ({ codigo: x.codigoInterno, produto: x.produto })), continuar);
+      if (continuar) { setMarcados(new Map()); setNome(''); setNomeMexido(false); setPreco(''); setTermo(''); setFeitos((n) => n + 1); }
+    } catch (e: any) {
+      Alert.alert('Não consegui salvar', e?.message ?? '');
+    } finally {
+      setSalvando(false);
+    }
+  }
+  return (
+    <Modal visible transparent animationType="slide" onRequestClose={onFechar}>
+      <View style={styles.fundo}>
+        <TouchableOpacity style={{ flex: 1 }} onPress={onFechar} activeOpacity={1} />
+        <View style={[styles.gaveta, { marginBottom: teclado, maxHeight: Math.max(300, alturaTela * 0.9 - teclado) }]}>
+          <View style={styles.alca} />
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={{ paddingBottom: spacing.md }}>
+            <Text style={styles.rotulo}>Produto da oferta de TV{feitos ? ` · ${feitos} adicionado(s)` : ''}</Text>
+            <View style={styles.buscaG}>
+              <Feather name="search" size={16} color={colors.gray400} />
+              <TextInput style={styles.buscaInput} value={termo} onChangeText={setTermo} placeholder="Escreva o nome (ex.: omo 1,6kg)" placeholderTextColor={colors.gray400} autoCorrect={false} autoFocus />
+              {buscando ? <ActivityIndicator size="small" color={AZUL} /> : null}
+            </View>
+            {[...marcados.values()].filter((m) => !resultados.some((r) => chaveP(r) === chaveP(m))).map((p) => (
+              <TouchableOpacity key={'m' + chaveP(p)} style={[styles.resultado, styles.resultadoMarcado]} onPress={() => alternar(p)}>
+                <Feather name="check-square" size={20} color={AZUL} />
+                <View style={{ flex: 1 }}><Text style={styles.prodNome}>{p.produto}</Text><Text style={styles.prodDet}>{p.codigoInterno ? `Cód. ${p.codigoInterno}` : 'sem código'}</Text></View>
+                <Text style={styles.qtd}>{qtdBr(p.quantidade)}</Text>
+              </TouchableOpacity>
+            ))}
+            {resultados.map((p) => {
+              const m = marcados.has(chaveP(p));
+              return (
+                <TouchableOpacity key={chaveP(p)} style={[styles.resultado, m && styles.resultadoMarcado]} onPress={() => { Keyboard.dismiss(); alternar(p); }}>
+                  <Feather name={m ? 'check-square' : 'square'} size={20} color={m ? AZUL : colors.gray400} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.prodNome}>{p.produto}</Text>
+                    <Text style={styles.prodDet}>{p.codigoInterno ? `Cód. ${p.codigoInterno}` : 'sem código'}</Text>
+                  </View>
+                  <Text style={[styles.qtd, (p.quantidade ?? 0) <= 0 && { color: colors.red500 }]}>{qtdBr(p.quantidade)}</Text>
+                </TouchableOpacity>
+              );
+            })}
+            {termo.trim().length >= 3 && !buscando && !resultados.length && <Text style={styles.prodDet}>Nenhum produto com esse nome.</Text>}
+            {marcados.size > 0 && (
+              <>
+                <Text style={styles.rotulo}>Nome na oferta</Text>
+                <TextInput style={styles.input} value={nome} onChangeText={(v) => { setNome(v); setNomeMexido(true); }} />
+                <Text style={styles.rotulo}>Preço da oferta (opcional)</Text>
+                <TextInput style={styles.input} value={preco} onChangeText={setPreco} placeholder="Ex.: 19,90" placeholderTextColor={colors.gray400} keyboardType="decimal-pad" />
+              </>
+            )}
+          </ScrollView>
+          <View style={{ flexDirection: 'row', gap: 8 }}>
+            <TouchableOpacity style={[styles.btnSalvar, { flex: 1, backgroundColor: colors.white, borderWidth: 1, borderColor: AZUL }, salvando && { opacity: 0.6 }]} onPress={() => salvar(true)} disabled={salvando}>
+              <Text style={[styles.btnSalvarTexto, { color: AZUL }]}>Salvar e outro</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btnSalvar, { flex: 1 }, salvando && { opacity: 0.6 }]} onPress={() => salvar(false)} disabled={salvando}>
+              {salvando ? <ActivityIndicator color={colors.white} /> : <Feather name="check" size={18} color={colors.white} />}
+              <Text style={styles.btnSalvarTexto}>Salvar{marcados.size > 1 ? ` (${marcados.size})` : ''}</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
