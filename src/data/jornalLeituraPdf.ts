@@ -51,7 +51,7 @@ function juntar(linhas: TextoPdf[]): string {
     .trim();
 }
 
-type Grade = { pors: TextoPdf[]; larg: number; alt: number; ultimaLinhaCy: number };
+type Grade = { pors: TextoPdf[]; larg: number; alt: number; ultimaLinhaCy: number; primeiraLinhaCy: number };
 function gradeDaPagina(itens: TextoPdf[]): Grade | null {
   const pors = itens.filter((i) => ehPor(i.t));
   if (!pors.length) return null;
@@ -63,7 +63,7 @@ function gradeDaPagina(itens: TextoPdf[]): Grade | null {
   linhas.forEach((l) => l.sort((a, b) => a.x - b.x));
   const larg = mediana(linhas.flatMap((l) => l.slice(1).map((p, k) => p.x - l[k].x)), 0.22);
   const alt = mediana(linhas.slice(1).map((l, k) => l[0].y - linhas[k][0].y), 0.1);
-  return { pors, larg, alt, ultimaLinhaCy: cy(linhas[linhas.length - 1][0]) };
+  return { pors, larg, alt, ultimaLinhaCy: cy(linhas[linhas.length - 1][0]), primeiraLinhaCy: cy(linhas[0][0]) };
 }
 
 function lerPagina(itens: TextoPdf[], pagina: number, anterior: { itens: TextoPdf[]; grade: Grade | null } | null): ItemLido[] {
@@ -75,11 +75,15 @@ function lerPagina(itens: TextoPdf[], pagina: number, anterior: { itens: TextoPd
       const x1 = p.x - 0.012, x2 = p.x + larg - 0.012;
       const dentro = (i: TextoPdf) => cx(i) > x1 && cx(i) < x2;
       const topoNome = cy(p) - alt * 0.82;
-      let nome = itens.filter((i) => dentro(i) && cy(i) < cy(p) - 0.006 && cy(i) > topoNome);
+      let nome = itens.filter((i) => dentro(i) && cy(i) < cy(p) - 0.006 && cy(i) > topoNome && i.w < larg * 1.15);
       // célula cortada: o começo do nome está no pé da página anterior
-      if (topoNome < 0.02 && anterior) {
-        const limite = anterior.grade ? anterior.grade.ultimaLinhaCy + anterior.grade.alt * 0.3 : 0.85;
-        const pe = anterior.itens.filter((i) => dentro(i) && cy(i) > limite && cy(i) > 1 + topoNome - 0.03);
+      // (1ª linha da página + sobra de texto na mesma coluna abaixo da última
+      // linha de preços da página anterior; ignora rodapé de largura inteira)
+      if (anterior && Math.abs(cy(p) - g.primeiraLinhaCy) < 0.01) {
+        const ga = anterior.grade;
+        const limite = ga ? ga.ultimaLinhaCy + ga.alt * 0.18 : 0.85;
+        const pe = anterior.itens.filter((i) => dentro(i) && cy(i) > limite && i.w < larg * 1.15
+          && !(ga && ga.pors.some((q) => cy(q) > cy(i) - 0.003)));
         nome = [...pe.map((i) => ({ ...i, y: i.y - 1 })), ...nome]; // y negativo = vem antes na leitura
       }
       let preco: number | null = null, h = 0;
