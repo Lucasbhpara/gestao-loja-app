@@ -67,7 +67,7 @@ export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void })
       icone: 'book-open',
     },
     ...(ehDono
-      ? [{ k: 'encarte' as Tela, titulo: 'Conferência do jornal', texto: 'Itens do jornal em lista: OK, Ruptura ou Falta Explosivo, e os produtos de cada item (todas as fragrâncias) para o período todo.', icone: 'check-square' as const }]
+      ? [{ k: 'encarte' as Tela, titulo: 'Conferência folheto', texto: 'Também em Rotina da Loja. OK, Ruptura ou Sem explosivo, produtos de cada item e relatório no WhatsApp.', icone: 'check-square' as const }]
       : []),
     {
       k: 'estoque',

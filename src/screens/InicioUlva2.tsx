@@ -16,7 +16,7 @@ export type TelaFerramenta =
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
   | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'relatorioMensal' | 'buscaProduto' | 'olhoValidade' | 'resultadosInventario'
-  | 'pedidos' | 'relatorioDiario' | 'ruptura' | 'rupturaTratativas';
+  | 'pedidos' | 'relatorioDiario' | 'ruptura' | 'rupturaTratativas' | 'conferenciaFolheto';
 
 export type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
 export type GrupoId = 'rotina' | 'comercial' | 'resultados' | 'estoque';
