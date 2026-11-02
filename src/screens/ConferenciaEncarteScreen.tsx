@@ -41,7 +41,7 @@ import RotaMapaScreen, { ItemRota } from './RotaMapaScreen';
 // gravado para o período inteiro e alimenta o Estoque do Jornal.
 
 const AZUL = '#2F7BFF';
-type Filtro = 'pendentes' | 'feitos' | 'todos';
+type Filtro = 'pendentes' | 'feitos' | 'todos' | 'semProduto';
 const reais = (v: number | null) => (v == null ? '' : 'R$ ' + v.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
 const STATUS: Record<StatusConferencia, { texto: string; cor: string; fundo: string }> = {
   ok: { texto: '✓ OK', cor: colors.green500, fundo: '#DFF3E9' },
@@ -207,16 +207,25 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
       const areas = todos.length ? await buscarAreasProdutos(todos) : {};
       const peso = (c: string) => { const a = areas[c]; return !a ? 0 : a.fonte === 'subsortimento' || a.fonte === 'sub_coleta' ? 1 : 2; };
       const r: ItemRota[] = [];
-      let semProduto = 0;
+      const semProduto: string[] = [];
       for (const i of pend) {
         const l = cods[i.id] ?? (i.codigo ? [i.codigo] : []);
-        if (!l.length) { semProduto++; continue; }
+        if (!l.length) { semProduto.push(i.descricao); continue; }
         const melhor = [...l].sort((a, b) => peso(b) - peso(a))[0];
         r.push({ codigoInterno: melhor, produto: i.descricao, grupoId: null, chave: i.id, detalhe: reais(i.preco) + (i.produtos > 1 ? ` · ${i.produtos} produtos` : '') });
       }
       if (!r.length) { Alert.alert('Sem rota', 'Ligue os produtos aos itens primeiro.'); return; }
-      if (semProduto) Alert.alert('Rota montada', `${semProduto} item(ns) sem produto ligado ficaram fora da rota.`);
       setRota(r);
+      if (semProduto.length) {
+        Alert.alert(
+          `${semProduto.length} item(ns) fora da rota`,
+          `Sem produto ligado (ou o produto está sem código no estoque), não dá para achar no mapa:\n\n${semProduto.map((n) => '• ' + n).join('\n')}`,
+          [
+            { text: 'Seguir a rota' },
+            { text: 'Ligar produtos agora', onPress: () => { setRota(null); setFiltro('semProduto'); } },
+          ],
+        );
+      }
     } catch (e: any) {
       Alert.alert('Não consegui montar a rota', e?.message ?? '');
     } finally {
@@ -275,7 +284,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
   const lista = useMemo(() => {
     const t = busca.trim().toLowerCase();
     return itens
-      .filter((i) => (filtro === 'pendentes' ? !i.confStatus : filtro === 'feitos' ? !!i.confStatus : true))
+      .filter((i) => (filtro === 'pendentes' ? !i.confStatus : filtro === 'feitos' ? !!i.confStatus : filtro === 'semProduto' ? !i.produtos : true))
       .filter((i) => !t || i.descricao.toLowerCase().includes(t) || (i.codigo ?? '').includes(t));
   }, [itens, filtro, busca]);
 
@@ -385,6 +394,7 @@ export default function ConferenciaEncarteScreen({ onVoltar }: { onVoltar: () =>
               {chip('pendentes', `Pendentes (${itens.length - feitos})`)}
               {chip('feitos', `Conferidos (${feitos})`)}
               {chip('todos', `Todos (${itens.length})`)}
+              {itens.some((i) => !i.produtos) && chip('semProduto', `Sem produto (${itens.filter((i) => !i.produtos).length})`)}
             </ScrollView>
             <View style={styles.busca}>
               <Feather name="search" size={15} color={colors.gray400} />
