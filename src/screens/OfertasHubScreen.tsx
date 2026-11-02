@@ -15,7 +15,7 @@ import { supabase } from '../lib/supabase';
 // Ofertas no WhatsApp num lugar só.
 
 type Tela = 'hub' | 'whats' | 'estoque' | 'jornal' | 'encarte';
-// Conferir no encarte: por enquanto só o Lucas.
+// Conferência do jornal: por enquanto só o Lucas.
 const MATRICULA_DONO = '7990353';
 
 export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void }) {
@@ -67,7 +67,7 @@ export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void })
       icone: 'book-open',
     },
     ...(ehDono
-      ? [{ k: 'encarte' as Tela, titulo: 'Conferir no encarte', texto: 'Toque no produto do jornal e escolha os produtos da loja (todas as fragrâncias). Vale para o período todo.', icone: 'check-square' as const }]
+      ? [{ k: 'encarte' as Tela, titulo: 'Conferência do jornal', texto: 'Itens do jornal em lista: OK, Ruptura ou Falta Explosivo, e os produtos de cada item (todas as fragrâncias) para o período todo.', icone: 'check-square' as const }]
       : []),
     {
       k: 'estoque',

@@ -129,3 +129,33 @@ export function htmlEncarte(urlPdf: string): string {
 })();
 </script></body></html>`;
 }
+
+// Página escondida que só lê o texto (com posição) de todas as páginas do PDF
+// e devolve { tipo: 'textos', paginas: [[{ t, x, y, w, h }]] } — usado para
+// montar a lista de itens da conferência (ver jornalLeituraPdf.ts).
+export function htmlLerTextos(urlPdf: string): string {
+  return `<!doctype html><html><head><meta charset="utf-8">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script></head><body><script>
+(function(){
+  function enviar(o){ try { window.ReactNativeWebView.postMessage(JSON.stringify(o)); } catch(e){} }
+  if (!window.pdfjsLib) { enviar({ tipo:'erro', mensagem:'Sem internet para ler o jornal' }); return; }
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+  pdfjsLib.getDocument(${JSON.stringify(urlPdf)}).promise.then(function(pdf){
+    var paginas = [], cadeia = Promise.resolve();
+    for (var n = 1; n <= pdf.numPages; n++) (function(n){
+      cadeia = cadeia.then(function(){ return pdf.getPage(n); }).then(function(page){
+        var vp = page.getViewport({ scale: 1.5 });
+        return page.getTextContent().then(function(tc){
+          paginas[n-1] = tc.items.filter(function(it){ return it.str && it.str.trim(); }).map(function(it){
+            var tx = pdfjsLib.Util.transform(vp.transform, it.transform);
+            var h = Math.hypot(tx[2], tx[3]);
+            return { t: it.str, x: tx[4] / vp.width, y: (tx[5] - h) / vp.height, w: (it.width * vp.scale) / vp.width, h: h / vp.height };
+          });
+        });
+      });
+    })(n);
+    return cadeia.then(function(){ enviar({ tipo:'textos', paginas: paginas }); });
+  }).catch(function(e){ enviar({ tipo:'erro', mensagem: String(e && e.message || e) }); });
+})();
+</script></body></html>`;
+}
