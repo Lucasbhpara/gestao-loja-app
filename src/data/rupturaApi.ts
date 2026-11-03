@@ -82,7 +82,21 @@ export interface ColetaLocal {
   // Área do mapa marcada como "Estou em" (cada leitura guarda a área da hora).
   areaId?: string | null;
   // EAN lido -> código interno (null = não é do grupo)
-  lidos: { ean: string; codigoInterno: string | null; produto: string | null; em: string; areaId?: string | null }[];
+  lidos: LidoColeta[];
+  // Coleta em dupla: dois celulares bipando o mesmo grupo.
+  compartilhada?: boolean;
+  abertaPor?: string | null;
+}
+
+export interface LidoColeta {
+  ean: string;
+  codigoInterno: string | null;
+  produto: string | null;
+  em: string;
+  areaId?: string | null;
+  // Só na coleta em dupla: quem bipou e de qual celular.
+  por?: string | null;
+  aparelho?: string | null;
 }
 
 const CHAVE_COLETA = 'ruptura:coletaAtual';
@@ -195,6 +209,153 @@ export async function salvarColetaAtual(c: ColetaLocal | null): Promise<void> {
   else await AsyncStorage.removeItem(CHAVE_COLETA);
 }
 
+// ------------------------------------------------------- coleta em dupla ----
+// A coleta fica aberta no banco (ruptura_coletas com finalizada_em vazio) e
+// cada celular grava os próprios bipes em ruptura_coleta_leituras. A cada
+// poucos segundos o celular manda o que falta e recebe o que o outro bipou.
+// Tabelas em supabase/ruptura_dupla.sql.
+
+const CHAVE_APARELHO = 'ruptura:aparelho';
+let aparelhoCache: string | null = null;
+
+export async function meuAparelho(): Promise<string> {
+  if (aparelhoCache) return aparelhoCache;
+  let a = await AsyncStorage.getItem(CHAVE_APARELHO);
+  if (!a) {
+    a = gerarId();
+    await AsyncStorage.setItem(CHAVE_APARELHO, a);
+  }
+  aparelhoCache = a;
+  return a;
+}
+
+export interface DuplaAberta {
+  id: string;
+  grupoId: string;
+  grupoNome: string;
+  setor: string;
+  abertaPor: string | null;
+  iniciadaEm: string;
+}
+
+// Transforma a coleta deste celular numa coleta em dupla.
+export async function abrirDupla(coleta: ColetaLocal, quem: string): Promise<ColetaLocal> {
+  const aparelho = await meuAparelho();
+  const { error } = await supabase.from('ruptura_coletas').upsert({
+    id: coleta.id,
+    grupo_id: coleta.grupoId,
+    grupo_nome: coleta.grupoNome,
+    setor: coleta.setor,
+    feita_por: quem,
+    iniciada_em: coleta.iniciadaEm,
+    compartilhada: true,
+    aberta_por: quem,
+  });
+  if (error) throw new Error(error.message);
+  const nova: ColetaLocal = {
+    ...coleta,
+    compartilhada: true,
+    abertaPor: quem,
+    lidos: coleta.lidos.map((l) => ({ ...l, por: l.por ?? quem, aparelho: l.aparelho ?? aparelho })),
+  };
+  await sincronizarDupla(nova, quem);
+  return nova;
+}
+
+export async function buscarDuplasAbertas(): Promise<DuplaAberta[]> {
+  const desde = new Date(Date.now() - 12 * 3600000).toISOString();
+  const { data, error } = await supabase
+    .from('ruptura_coletas')
+    .select('id, grupo_id, grupo_nome, setor, aberta_por, iniciada_em')
+    .eq('compartilhada', true)
+    .is('finalizada_em', null)
+    .gte('iniciada_em', desde)
+    .order('iniciada_em', { ascending: false });
+  if (error) throw new Error(error.message);
+  return (data ?? []).map((c: any) => ({
+    id: c.id,
+    grupoId: c.grupo_id,
+    grupoNome: c.grupo_nome,
+    setor: c.setor,
+    abertaPor: c.aberta_por,
+    iniciadaEm: c.iniciada_em,
+  }));
+}
+
+export function coletaDaDupla(d: DuplaAberta): ColetaLocal {
+  return {
+    id: d.id,
+    grupoId: d.grupoId,
+    grupoNome: d.grupoNome,
+    setor: d.setor,
+    iniciadaEm: d.iniciadaEm,
+    lidos: [],
+    compartilhada: true,
+    abertaPor: d.abertaPor,
+  };
+}
+
+// Manda os bipes deste celular, apaga os que foram desfeitos e traz os do
+// outro celular. Devolve a coleta juntada e se alguém já finalizou.
+export async function sincronizarDupla(
+  coleta: ColetaLocal,
+  quem: string,
+): Promise<{ lidos: LidoColeta[]; finalizada: boolean; finalizadaPor: string | null }> {
+  const aparelho = await meuAparelho();
+  const meus = coleta.lidos.filter((l) => !l.aparelho || l.aparelho === aparelho);
+  if (meus.length) {
+    const linhas = meus.map((l) => ({
+      coleta_id: coleta.id,
+      aparelho,
+      ean: l.ean,
+      codigo_interno: l.codigoInterno,
+      produto: l.produto,
+      area_id: l.areaId ?? null,
+      por: l.por ?? quem,
+      em: l.em,
+    }));
+    for (let i = 0; i < linhas.length; i += 500) {
+      const { error } = await supabase.from('ruptura_coleta_leituras').upsert(linhas.slice(i, i + 500), { onConflict: 'coleta_id,aparelho,ean' });
+      if (error) throw new Error(error.message);
+    }
+  }
+  const [{ data: lei, error: e1 }, { data: col, error: e2 }] = await Promise.all([
+    supabase.from('ruptura_coleta_leituras').select('aparelho, ean, codigo_interno, produto, area_id, por, em').eq('coleta_id', coleta.id).order('em').limit(5000),
+    supabase.from('ruptura_coletas').select('finalizada_em, feita_por').eq('id', coleta.id).maybeSingle(),
+  ]);
+  if (e1) throw new Error(e1.message);
+  if (e2) throw new Error(e2.message);
+
+  // Desfeitos neste celular que ainda estão no banco
+  const meusEans = new Set(meus.map((l) => l.ean));
+  const sobrando = (lei ?? []).filter((r: any) => r.aparelho === aparelho && !meusEans.has(r.ean)).map((r: any) => r.ean);
+  if (sobrando.length) {
+    await supabase.from('ruptura_coleta_leituras').delete().eq('coleta_id', coleta.id).eq('aparelho', aparelho).in('ean', sobrando);
+  }
+
+  const lidos: LidoColeta[] = meus.map((l) => ({ ...l, por: l.por ?? quem, aparelho }));
+  const vistos = new Set(lidos.map((l) => l.ean));
+  for (const r of lei ?? []) {
+    if (r.aparelho === aparelho || vistos.has(r.ean)) continue;
+    vistos.add(r.ean);
+    lidos.push({ ean: r.ean, codigoInterno: r.codigo_interno, produto: r.produto, em: r.em, areaId: r.area_id, por: r.por, aparelho: r.aparelho });
+  }
+  lidos.sort((a, b) => a.em.localeCompare(b.em));
+  return { lidos, finalizada: !!col?.finalizada_em, finalizadaPor: col?.finalizada_em ? col?.feita_por ?? null : null };
+}
+
+// Quem bipou quantos produtos do grupo (para o placar da dupla).
+export function placarDupla(coleta: ColetaLocal): { por: string; total: number }[] {
+  const m = new Map<string, Set<string>>();
+  for (const l of coleta.lidos) {
+    if (!l.codigoInterno) continue;
+    const p = l.por || '?';
+    if (!m.has(p)) m.set(p, new Set());
+    m.get(p)!.add(l.codigoInterno);
+  }
+  return [...m.entries()].map(([por, s]) => ({ por, total: s.size })).sort((a, b) => b.total - a.total);
+}
+
 export function mapaEans(itens: ItemUniverso[]): Map<string, ItemUniverso> {
   const m = new Map<string, ItemUniverso>();
   for (const it of itens) for (const e of it.eans) m.set(normalizarEan(e), it);
@@ -305,7 +466,10 @@ export async function enviarColeta(
     grupo_id: coleta.grupoId,
     grupo_nome: coleta.grupoNome,
     setor: coleta.setor,
-    feita_por: feitaPor,
+    // Na dupla, fica o nome dos dois (ex.: "Lucas + Valmir").
+    feita_por: coleta.compartilhada
+      ? [feitaPor, ...coleta.lidos.map((l) => l.por).filter((p): p is string => !!p && p !== feitaPor)].filter((p, i, a) => a.indexOf(p) === i).join(' + ')
+      : feitaPor,
     iniciada_em: coleta.iniciadaEm,
     finalizada_em: new Date().toISOString(),
     total_itens: esperados,

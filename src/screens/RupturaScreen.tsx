@@ -57,6 +57,14 @@ import {
   normalizarEan,
   reativar,
   salvarColetaAtual,
+  DuplaAberta,
+  LidoColeta,
+  abrirDupla,
+  buscarDuplasAbertas,
+  coletaDaDupla,
+  meuAparelho,
+  placarDupla,
+  sincronizarDupla,
 } from '../data/rupturaApi';
 
 // Controle de Ruptura — ver src/data/rupturaApi.ts.
@@ -93,6 +101,8 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   // Mapa da loja: áreas e em que área fica cada grupo.
   const [areas, setAreas] = useState<AreaMapa[]>([]);
   const [areaDoGrupo, setAreaDoGrupo] = useState<Record<string, string>>({});
+  // Coletas em dupla abertas por outro celular (para entrar).
+  const [duplas, setDuplas] = useState<DuplaAberta[]>([]);
 
   useEffect(() => {
     buscarAreasComCache().then(setAreas).catch(() => setAreas([]));
@@ -124,9 +134,10 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
     setCarregando(true);
     setErro(null);
     try {
-      const [gs, pr] = await Promise.all([buscarGrupos(), buscarPrioridade()]);
+      const [gs, pr, du] = await Promise.all([buscarGrupos(), buscarPrioridade(), buscarDuplasAbertas().catch(() => [] as DuplaAberta[])]);
       setGrupos(gs);
       setPrioridade(pr);
+      setDuplas(du);
     } catch (e: any) {
       setErro(e?.message ?? 'Não consegui carregar os grupos.');
     } finally {
@@ -171,6 +182,22 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
     }
   }
 
+  async function entrarNaDupla(d: DuplaAberta) {
+    const local = await carregarColetaAtual();
+    const g = grupos.find((x) => x.id === d.grupoId) ?? ({ id: d.grupoId, nome: d.grupoNome, setor: d.setor } as GrupoRuptura);
+    await abrirGrupo(g, local?.id === d.id ? local : coletaDaDupla(d));
+  }
+
+  // Tocar num grupo que tem coleta em dupla aberta: perguntar se quer entrar.
+  function tocarGrupo(g: GrupoRuptura) {
+    const d = duplas.find((x) => x.grupoId === g.id);
+    if (!d) return abrirGrupo(g);
+    Alert.alert('Coleta em dupla aberta', `${d.abertaPor ?? 'Alguém'} está coletando "${g.nome}" em dupla. Entrar na mesma coleta?`, [
+      { text: 'Coleta separada', onPress: () => abrirGrupo(g) },
+      { text: 'Entrar na dupla', onPress: () => entrarNaDupla(d) },
+    ]);
+  }
+
   async function encerrar() {
     await salvarColetaAtual(null);
     setColeta(null);
@@ -192,7 +219,12 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
         grupos={grupos}
         onMover={moverParaOutroGrupo}
         onMudar={(c) => { setColeta(c); salvarColetaAtual(c); }}
+        quem={quem}
         onFinalizar={() => setEtapa('resultado')}
+        onFinalizadaPorOutro={(por) => {
+          Alert.alert('Coleta finalizada', `${por ?? 'O outro celular'} finalizou a coleta em dupla. O resultado está no Histórico e nas Tratativas.`);
+          encerrar();
+        }}
         onCancelar={() =>
           Alert.alert('Cancelar coleta?', 'As leituras desta coleta serão apagadas.', [
             { text: 'Voltar', style: 'cancel' },
@@ -257,6 +289,16 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
             <Text style={styles.avisoTexto}>Baixando a lista do grupo…</Text>
           </View>
         )}
+        {duplas.map((d) => (
+          <TouchableOpacity key={d.id} style={styles.bannerDupla} onPress={() => entrarNaDupla(d)} disabled={abrindo}>
+            <Text style={{ fontSize: 22 }}>👥</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.bannerDuplaTitulo}>Coleta em dupla aberta</Text>
+              <Text style={styles.subGrupo}>{d.grupoNome} · aberta por {d.abertaPor ?? '—'} às {new Date(d.iniciadaEm).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</Text>
+            </View>
+            <Text style={styles.link}>Entrar</Text>
+          </TouchableOpacity>
+        ))}
         {(() => {
           const top = grupos
             .map((g) => ({ g, p: prioridade.get(g.id), n: notaPrioridade(prioridade.get(g.id), g.ultimaColeta?.data ?? null) }))
@@ -272,7 +314,7 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
                 const u = g.ultimaColeta;
                 const dias = u ? Math.floor((Date.now() - new Date(u.data).getTime()) / 86400000) : null;
                 return (
-                  <TouchableOpacity key={g.id} style={styles.painelLinha} onPress={() => abrirGrupo(g)} disabled={abrindo}>
+                  <TouchableOpacity key={g.id} style={styles.painelLinha} onPress={() => tocarGrupo(g)} disabled={abrindo}>
                     <Text style={styles.painelPos}>{i + 1}</Text>
                     <View style={{ flex: 1 }}>
                       <Text style={styles.nomeGrupo}>{g.nome}</Text>
@@ -307,7 +349,7 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
                   const u = g.ultimaColeta;
                   const pct = u && u.total ? Math.round((u.ruptura / u.total) * 100) : null;
                   return (
-                    <TouchableOpacity key={g.id} style={styles.cardGrupo} onPress={() => abrirGrupo(g)} disabled={abrindo}>
+                    <TouchableOpacity key={g.id} style={styles.cardGrupo} onPress={() => tocarGrupo(g)} disabled={abrindo}>
                       <View style={{ flex: 1 }}>
                         <Text style={styles.nomeGrupo}>{g.nome}</Text>
                         <Text style={styles.subGrupo}>{u ? `Última coleta ${dataBR(u.data)} · ${u.ruptura} em ruptura` : 'Nenhuma coleta ainda'}</Text>
@@ -364,7 +406,9 @@ function TelaColeta({
   grupos,
   onMover,
   onMudar,
+  quem,
   onFinalizar,
+  onFinalizadaPorOutro,
   onCancelar,
 }: {
   grupo: GrupoRuptura;
@@ -377,7 +421,9 @@ function TelaColeta({
   grupos: GrupoRuptura[];
   onMover: (item: ItemUniverso, destino: GrupoRuptura) => Promise<boolean>;
   onMudar: (c: ColetaLocal) => void;
+  quem: string;
   onFinalizar: () => void;
+  onFinalizadaPorOutro: (por: string | null) => void;
   onCancelar: () => void;
 }) {
   const [permissao, pedirPermissao] = useCameraPermissions();
@@ -403,6 +449,92 @@ function TelaColeta({
     }
   }, [areas.length, areaDoGrupo, coleta.areaId]);
   const areaAtual = areas.find((a) => a.id === coleta.areaId) ?? null;
+
+  // ---- coleta em dupla: manda e recebe bipes a cada 4 segundos ----
+  const [aparelho, setAparelho] = useState<string | null>(null);
+  const [sinc, setSinc] = useState<{ em: number; ok: boolean } | null>(null);
+  const [ligandoDupla, setLigandoDupla] = useState(false);
+  const sincronizando = useRef(false);
+  useEffect(() => { meuAparelho().then(setAparelho); }, []);
+  const ehMeu = useCallback((l: LidoColeta) => !l.aparelho || l.aparelho === aparelho, [aparelho]);
+
+  const sincronizar = useCallback(async (): Promise<'ok' | 'erro' | 'finalizada'> => {
+    if (!coletaRef.current.compartilhada || sincronizando.current) return 'ok';
+    sincronizando.current = true;
+    try {
+      const r = await sincronizarDupla(coletaRef.current, quem);
+      if (r.finalizada) {
+        onFinalizadaPorOutro(r.finalizadaPor);
+        return 'finalizada';
+      }
+      // Junta com o estado de agora (pode ter bipado algo durante o envio).
+      const atual = coletaRef.current;
+      const meus = atual.lidos.filter(ehMeu);
+      const vistos = new Set(meus.map((l) => l.ean));
+      const deles = r.lidos.filter((l) => !ehMeu(l) && !vistos.has(l.ean));
+      const juntos = [...meus, ...deles].sort((a, b) => a.em.localeCompare(b.em));
+      const antes = atual.lidos.map((l) => l.ean + (l.aparelho ?? '')).join(',');
+      const depois = juntos.map((l) => l.ean + (l.aparelho ?? '')).join(',');
+      if (antes !== depois) {
+        coletaRef.current = { ...atual, lidos: juntos };
+        onMudar(coletaRef.current);
+      }
+      setSinc({ em: Date.now(), ok: true });
+      return 'ok';
+    } catch {
+      setSinc((s) => ({ em: s?.em ?? 0, ok: false }));
+      return 'erro';
+    } finally {
+      sincronizando.current = false;
+    }
+  }, [quem, ehMeu, onMudar, onFinalizadaPorOutro]);
+
+  useEffect(() => {
+    if (!coleta.compartilhada || !aparelho) return;
+    sincronizar();
+    const t = setInterval(sincronizar, 4000);
+    return () => clearInterval(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [coleta.compartilhada, aparelho]);
+
+  async function ligarDupla() {
+    Alert.alert(
+      'Coletar em dupla?',
+      'Outro celular entra nesta mesma coleta pela tela de Ruptura (aparece "Coleta em dupla aberta"). O que um bipar some da lista do outro. Precisa de internet nos dois.',
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        {
+          text: 'Abrir para dupla',
+          onPress: async () => {
+            setLigandoDupla(true);
+            try {
+              const nova = await abrirDupla(coletaRef.current, quem);
+              onMudar(nova);
+              setSinc({ em: Date.now(), ok: true });
+            } catch (e: any) {
+              Alert.alert('Sem conexão', 'Precisa de internet para abrir a coleta em dupla.\n\n' + (e?.message ?? ''));
+            } finally {
+              setLigandoDupla(false);
+            }
+          },
+        },
+      ],
+    );
+  }
+
+  async function finalizarDupla() {
+    const r = await sincronizar();
+    if (r === 'finalizada') return;
+    if (r === 'erro') {
+      Alert.alert('Sem internet', 'Não consegui buscar os últimos bipes do outro celular. Se finalizar agora, o que ele bipou depois da última sincronização vai aparecer como ruptura.', [
+        { text: 'Esperar', style: 'cancel' },
+        { text: 'Finalizar mesmo assim', style: 'destructive', onPress: onFinalizar },
+      ]);
+      return;
+    }
+    onFinalizar();
+  }
+  const placar = coleta.compartilhada ? placarDupla(coleta) : [];
 
   function escolherArea(a: AreaMapa) {
     setSeletorArea(false);
@@ -447,15 +579,19 @@ function TelaColeta({
     ultimo.current = { ean, em: agora };
     const c = coletaRef.current;
     const it = eans.get(ean);
-    if (it && c.lidos.some((l) => l.codigoInterno === it.codigoInterno)) {
-      setFlash({ texto: `Já bipado: ${it.produto}`, tipo: 'repetido' });
+    const jaLido = it ? c.lidos.find((l) => l.codigoInterno === it.codigoInterno) : null;
+    if (it && jaLido) {
+      const outro = c.compartilhada && jaLido.por && jaLido.por !== quem && !ehMeu(jaLido);
+      setFlash({ texto: outro ? `Já bipado por ${jaLido.por}: ${it.produto}` : `Já bipado: ${it.produto}`, tipo: 'repetido' });
       return;
     }
     if (!it && c.lidos.some((l) => l.ean === ean)) return;
     Vibration.vibrate(it ? 60 : [0, 80, 80, 80]);
     let produto = it?.produto ?? null;
-    const novo: ColetaLocal = { ...c, lidos: [...c.lidos, { ean, codigoInterno: it?.codigoInterno ?? null, produto, em: new Date().toISOString(), areaId: c.areaId ?? null }] };
+    const novo: ColetaLocal = { ...c, lidos: [...c.lidos, { ean, codigoInterno: it?.codigoInterno ?? null, produto, em: new Date().toISOString(), areaId: c.areaId ?? null, ...(c.compartilhada ? { por: quem, aparelho } : {}) }] };
+    coletaRef.current = novo;
     onMudar(novo);
+    if (c.compartilhada) sincronizar();
     setFlash(it ? { texto: it.produto, tipo: 'ok' } : { texto: `Código ${ean} não é deste grupo`, tipo: 'fora' });
     if (!it) {
       produto = await buscarProdutoPorEan(ean);
@@ -468,11 +604,21 @@ function TelaColeta({
   }
 
   function desfazerUltimo() {
-    if (!coleta.lidos.length) return;
-    const ult = coleta.lidos[coleta.lidos.length - 1];
+    // Na dupla, só desfaz o que este celular bipou.
+    const meus = coleta.lidos.filter(ehMeu);
+    if (!meus.length) return;
+    const ult = meus[meus.length - 1];
     Alert.alert('Desfazer última leitura?', ult.produto ?? ult.ean, [
       { text: 'Não', style: 'cancel' },
-      { text: 'Desfazer', onPress: () => onMudar({ ...coleta, lidos: coleta.lidos.slice(0, -1) }) },
+      {
+        text: 'Desfazer',
+        onPress: () => {
+          const atual = coletaRef.current;
+          coletaRef.current = { ...atual, lidos: atual.lidos.filter((l) => l !== ult && !(l.ean === ult.ean && ehMeu(l))) };
+          onMudar(coletaRef.current);
+          if (atual.compartilhada) setTimeout(sincronizar, 100);
+        },
+      },
     ]);
   }
 
@@ -481,7 +627,7 @@ function TelaColeta({
 
   return (
     <View style={styles.tela}>
-      <CabecalhoTela titulo={grupo.nome} subtitulo={`${coletados} de ${esperados} bipados`} icone="maximize" onVoltar={onCancelar} rotuloVoltar="Cancelar" />
+      <CabecalhoTela titulo={grupo.nome} subtitulo={`${coletados} de ${esperados} bipados${coleta.compartilhada ? ' · 👥 em dupla' : ''}`} icone="maximize" onVoltar={onCancelar} rotuloVoltar="Cancelar" />
       {offline && (
         <View style={[styles.aviso, { marginHorizontal: spacing.lg, marginTop: spacing.sm }]}>
           <Feather name="wifi-off" size={16} color="#B4650E" />
@@ -492,6 +638,16 @@ function TelaColeta({
       <View style={styles.barraFundo}>
         <View style={[styles.barra, { width: `${pct}%` }]} />
       </View>
+      {coleta.compartilhada && (
+        <View style={styles.faixaDupla}>
+          <Text style={styles.faixaDuplaTexto} numberOfLines={1}>
+            👥 {placar.length ? placar.map((p) => `${p.por === quem ? 'Você' : p.por}: ${p.total}`).join(' · ') : 'Esperando os bipes'}
+          </Text>
+          <Text style={[styles.faixaDuplaSinc, sinc && !sinc.ok && { color: '#C0352B' }]}>
+            {!sinc ? 'conectando…' : sinc.ok ? 'sincronizado' : 'sem internet'}
+          </Text>
+        </View>
+      )}
       {areas.length > 0 && (
         <TouchableOpacity style={styles.ondeEstou} onPress={() => setSeletorArea(true)}>
           <Feather name="map-pin" size={15} color={AZUL} />
@@ -554,6 +710,12 @@ function TelaColeta({
           <Feather name="rotate-ccw" size={16} color={coleta.lidos.length ? colors.navy700 : colors.gray400} />
           <Text style={[styles.acaoTexto, !coleta.lidos.length && { color: colors.gray400 }]}>Desfazer</Text>
         </TouchableOpacity>
+        {!coleta.compartilhada && (
+          <TouchableOpacity style={styles.acao} onPress={ligarDupla} disabled={ligandoDupla}>
+            {ligandoDupla ? <ActivityIndicator size="small" color={colors.navy700} /> : <Feather name="users" size={16} color={colors.navy700} />}
+            <Text style={styles.acaoTexto}>Coletar em dupla</Text>
+          </TouchableOpacity>
+        )}
       </View>
 
       <Text style={styles.titLista}>Ainda não bipados ({faltam.length})</Text>
@@ -576,9 +738,9 @@ function TelaColeta({
             faltam.length
               ? Alert.alert('Finalizar coleta?', `${faltam.length} produtos não foram bipados e vão para a análise de ruptura.`, [
                   { text: 'Continuar bipando', style: 'cancel' },
-                  { text: 'Finalizar', onPress: onFinalizar },
+                  { text: 'Finalizar', onPress: coleta.compartilhada ? finalizarDupla : onFinalizar },
                 ])
-              : onFinalizar()
+              : coleta.compartilhada ? finalizarDupla() : onFinalizar()
           }
         >
           <Feather name="check" size={18} color={colors.white} />
@@ -1119,6 +1281,11 @@ const styles = StyleSheet.create({
   input: { backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 12, fontSize: 16, color: colors.gray900 },
   btnPequeno: { backgroundColor: AZUL, borderRadius: radius.md, width: 48, alignItems: 'center', justifyContent: 'center' },
   linhaAcoes: { flexDirection: 'row', gap: spacing.sm, paddingHorizontal: spacing.lg },
+  bannerDupla: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: '#E3EDFF', borderRadius: radius.md, padding: spacing.md, marginBottom: spacing.md, borderWidth: 1, borderColor: AZUL },
+  bannerDuplaTitulo: { color: colors.navy700, fontWeight: '700', fontSize: 15 },
+  faixaDupla: { flexDirection: 'row', alignItems: 'center', gap: 8, marginHorizontal: spacing.lg, marginTop: 6, backgroundColor: '#E3EDFF', borderRadius: radius.md, paddingHorizontal: 12, paddingVertical: 6 },
+  faixaDuplaTexto: { flex: 1, color: colors.navy700, fontWeight: '600', fontSize: 13 },
+  faixaDuplaSinc: { color: '#178553', fontSize: 12, fontWeight: '600' },
   acao: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.white, borderRadius: radius.full, borderWidth: 1, borderColor: colors.gray100, paddingHorizontal: 14, paddingVertical: 8 },
   acaoTexto: { color: colors.navy700, fontWeight: '600', fontSize: 13 },
   titLista: { fontSize: 13, fontWeight: '700', color: colors.gray600, paddingHorizontal: spacing.lg, marginTop: spacing.md, marginBottom: spacing.sm },
