@@ -395,7 +395,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   return (
     <View style={styles.tela}>
       <CabecalhoTela titulo="Tratativas" subtitulo="Produtos da ruptura até resolver" icone="check-square" onVoltar={onVoltar} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.abas}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0, minHeight: 56 }} contentContainerStyle={styles.abas}>
         {([
           ['comprar', '🛒 Precisa comprar', comprar.length],
           ['verificar', '📦 Verificar estoque', verificar.length],
@@ -959,9 +959,9 @@ function TelaEncarregado({ onVoltar }: { onVoltar: () => void }) {
 const styles = StyleSheet.create({
   tela: { flex: 1, backgroundColor: colors.gray50 },
   abas: { flexDirection: 'row', gap: 6, paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: 2 },
-  aba: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.full, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100 },
+  aba: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 40, paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.full, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100 },
   abaAtiva: { backgroundColor: AZUL, borderColor: AZUL },
-  abaTexto: { fontSize: 12, fontWeight: '700', color: colors.navy700, flexShrink: 1 },
+  abaTexto: { fontSize: 13, lineHeight: 18, fontWeight: '700', color: colors.navy700 },
   abaTextoAtivo: { color: colors.white },
   abaNum: { minWidth: 18, paddingHorizontal: 5, height: 18, borderRadius: 9, backgroundColor: colors.gray100, alignItems: 'center', justifyContent: 'center' },
   abaNumAtivo: { backgroundColor: 'rgba(255,255,255,0.25)' },
