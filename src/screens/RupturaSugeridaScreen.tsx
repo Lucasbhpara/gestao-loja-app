@@ -7,6 +7,7 @@ import CabecalhoTela from '../components/CabecalhoTela';
 import { supabase } from '../lib/supabase';
 import { normalizarEan } from '../data/rupturaApi';
 import { buscarAreasComCache, buscarAreasDosGrupos, ordenarRota } from '../data/rupturaMapaApi';
+import RotaMapaScreen from './RotaMapaScreen';
 
 // Ruptura sugerida — lista da planilha da Falcon que o gerente sobe no Portal
 // (Operação › Ruptura sugerida). Aqui confere nos lugares certos, sem coletar
@@ -25,6 +26,7 @@ interface ItemSug {
   secao: string | null;
   grupoId: string | null;
   grupoNome: string | null;
+  areaId: string | null;
   eans: string[];
   saldo: number | null;
   estoqueCd: number | null;
@@ -45,7 +47,9 @@ export async function contarRupturaSugerida(): Promise<number> {
 export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string; onVoltar: () => void }) {
   const [lote, setLote] = useState<Lote | null>(null);
   const [itens, setItens] = useState<ItemSug[]>([]);
-  const [ordemGrupo, setOrdemGrupo] = useState<Map<string, number>>(new Map());
+  // Ordem de visita das áreas do mapa (saindo da entrada) e o nome de cada área.
+  const [rotaArea, setRotaArea] = useState<Map<string, { pos: number; nome: string }>>(new Map());
+  const [verMapa, setVerMapa] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [filtro, setFiltro] = useState<Filtro>('pendente');
   const [busca, setBusca] = useState('');
@@ -68,20 +72,24 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
       const { data: its, error: e2 } = await supabase.from('ruptura_sugerida_itens').select('*').eq('lote_id', l.id).limit(5000);
       if (e2) throw e2;
       setItens((its ?? []).map((i: any) => ({
-        id: i.id, codigoInterno: i.codigo_interno, produto: i.produto ?? i.codigo_interno, secao: i.secao, grupoId: i.grupo_id, grupoNome: i.grupo_nome,
+        id: i.id, codigoInterno: i.codigo_interno, produto: i.produto ?? i.codigo_interno, secao: i.secao, grupoId: i.grupo_id, grupoNome: i.grupo_nome, areaId: i.area_id ?? null,
         eans: (i.eans ?? []).map((e: string) => normalizarEan(e)), saldo: i.saldo == null ? null : Number(i.saldo),
         estoqueCd: i.estoque_cd == null ? null : Number(i.estoque_cd), status: i.status, enviado: !!i.enviado_pedido_em,
       })));
-      // Ordem da rota: áreas do mapa onde cada grupo fica.
+      // Ordem da rota: áreas do mapa onde cada produto fica (conferência do jornal / coletas).
       try {
         const [areas, areaDoGrupo] = await Promise.all([buscarAreasComCache(), buscarAreasDosGrupos()]);
-        const rota = ordenarRota(areas.filter((a) => Object.values(areaDoGrupo).includes(a.id)));
-        const posArea = new Map(rota.map((a, i) => [a.id, i]));
-        const m = new Map<string, number>();
-        Object.entries(areaDoGrupo).forEach(([g, a]) => m.set(g, posArea.get(a) ?? 999));
-        setOrdemGrupo(m);
+        const usadas = new Set<string>();
+        (its ?? []).forEach((i: any) => {
+          const a = i.area_id ?? (i.grupo_id ? areaDoGrupo[i.grupo_id] : null);
+          if (a) usadas.add(a);
+        });
+        const rota = ordenarRota(areas.filter((a) => usadas.has(a.id)));
+        setRotaArea(new Map(rota.map((a, i) => [a.id, { pos: i, nome: a.nome }])));
+        // Sem local do produto: usa o local do grupo.
+        setItens((l) => l.map((x) => (x.areaId || !x.grupoId || !areaDoGrupo[x.grupoId] ? x : { ...x, areaId: areaDoGrupo[x.grupoId] })));
       } catch {
-        setOrdemGrupo(new Map());
+        setRotaArea(new Map());
       }
     } catch (e: any) {
       Alert.alert('Não consegui carregar', e?.message ?? '');
@@ -128,18 +136,23 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
     (filtro === 'todos' || i.status === filtro) &&
     (!termo || i.produto.toUpperCase().includes(termo) || i.codigoInterno.includes(termo) || i.eans.some((e) => e.includes(termo))),
   );
-  // Agrupa por grupo da gôndola, na ordem da rota do mapa; sem grupo vai pela seção da Falcon, no fim.
+  // Agrupa por área do mapa, na ordem da rota (saindo da entrada). Sem lugar no mapa vai no fim, por grupo.
   const blocos = useMemo(() => {
     const m = new Map<string, { titulo: string; ordem: number; itens: ItemSug[] }>();
     for (const i of visiveis) {
-      const k = i.grupoId ?? `secao:${i.secao ?? ''}`;
-      if (!m.has(k)) m.set(k, { titulo: i.grupoNome ?? `${i.secao || 'Sem grupo'} (sem grupo)`, ordem: i.grupoId ? ordemGrupo.get(i.grupoId) ?? 900 : 1000, itens: [] });
+      const ar = i.areaId ? rotaArea.get(i.areaId) : undefined;
+      const k = ar ? `area:${i.areaId}` : `grupo:${i.grupoId ?? i.secao ?? ''}`;
+      if (!m.has(k)) {
+        m.set(k, ar
+          ? { titulo: `${ar.pos + 1}º · ${ar.nome}`, ordem: ar.pos, itens: [] }
+          : { titulo: `Sem lugar no mapa · ${i.grupoNome ?? i.secao ?? 'Sem grupo'}`, ordem: 10000, itens: [] });
+      }
       m.get(k)!.itens.push(i);
     }
     return [...m.values()]
       .sort((a, b) => a.ordem - b.ordem || a.titulo.localeCompare(b.titulo))
-      .map((b) => ({ ...b, itens: b.itens.sort((x, y) => x.produto.localeCompare(y.produto)) }));
-  }, [visiveis, ordemGrupo]);
+      .map((b) => ({ ...b, itens: b.itens.sort((x, y) => (x.grupoNome ?? '').localeCompare(y.grupoNome ?? '') || x.produto.localeCompare(y.produto)) }));
+  }, [visiveis, rotaArea]);
 
   const n = (s: Status) => itens.filter((i) => i.status === s).length;
   const paraPedido = itens.filter((i) => i.status === 'ruptura' && !i.enviado);
@@ -161,6 +174,47 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
     } finally {
       setEnviando(false);
     }
+  }
+
+  function botoes(i: ItemSug) {
+    if (i.status === 'na_area')
+      return (
+        <View style={styles.linhaBotoes}>
+          <Text style={[styles.estado, { color: VERDE }]}>✓ Na área de venda</Text>
+          <TouchableOpacity onPress={() => mudarStatus(i, 'pendente')}><Text style={styles.link}>Desfazer</Text></TouchableOpacity>
+        </View>
+      );
+    if (i.status === 'ruptura')
+      return (
+        <View style={styles.linhaBotoes}>
+          <Text style={[styles.estado, { color: VERMELHO }]}>🔴 Ruptura</Text>
+          {!i.enviado && <TouchableOpacity onPress={() => mudarStatus(i, 'pendente')}><Text style={styles.link}>Desfazer</Text></TouchableOpacity>}
+        </View>
+      );
+    return (
+      <View style={styles.linhaBotoes}>
+        <TouchableOpacity style={[styles.btn, { backgroundColor: '#FDECEA' }]} onPress={() => mudarStatus(i, 'ruptura')}>
+          <Text style={[styles.btnTexto, { color: VERMELHO }]}>🔴 Não está na área · ruptura</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={[styles.btn, { backgroundColor: '#E6F6EE' }]} onPress={() => mudarStatus(i, 'na_area')}>
+          <Text style={[styles.btnTexto, { color: VERDE }]}>✓ Está</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+
+  if (verMapa) {
+    const lista = itens.filter((i) => i.status === 'pendente' || filtro !== 'pendente');
+    const porId = new Map(itens.map((i) => [i.id, i]));
+    return (
+      <RotaMapaScreen
+        titulo="Ruptura sugerida · rota"
+        itens={lista.map((i) => ({ codigoInterno: i.codigoInterno, produto: i.produto, grupoId: i.grupoId, detalhe: i.grupoNome ?? i.secao ?? '', chave: i.id }))}
+        feito={(it) => (porId.get(it.chave ?? '')?.status ?? 'pendente') !== 'pendente'}
+        acoes={(it) => { const i = porId.get(it.chave ?? ''); return i ? botoes(i) : null; }}
+        onVoltar={() => setVerMapa(false)}
+      />
+    );
   }
 
   const FILTROS: [Filtro, string, number][] = [
@@ -205,10 +259,14 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
               )}
             </View>
           ) : null}
-          <View style={styles.barra}>
-            <TouchableOpacity style={[styles.btnCamera, camera && { backgroundColor: colors.navy700 }]} onPress={() => setCamera(!camera)}>
+          <View style={[styles.barra, { flexDirection: 'row', gap: spacing.sm }]}>
+            <TouchableOpacity style={[styles.btnCamera, { flex: 1 }, camera && { backgroundColor: colors.navy700 }]} onPress={() => setCamera(!camera)}>
               <Feather name={camera ? 'x' : 'maximize'} size={16} color={camera ? colors.white : colors.navy700} />
-              <Text style={[styles.btnCameraTexto, camera && { color: colors.white }]}>{camera ? 'Fechar câmera' : 'Bipar o que está na área'}</Text>
+              <Text style={[styles.btnCameraTexto, camera && { color: colors.white }]}>{camera ? 'Fechar câmera' : 'Bipar'}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={[styles.btnCamera, { flex: 1 }]} onPress={() => { setCamera(false); setVerMapa(true); }}>
+              <Feather name="map" size={16} color={colors.navy700} />
+              <Text style={styles.btnCameraTexto}>Rota no mapa</Text>
             </TouchableOpacity>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0, minHeight: 52 }} contentContainerStyle={styles.abas}>
@@ -241,28 +299,7 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
                       <Text style={[styles.selo, (i.estoqueCd ?? 0) > 0 ? styles.seloVerde : styles.seloVermelho]}>{(i.estoqueCd ?? 0) > 0 ? `CD ${i.estoqueCd}` : 'CD sem estoque'}</Text>
                       {i.enviado && <Text style={[styles.selo, { color: '#1D4ED8', backgroundColor: '#E3EDFF' }]}>🚚 No pedido</Text>}
                     </View>
-                    <View style={styles.linhaBotoes}>
-                      {i.status === 'na_area' ? (
-                        <>
-                          <Text style={[styles.estado, { color: VERDE }]}>✓ Na área de venda</Text>
-                          <TouchableOpacity onPress={() => mudarStatus(i, 'pendente')}><Text style={styles.link}>Desfazer</Text></TouchableOpacity>
-                        </>
-                      ) : i.status === 'ruptura' ? (
-                        <>
-                          <Text style={[styles.estado, { color: VERMELHO }]}>🔴 Ruptura</Text>
-                          {!i.enviado && <TouchableOpacity onPress={() => mudarStatus(i, 'pendente')}><Text style={styles.link}>Desfazer</Text></TouchableOpacity>}
-                        </>
-                      ) : (
-                        <>
-                          <TouchableOpacity style={[styles.btn, { backgroundColor: '#FDECEA' }]} onPress={() => mudarStatus(i, 'ruptura')}>
-                            <Text style={[styles.btnTexto, { color: VERMELHO }]}>🔴 Não está na área · ruptura</Text>
-                          </TouchableOpacity>
-                          <TouchableOpacity style={[styles.btn, { backgroundColor: '#E6F6EE' }]} onPress={() => mudarStatus(i, 'na_area')}>
-                            <Text style={[styles.btnTexto, { color: VERDE }]}>✓ Está</Text>
-                          </TouchableOpacity>
-                        </>
-                      )}
-                    </View>
+                    {botoes(i)}
                   </View>
                 ))}
               </View>
