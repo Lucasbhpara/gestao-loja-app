@@ -938,8 +938,8 @@ function TelaResultado({
                     const lista = concluida.pedir.filter((t) => !desmarcados.has(t.id));
                     setEnviandoPedido(true);
                     try {
-                      await enviarAoPedidoCD(lista, quem);
-                      setPedidoEnviado(lista.length);
+                      const r = await enviarAoPedidoCD(lista, quem);
+                      setPedidoEnviado(r.enviados);
                     } catch (e: any) {
                       Alert.alert('Não consegui enviar ao Pedido CD', e?.message ?? '');
                     } finally {

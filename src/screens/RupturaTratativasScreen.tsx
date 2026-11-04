@@ -91,6 +91,18 @@ async function buscarEstoqueAtual(codigos: string[]): Promise<Map<string, Estoqu
   return mapa;
 }
 
+// Estoque de agora no CD (último mix importado). O "estoqueCd" da tratativa é o da coleta.
+async function buscarCdAtual(codigos: string[]): Promise<Map<string, number>> {
+  const mapa = new Map<string, number>();
+  const unicos = [...new Set(codigos)];
+  for (let i = 0; i < unicos.length; i += 300) {
+    const { data, error } = await supabase.from('mix_cd_itens').select('codigo_interno, estoque_cd').in('codigo_interno', unicos.slice(i, i + 300));
+    if (error) throw error;
+    (data || []).forEach((l: any) => mapa.set(String(l.codigo_interno), Number(l.estoque_cd) || 0));
+  }
+  return mapa;
+}
+
 async function tirarFoto(): Promise<string | null> {
   const perm = await ImagePicker.requestCameraPermissionsAsync();
   if (!perm.granted) {
@@ -133,6 +145,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const [ordem, setOrdem] = useState<Ordem>('antigas');
   const [painelFiltros, setPainelFiltros] = useState(false);
   const [estoque, setEstoque] = useState<Map<string, EstoqueAtual>>(new Map());
+  const [cdAgora, setCdAgora] = useState<Map<string, number> | null>(null);
   const [rota, setRota] = useState<ItemRota[] | null>(null);
 
   const carregar = useCallback(async (auto = false) => {
@@ -156,6 +169,9 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
       buscarEstoqueAtual([...abertos, ...fechados].map((t) => t.codigoInterno))
         .then(setEstoque)
         .catch(() => setEstoque(new Map()));
+      buscarCdAtual(abertos.map((t) => t.codigoInterno))
+        .then(setCdAgora)
+        .catch(() => setCdAgora(null));
       setMarcadas(new Set());
     } catch (e: any) {
       Alert.alert('Erro ao carregar', e?.message ?? '');
@@ -177,6 +193,8 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
     }
   }
 
+  // CD de agora; produto que saiu do mix conta como sem estoque no CD.
+  const cdAtual = (t: Tratativa): number | null => (cdAgora ? cdAgora.get(t.codigoInterno) ?? 0 : t.estoqueCd);
   const saldoAgora = (t: Tratativa): number | null => {
     const e = estoque.get(t.codigoInterno);
     return e ? e.q : t.saldo;
@@ -203,7 +221,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const jaPedido = (t: Tratativa) => (t.situacao === 'ruptura' || t.situacao === 'nunca_veio') && (t.acao === 'pedido_feito' || t.acao === 'pedido_cd');
   // Precisa comprar: ruptura sem estoque na loja, com estoque no CD, ainda não pedida.
   const precisaComprar = (t: Tratativa) =>
-    t.status === 'aberta' && t.situacao === 'ruptura' && !jaPedido(t) && (t.estoqueCd ?? 0) > 0 && !((saldoAgora(t) ?? 0) > 0);
+    t.status === 'aberta' && t.situacao === 'ruptura' && !jaPedido(t) && (cdAtual(t) ?? 0) > 0 && !((saldoAgora(t) ?? 0) > 0);
   const totalAbertas = lista.filter((t) => t.status === 'aberta' && !jaPedido(t) && !precisaComprar(t)).length;
   const abertas = lista.filter((t) => t.status === 'aberta' && !jaPedido(t) && !precisaComprar(t) && passa(t)).sort(ordenar);
   const comprar = lista.filter((t) => precisaComprar(t) && passa(t)).sort((a, b) => (a.grupoNome ?? '').localeCompare(b.grupoNome ?? '') || a.produto.localeCompare(b.produto));
@@ -266,8 +284,10 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
                 {t.saldo != null && t.saldo !== loja ? ` (era ${t.saldo})` : ''}
               </Text>
             )}
-            {t.estoqueCd != null && (
-              <Text style={[styles.selo, t.estoqueCd > 0 ? styles.seloVerde : styles.seloCinza]}>CD {t.estoqueCd}</Text>
+            {cdAtual(t) != null && (
+              <Text style={[styles.selo, (cdAtual(t) ?? 0) > 0 ? styles.seloVerde : styles.seloVermelho]}>
+                {(cdAtual(t) ?? 0) > 0 ? `CD ${cdAtual(t)}` : 'CD sem estoque'}
+              </Text>
             )}
             <Text style={[styles.selo, diasAberta(t.abertaEm) >= DIAS_ATRASADA ? styles.seloVermelho : styles.seloCinza]}>
               {diasAberta(t.abertaEm) === 0 ? 'hoje' : `${diasAberta(t.abertaEm)}d aberta`}
@@ -309,7 +329,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   function opcoesAberta(t: Tratativa): Opcao[] {
     const o: Opcao[] = [];
     if (t.situacao === 'ruptura') {
-      if (t.acao !== 'pedido_cd' && t.acao !== 'pedido_feito') o.push({ rotulo: 'Enviar ao Pedido CD', icone: 'shopping-cart', fn: () => setPedidoCD([t]) });
+      if (t.acao !== 'pedido_cd' && t.acao !== 'pedido_feito' && (cdAtual(t) ?? 0) > 0) o.push({ rotulo: 'Enviar ao Pedido CD', icone: 'shopping-cart', fn: () => setPedidoCD([t]) });
     }
     if (t.situacao === 'ruptura' || t.situacao === 'nunca_veio') {
       if (t.acao !== 'pedido_feito') o.push({ rotulo: 'Marcar "Pedido feito" (fiz à mão)', icone: 'check', fn: () => executar(() => marcarAcaoGerencia(t, 'pedido_feito', quem)) });
@@ -361,7 +381,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   }
 
   const selecionadas = (aba === 'comprar' ? comprar : abertas).filter((t) => marcadas.has(t.id));
-  const selPedido = selecionadas.filter((t) => t.situacao === 'ruptura');
+  const selPedido = selecionadas.filter((t) => t.situacao === 'ruptura' && (cdAtual(t) ?? 0) > 0);
   const selEncarregado = selecionadas.filter((t) => t.situacao !== 'ruptura');
   const listaDaAba = aba === 'abertas' ? abertas : aba === 'comprar' ? comprar : aba === 'validar' ? paraValidar : aba === 'encarregado' ? comEncarregado : resolvidas.filter(passa);
 
@@ -663,8 +683,11 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
                 setPedidoCD(null);
                 if (l)
                   executar(async () => {
-                    await enviarAoPedidoCD(l, quem);
-                    setAviso(`${l.length} ${l.length === 1 ? 'produto enviado' : 'produtos enviados'} ao Pedido CD. Você recebe o aviso quando o pedido estiver pronto.`);
+                    const r = await enviarAoPedidoCD(l, quem);
+                    setAviso(
+                      `${r.enviados} ${r.enviados === 1 ? 'produto enviado' : 'produtos enviados'} ao Pedido CD. Você recebe o aviso quando o pedido estiver pronto.` +
+                        (r.semCd ? ` ${r.semCd} ${r.semCd === 1 ? 'ficou de fora' : 'ficaram de fora'}: o CD está sem estoque.` : ''),
+                    );
                   });
               }}
             >
