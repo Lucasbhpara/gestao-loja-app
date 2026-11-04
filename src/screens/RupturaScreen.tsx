@@ -18,6 +18,7 @@ import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import CabecalhoTela from '../components/CabecalhoTela';
 import RupturaTratativasScreen from './RupturaTratativasScreen';
+import RupturaSugeridaScreen, { contarRupturaSugerida } from './RupturaSugeridaScreen';
 import { Tratativa, abrirTratativasDaColeta, enviarAoPedidoCD, tratativasParaPedidoCD } from '../data/rupturaTratativasApi';
 import SeletorAreaMapa from '../components/SeletorAreaMapa';
 import MapearSubsortimentosScreen from './MapearSubsortimentosScreen';
@@ -71,7 +72,7 @@ const dataHoraBR = (d: string) => {
   return x.toLocaleDateString('pt-BR') + ' ' + x.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 };
 
-type Etapa = 'grupos' | 'coleta' | 'naoColetados' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas' | 'subsortimentos';
+type Etapa = 'grupos' | 'sugerida' | 'coleta' | 'naoColetados' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas' | 'subsortimentos';
 
 export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -91,6 +92,7 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   // Cada setor é uma gaveta fechada; abre uma de cada vez para a tela não poluir.
   const [setorAberto, setSetorAberto] = useState<string | null>(null);
   const [prioridadeAberta, setPrioridadeAberta] = useState(false);
+  const [sugeridaPendentes, setSugeridaPendentes] = useState<number | null>(null);
   const [prioridade, setPrioridade] = useState<Map<string, PrioridadeGrupo>>(new Map());
   // Mapa da loja: áreas e em que área fica cada grupo.
   const [areas, setAreas] = useState<AreaMapa[]>([]);
@@ -138,6 +140,7 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
     setCarregando(true);
     setErro(null);
     try {
+      contarRupturaSugerida().then(setSugeridaPendentes).catch(() => setSugeridaPendentes(null));
       const [gs, pr] = await Promise.all([buscarGrupos(), buscarPrioridade()]);
       setGrupos(gs);
       setPrioridade(pr);
@@ -251,6 +254,10 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
     );
   }
 
+  if (etapa === 'sugerida') {
+    return <RupturaSugeridaScreen quem={quem} onVoltar={() => { setEtapa('grupos'); carregarGrupos(); }} />;
+  }
+
   if (etapa === 'tratativas') {
     return <RupturaTratativasScreen modo="gerencia" onVoltar={() => { setEtapa('grupos'); carregarGrupos(); }} />;
   }
@@ -289,6 +296,23 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
             <Text style={styles.avisoTexto}>Baixando a lista do grupo…</Text>
           </View>
         )}
+        <TouchableOpacity style={styles.cardSugerida} onPress={() => setEtapa('sugerida')}>
+          <View style={styles.cardSugeridaIcone}>
+            <Feather name="list" size={20} color={colors.white} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.topoBotaoTexto}>Ruptura sugerida</Text>
+            <Text style={styles.topoBotaoSub}>
+              {sugeridaPendentes ? `${sugeridaPendentes} produtos da planilha para conferir` : 'Planilha da Falcon para conferir nos lugares certos'}
+            </Text>
+          </View>
+          {!!sugeridaPendentes && (
+            <View style={styles.cardSugeridaNum}>
+              <Text style={{ color: colors.white, fontWeight: '800', fontSize: 12 }}>{sugeridaPendentes}</Text>
+            </View>
+          )}
+          <Feather name="chevron-right" size={20} color={colors.gray400} />
+        </TouchableOpacity>
         <View style={styles.topoBotoes}>
           <TouchableOpacity style={styles.topoBotao} onPress={() => setEtapa('tratativas')}>
             <Feather name="check-square" size={20} color={AZUL} />
@@ -1284,6 +1308,9 @@ function TelaDescontinuados({ onVoltar }: { onVoltar: () => void }) {
 
 const styles = StyleSheet.create({
   topoBotoes: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  cardSugerida: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: '#BFD4FF', padding: spacing.md, marginBottom: spacing.sm },
+  cardSugeridaIcone: { width: 38, height: 38, borderRadius: 19, backgroundColor: AZUL, alignItems: 'center', justifyContent: 'center' },
+  cardSugeridaNum: { minWidth: 26, height: 22, borderRadius: 11, paddingHorizontal: 6, backgroundColor: '#C0352B', alignItems: 'center', justifyContent: 'center' },
   topoBotao: { flex: 1, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100, padding: spacing.md, gap: 4 },
   topoBotaoTexto: { fontSize: 14, fontWeight: '800', color: colors.navy900 },
   topoBotaoSub: { fontSize: 11.5, color: colors.gray600 },

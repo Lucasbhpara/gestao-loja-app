@@ -34,6 +34,7 @@ import {
   enviarAoEncarregado,
   enviarAoPedidoCD,
   marcarAcaoGerencia,
+  marcarZerado,
   resolverManual,
   responderEncarregado,
   validar,
@@ -197,7 +198,10 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const cdAtual = (t: Tratativa): number | null => (cdAgora ? cdAgora.get(t.codigoInterno) ?? 0 : t.estoqueCd);
   const saldoAgora = (t: Tratativa): number | null => {
     const e = estoque.get(t.codigoInterno);
-    return e ? e.q : t.saldo;
+    const q = e ? e.q : t.saldo;
+    // Conferido como zerado: o estoque do sistema era fantasma; só conta se subir acima dele.
+    if (t.acao === 'zerado') return q != null && q > Number(t.saldo ?? 0) ? q : 0;
+    return q;
   };
   const termo = semAcento(busca.trim());
   const passa = (t: Tratativa) => {
@@ -254,6 +258,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
     switch (t.acao) {
       case 'pedido_feito': return { texto: `🚚 Pedido feito · ${quando}`, cor: '#1D4ED8', fundo: '#E3EDFF' };
       case 'pedido_cd': return { texto: '⏳ Na fila do Pedido CD', cor: '#9A5B00', fundo: '#FFF4E0' };
+      case 'zerado': return { texto: `0️⃣ Zerado na loja · ${quando}`, cor: '#C0352B', fundo: '#FDECEA' };
       case 'cobrado': return { texto: `📞 Comprador cobrado · ${quando}`, cor: '#6B21A8', fundo: '#F3E8FF' };
       case 'auto_cd': return { texto: '✅ CD voltou a ter estoque', cor: '#178553', fundo: '#E6F6EE' };
       default: return { texto: `${ROTULO_ACAO[t.acao]} · ${quando}`, cor: colors.navy700, fundo: colors.gray50 };
@@ -335,6 +340,18 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
     const o: Opcao[] = [];
     if (t.situacao === 'ruptura') {
       if (t.acao !== 'pedido_cd' && t.acao !== 'pedido_feito' && (cdAtual(t) ?? 0) > 0) o.push({ rotulo: 'Enviar ao Pedido CD', icone: 'shopping-cart', fn: () => setPedidoCD([t]) });
+    }
+    if (verificarEstoque(t)) {
+      o.push({
+        rotulo: 'Zerado (não tem na loja) → pedir',
+        icone: 'x-circle',
+        fn: () =>
+          executar(async () => {
+            const sistema = estoque.get(t.codigoInterno)?.q ?? t.saldo;
+            await marcarZerado(t, sistema, quem);
+            setAviso(`${t.produto}: marcado como zerado. ${(cdAtual(t) ?? 0) > 0 ? 'Foi para “🛒 Precisa comprar”.' : 'O CD está sem estoque: ficou em “Outras”.'}`);
+          }),
+      });
     }
     if (t.situacao === 'ruptura' || t.situacao === 'nunca_veio') {
       if (t.acao !== 'pedido_feito') o.push({ rotulo: 'Marcar "Pedido feito" (fiz à mão)', icone: 'check', fn: () => executar(() => marcarAcaoGerencia(t, 'pedido_feito', quem)) });
