@@ -57,6 +57,8 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
   const [permissao, pedirPermissao] = useCameraPermissions();
   const [flash, setFlash] = useState<{ texto: string; ok: boolean } | null>(null);
   const [enviando, setEnviando] = useState(false);
+  // Cada área/grupo é uma gaveta: abre a que quiser em vez de rolar a lista toda.
+  const [abertos, setAbertos] = useState<Set<string>>(new Set());
   const ultimo = useRef<{ ean: string; em: number }>({ ean: '', em: 0 });
   const itensRef = useRef(itens);
   itensRef.current = itens;
@@ -138,14 +140,14 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
   );
   // Agrupa por área do mapa, na ordem da rota (saindo da entrada). Sem lugar no mapa vai no fim, por grupo.
   const blocos = useMemo(() => {
-    const m = new Map<string, { titulo: string; ordem: number; itens: ItemSug[] }>();
+    const m = new Map<string, { k: string; titulo: string; ordem: number; itens: ItemSug[] }>();
     for (const i of visiveis) {
       const ar = i.areaId ? rotaArea.get(i.areaId) : undefined;
       const k = ar ? `area:${i.areaId}` : `grupo:${i.grupoId ?? i.secao ?? ''}`;
       if (!m.has(k)) {
         m.set(k, ar
-          ? { titulo: `${ar.pos + 1}º · ${ar.nome}`, ordem: ar.pos, itens: [] }
-          : { titulo: `Sem lugar no mapa · ${i.grupoNome ?? i.secao ?? 'Sem grupo'}`, ordem: 10000, itens: [] });
+          ? { k, titulo: `${ar.pos + 1}º · ${ar.nome}`, ordem: ar.pos, itens: [] }
+          : { k, titulo: `Sem lugar no mapa · ${i.grupoNome ?? i.secao ?? 'Sem grupo'}`, ordem: 10000, itens: [] });
       }
       m.get(k)!.itens.push(i);
     }
@@ -153,6 +155,9 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
       .sort((a, b) => a.ordem - b.ordem || a.titulo.localeCompare(b.titulo))
       .map((b) => ({ ...b, itens: b.itens.sort((x, y) => (x.grupoNome ?? '').localeCompare(y.grupoNome ?? '') || x.produto.localeCompare(y.produto)) }));
   }, [visiveis, rotaArea]);
+
+  const alternarGaveta = (k: string) => setAbertos((a) => { const n = new Set(a); n.has(k) ? n.delete(k) : n.add(k); return n; });
+  const codigoBarras = (i: ItemSug) => i.eans[0] ?? i.codigoInterno;
 
   const n = (s: Status) => itens.filter((i) => i.status === s).length;
   const paraPedido = itens.filter((i) => i.status === 'ruptura' && !i.enviado);
@@ -197,7 +202,7 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
           <Text style={[styles.btnTexto, { color: VERMELHO }]}>🔴 Não está na área · ruptura</Text>
         </TouchableOpacity>
         <TouchableOpacity style={[styles.btn, { backgroundColor: '#E6F6EE' }]} onPress={() => mudarStatus(i, 'na_area')}>
-          <Text style={[styles.btnTexto, { color: VERDE }]}>✓ Está</Text>
+          <Text style={[styles.btnTexto, { color: VERDE }]}>✓ Está na área</Text>
         </TouchableOpacity>
       </View>
     );
@@ -209,7 +214,7 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
     return (
       <RotaMapaScreen
         titulo="Ruptura sugerida · rota"
-        itens={lista.map((i) => ({ codigoInterno: i.codigoInterno, produto: i.produto, grupoId: i.grupoId, detalhe: i.grupoNome ?? i.secao ?? '', chave: i.id }))}
+        itens={lista.map((i) => ({ codigoInterno: i.codigoInterno, codigoExibido: i.eans[0] ?? i.codigoInterno, produto: i.produto, grupoId: i.grupoId, detalhe: i.grupoNome ?? i.secao ?? '', chave: i.id }))}
         feito={(it) => (porId.get(it.chave ?? '')?.status ?? 'pendente') !== 'pendente'}
         acoes={(it) => { const i = porId.get(it.chave ?? ''); return i ? botoes(i) : null; }}
         onVoltar={() => setVerMapa(false)}
@@ -287,23 +292,39 @@ export default function RupturaSugeridaScreen({ quem, onVoltar }: { quem: string
               </Text>
             )}
             {carregando && !itens.length ? <ActivityIndicator color={AZUL} style={{ marginTop: spacing.xl }} /> : null}
-            {blocos.map((b) => (
-              <View key={b.titulo} style={{ marginBottom: spacing.md }}>
-                <Text style={styles.secTitulo}>{b.titulo} · {b.itens.length}</Text>
-                {b.itens.map((i) => (
-                  <View key={i.id} style={[styles.item, i.status === 'ruptura' && { borderColor: '#F3B4AE' }, i.status === 'na_area' && { borderColor: '#B7E3CB' }]}>
-                    <Text style={styles.itemNome} numberOfLines={2}>{i.produto}</Text>
-                    <View style={styles.selos}>
-                      <Text style={[styles.selo, styles.seloCinza]}>{i.codigoInterno}</Text>
-                      {i.saldo != null && <Text style={[styles.selo, i.saldo > 0 ? styles.seloAmarelo : styles.seloVermelho]}>Loja {i.saldo}</Text>}
-                      <Text style={[styles.selo, (i.estoqueCd ?? 0) > 0 ? styles.seloVerde : styles.seloVermelho]}>{(i.estoqueCd ?? 0) > 0 ? `CD ${i.estoqueCd}` : 'CD sem estoque'}</Text>
-                      {i.enviado && <Text style={[styles.selo, { color: '#1D4ED8', backgroundColor: '#E3EDFF' }]}>🚚 No pedido</Text>}
+            {blocos.length > 1 && !termo && (
+              <TouchableOpacity onPress={() => setAbertos(abertos.size ? new Set() : new Set(blocos.map((b) => b.k)))} style={{ alignSelf: 'flex-end', marginBottom: 6 }}>
+                <Text style={styles.link}>{abertos.size ? 'Fechar todas' : 'Abrir todas'}</Text>
+              </TouchableOpacity>
+            )}
+            {blocos.map((b) => {
+              const aberto = !!termo || abertos.has(b.k);
+              const pend = b.itens.filter((i) => i.status === 'pendente').length;
+              const rup = b.itens.filter((i) => i.status === 'ruptura').length;
+              return (
+                <View key={b.k} style={[styles.gaveta, aberto && styles.gavetaAberta]}>
+                  <TouchableOpacity style={styles.gavetaTopo} onPress={() => alternarGaveta(b.k)} disabled={!!termo}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.gavetaTitulo}>{b.titulo}</Text>
+                      <Text style={styles.gavetaSub}>{b.itens.length} produto{b.itens.length === 1 ? '' : 's'}{pend ? ` · ${pend} para conferir` : ''}{rup ? ` · ${rup} ruptura` : ''}</Text>
                     </View>
-                    {botoes(i)}
-                  </View>
-                ))}
-              </View>
-            ))}
+                    {!termo && <Feather name={aberto ? 'chevron-up' : 'chevron-down'} size={22} color={colors.navy700} />}
+                  </TouchableOpacity>
+                  {aberto && b.itens.map((i) => (
+                    <View key={i.id} style={[styles.item, i.status === 'ruptura' && { borderColor: '#F3B4AE' }, i.status === 'na_area' && { borderColor: '#B7E3CB' }]}>
+                      <Text style={styles.itemNome} numberOfLines={2}>{i.produto}</Text>
+                      <View style={styles.selos}>
+                        <Text style={[styles.selo, styles.seloCinza]}>{codigoBarras(i)}</Text>
+                        {i.saldo != null && <Text style={[styles.selo, i.saldo > 0 ? styles.seloAmarelo : styles.seloVermelho]}>Loja {i.saldo}</Text>}
+                        <Text style={[styles.selo, (i.estoqueCd ?? 0) > 0 ? styles.seloVerde : styles.seloVermelho]}>{(i.estoqueCd ?? 0) > 0 ? `CD ${i.estoqueCd}` : 'CD sem estoque'}</Text>
+                        {i.enviado && <Text style={[styles.selo, { color: '#1D4ED8', backgroundColor: '#E3EDFF' }]}>🚚 No pedido</Text>}
+                      </View>
+                      {botoes(i)}
+                    </View>
+                  ))}
+                </View>
+              );
+            })}
             {!carregando && lote && !visiveis.length && <Text style={styles.vazio}>{filtro === 'pendente' ? 'Tudo conferido. 👍' : 'Nada aqui.'}</Text>}
           </ScrollView>
           {paraPedido.length > 0 && (
@@ -337,6 +358,11 @@ const styles = StyleSheet.create({
   abaTexto: { fontSize: 13, lineHeight: 18, fontWeight: '700', color: colors.navy700 },
   busca: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
   buscaInput: { flex: 1, paddingVertical: 10, fontSize: 14, color: colors.navy900 },
+  gaveta: { backgroundColor: colors.white, borderRadius: radius.lg, borderWidth: 1, borderColor: colors.gray100, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
+  gavetaAberta: { borderColor: AZUL, paddingBottom: spacing.xs },
+  gavetaTopo: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md },
+  gavetaTitulo: { fontSize: 15, fontWeight: '800', color: colors.navy900 },
+  gavetaSub: { fontSize: 12, color: colors.gray600, marginTop: 2 },
   secTitulo: { fontSize: 14, fontWeight: '800', color: colors.navy700, marginBottom: 6, marginTop: 4 },
   item: { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100, padding: spacing.md, marginBottom: spacing.sm },
   itemNome: { fontSize: 14, fontWeight: '700', color: colors.navy900 },
