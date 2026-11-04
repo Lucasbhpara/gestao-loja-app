@@ -47,6 +47,7 @@ import {
 const AZUL = '#2F7BFF';
 const VERDE_PEDIDO = '#1B5E20';
 const dataBR = (d: string | null) => (d ? new Date(d).toLocaleDateString('pt-BR') : '—');
+const dataCurta = (d: string | null) => (d ? new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '');
 const diasAberta = (d: string) => Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 86400000));
 const nomeSetor = (s: string | null) => (s ? s.charAt(0) + s.slice(1).toLowerCase() : '');
 
@@ -118,6 +119,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   const [envio, setEnvio] = useState<{ itens: Tratativa[]; pedido: AcaoTratativa | null } | null>(null);
   const [pedidoCD, setPedidoCD] = useState<Tratativa[] | null>(null);
+  const [menu, setMenu] = useState<Tratativa | null>(null);
   const [descont, setDescont] = useState<Tratativa | null>(null);
   const [ajuste, setAjuste] = useState<Tratativa | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -214,35 +216,71 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
     setMarcadas(n);
   };
 
-  function cartao(t: Tratativa, filhos: React.ReactNode, selecionavel = false) {
+  // Selo do status da tratativa (o que já foi feito com ela).
+  function seloAcao(t: Tratativa): { texto: string; cor: string; fundo: string } | null {
+    if (!t.acao) return null;
+    const quando = dataCurta(t.atualizadaEm);
+    switch (t.acao) {
+      case 'pedido_feito': return { texto: `🚚 Pedido feito · ${quando}`, cor: '#1D4ED8', fundo: '#E3EDFF' };
+      case 'pedido_cd': return { texto: '⏳ Na fila do Pedido CD', cor: '#9A5B00', fundo: '#FFF4E0' };
+      case 'cobrado': return { texto: `📞 Comprador cobrado · ${quando}`, cor: '#6B21A8', fundo: '#F3E8FF' };
+      case 'auto_cd': return { texto: '✅ CD voltou a ter estoque', cor: '#178553', fundo: '#E6F6EE' };
+      default: return { texto: `${ROTULO_ACAO[t.acao]} · ${quando}`, cor: colors.navy700, fundo: colors.gray50 };
+    }
+  }
+
+  function cartao(
+    t: Tratativa,
+    filhos: React.ReactNode,
+    opc: { selecionavel?: boolean; menu?: boolean; ocultarSituacao?: boolean } = {},
+  ) {
     const info = SITUACOES[t.situacao];
     const m = marcadas.has(t.id);
-    return (
-      <View key={t.id} style={[styles.item, m && { borderColor: AZUL }]}>
-        <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-          {selecionavel && (
-            <TouchableOpacity onPress={() => alternar(t.id)} style={{ paddingRight: 8, paddingTop: 2 }}>
-              <Feather name={m ? 'check-square' : 'square'} size={20} color={m ? AZUL : colors.gray400} />
-            </TouchableOpacity>
-          )}
-          <View style={{ flex: 1 }}>
-            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
-              <Text style={[styles.itemNome, { flexShrink: 1 }]}>{t.produto}</Text>
-              {t.status !== 'resolvida' && diasAberta(t.abertaEm) >= DIAS_ATRASADA && <Text style={styles.seloAtrasada}>atrasada</Text>}
-            </View>
-            <Text style={styles.itemDet}>
-              {t.codigoInterno} · {t.grupoNome} · {info.emoji} {info.titulo} · {diasAberta(t.abertaEm)}d
-              {t.estoqueCd != null ? ` · CD ${t.estoqueCd}` : ''}
-            </Text>
-            {saldoAgora(t) != null && (
-              <Text style={[styles.itemDet, (saldoAgora(t) ?? 0) > 0 && { color: '#178553', fontWeight: '700' }]}>
-                Estoque loja agora: {saldoAgora(t)}
-                {t.saldo != null && t.saldo !== saldoAgora(t) ? ` (na coleta: ${t.saldo})` : ''}
+    const loja = saldoAgora(t);
+    const selo = t.status === 'aberta' ? seloAcao(t) : null;
+    const corpo = (
+      <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+        {opc.selecionavel && (
+          <View style={{ paddingRight: 10, paddingTop: 1 }}>
+            <Feather name={m ? 'check-square' : 'square'} size={20} color={m ? AZUL : colors.gray400} />
+          </View>
+        )}
+        <View style={{ flex: 1 }}>
+          <Text style={styles.itemNome} numberOfLines={2}>{t.produto}</Text>
+          <Text style={styles.itemDet}>
+            {t.codigoInterno} · {t.grupoNome}
+            {opc.ocultarSituacao ? '' : ` · ${info.emoji} ${info.titulo}`}
+          </Text>
+          <View style={styles.selos}>
+            {loja != null && (
+              <Text style={[styles.selo, loja > 0 ? styles.seloVerde : styles.seloVermelho]}>
+                Loja {loja}
+                {t.saldo != null && t.saldo !== loja ? ` (era ${t.saldo})` : ''}
               </Text>
             )}
-            {t.acao && t.status === 'aberta' && <Text style={styles.tag}>{ROTULO_ACAO[t.acao]} · {dataBR(t.atualizadaEm)}</Text>}
+            {t.estoqueCd != null && (
+              <Text style={[styles.selo, t.estoqueCd > 0 ? styles.seloVerde : styles.seloCinza]}>CD {t.estoqueCd}</Text>
+            )}
+            <Text style={[styles.selo, diasAberta(t.abertaEm) >= DIAS_ATRASADA ? styles.seloVermelho : styles.seloCinza]}>
+              {diasAberta(t.abertaEm) === 0 ? 'hoje' : `${diasAberta(t.abertaEm)}d aberta`}
+            </Text>
+            {selo && <Text style={[styles.selo, { color: selo.cor, backgroundColor: selo.fundo }]}>{selo.texto}</Text>}
           </View>
         </View>
+        {opc.menu && (
+          <TouchableOpacity onPress={() => setMenu(t)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={styles.btnMenu}>
+            <Feather name="more-vertical" size={20} color={colors.gray600} />
+          </TouchableOpacity>
+        )}
+      </View>
+    );
+    return (
+      <View key={t.id} style={[styles.item, m && { borderColor: AZUL, backgroundColor: '#F5F9FF' }]}>
+        {opc.selecionavel ? (
+          <TouchableOpacity activeOpacity={0.7} onPress={() => alternar(t.id)}>{corpo}</TouchableOpacity>
+        ) : (
+          corpo
+        )}
         {filhos}
       </View>
     );
@@ -259,24 +297,29 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
     </TouchableOpacity>
   );
 
-  function acoesAberta(t: Tratativa) {
-    const b: React.ReactNode[] = [];
-    if (t.situacao === 'ruptura' || t.situacao === 'nunca_veio') {
-      if (t.acao !== 'pedido_feito') b.push(botao('Pedido feito', () => executar(() => marcarAcaoGerencia(t, 'pedido_feito', quem)), 'pri'));
-      b.push(botao('Descontinuado', () => setDescont(t), 'perigo'));
-    } else if (t.situacao === 'cd_sem') {
-      if (t.acao !== 'cobrado') b.push(botao('Cobrei o comprador', () => executar(() => marcarAcaoGerencia(t, 'cobrado', quem)), 'pri'));
-      b.push(botao('Descontinuado', () => setDescont(t), 'perigo'));
-    } else if (VAI_PARA_ENCARREGADO.includes(t.situacao)) {
-      b.push(botao('Enviar ao encarregado', () => setEnvio({ itens: [t], pedido: null }), 'pri'));
-      b.push(botao('Resolvido', () => executar(() => resolverManual(t, quem))));
-    } else if (t.situacao === 'parado') {
-      b.push(botao('Sem preço', () => setEnvio({ itens: [t], pedido: 'sem_preco' })));
-      b.push(botao('Mal exposto', () => setEnvio({ itens: [t], pedido: 'mal_exposto' })));
-      b.push(botao('Validade', () => setEnvio({ itens: [t], pedido: 'validade' })));
-      b.push(botao('Só não vende', () => executar(() => resolverManual(t, quem, 'Exposto corretamente, só não vende'))));
+  type Opcao = { rotulo: string; icone: React.ComponentProps<typeof Feather>['name']; perigo?: boolean; fn: () => void };
+  function opcoesAberta(t: Tratativa): Opcao[] {
+    const o: Opcao[] = [];
+    if (t.situacao === 'ruptura') {
+      if (t.acao !== 'pedido_cd' && t.acao !== 'pedido_feito') o.push({ rotulo: 'Enviar ao Pedido CD', icone: 'shopping-cart', fn: () => setPedidoCD([t]) });
     }
-    return <View style={styles.linhaBotoes}>{b}</View>;
+    if (t.situacao === 'ruptura' || t.situacao === 'nunca_veio') {
+      if (t.acao !== 'pedido_feito') o.push({ rotulo: 'Marcar "Pedido feito" (fiz à mão)', icone: 'check', fn: () => executar(() => marcarAcaoGerencia(t, 'pedido_feito', quem)) });
+    } else if (t.situacao === 'cd_sem') {
+      if (t.acao !== 'cobrado') o.push({ rotulo: 'Cobrei o comprador', icone: 'phone', fn: () => executar(() => marcarAcaoGerencia(t, 'cobrado', quem)) });
+    } else if (VAI_PARA_ENCARREGADO.includes(t.situacao)) {
+      o.push({ rotulo: 'Enviar ao encarregado', icone: 'send', fn: () => setEnvio({ itens: [t], pedido: null }) });
+      o.push({ rotulo: 'Já está resolvido', icone: 'check-circle', fn: () => executar(() => resolverManual(t, quem)) });
+    } else if (t.situacao === 'parado') {
+      o.push({ rotulo: 'Sem preço → encarregado', icone: 'tag', fn: () => setEnvio({ itens: [t], pedido: 'sem_preco' }) });
+      o.push({ rotulo: 'Mal exposto → encarregado', icone: 'layout', fn: () => setEnvio({ itens: [t], pedido: 'mal_exposto' }) });
+      o.push({ rotulo: 'Conferir validade → encarregado', icone: 'calendar', fn: () => setEnvio({ itens: [t], pedido: 'validade' }) });
+      o.push({ rotulo: 'Está certo, só não vende', icone: 'check-circle', fn: () => executar(() => resolverManual(t, quem, 'Exposto corretamente, só não vende')) });
+    }
+    if (['ruptura', 'nunca_veio', 'cd_sem'].includes(t.situacao)) {
+      o.push({ rotulo: 'Descontinuado', icone: 'slash', perigo: true, fn: () => setDescont(t) });
+    }
+    return o;
   }
 
   function acoesValidar(t: Tratativa) {
@@ -321,13 +364,18 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
       <CabecalhoTela titulo="Tratativas" subtitulo="Produtos da ruptura até resolver" icone="check-square" onVoltar={onVoltar} />
       <View style={styles.abas}>
         {([
-          ['abertas', `Abertas (${abertas.length})`],
-          ['validar', `Validar (${paraValidar.length})`],
-          ['encarregado', `Com encarregado (${comEncarregado.length})`],
-          ['resolvidas', 'Resolvidas'],
-        ] as [Aba, string][]).map(([k, r]) => (
+          ['abertas', 'Abertas', abertas.length],
+          ['validar', 'Validar', paraValidar.length],
+          ['encarregado', 'Encarregado', comEncarregado.length],
+          ['resolvidas', 'Resolvidas', null],
+        ] as [Aba, string, number | null][]).map(([k, r, n]) => (
           <TouchableOpacity key={k} style={[styles.aba, aba === k && styles.abaAtiva]} onPress={() => setAba(k)}>
-            <Text style={[styles.abaTexto, aba === k && { color: colors.white }]}>{r}</Text>
+            <Text style={[styles.abaTexto, aba === k && styles.abaTextoAtivo]} numberOfLines={1}>{r}</Text>
+            {n != null && (
+              <View style={[styles.abaNum, aba === k && styles.abaNumAtivo, k === 'validar' && n > 0 && aba !== k && { backgroundColor: '#C0352B' }]}>
+                <Text style={[styles.abaNumTexto, (aba === k || (k === 'validar' && n > 0)) && { color: colors.white }]}>{n}</Text>
+              </View>
+            )}
           </TouchableOpacity>
         ))}
       </View>
@@ -355,6 +403,13 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
           ) : null}
         </View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: spacing.sm }}>
+          {listaDaAba.length > 0 && aba !== 'resolvidas' && (
+            <TouchableOpacity style={[styles.chip, styles.chipRota]} onPress={() => setRota(paraRota(selecionadas.length ? selecionadas : listaDaAba))}>
+              <Text style={[styles.chipTexto, { color: AZUL }]}>
+                🧭 Rota{selecionadas.length && aba === 'abertas' ? ` (${selecionadas.length})` : ''}
+              </Text>
+            </TouchableOpacity>
+          )}
           <TouchableOpacity style={[styles.chip, painelFiltros || qtdFiltrosPainel ? styles.chipAtivo : null]} onPress={() => setPainelFiltros(!painelFiltros)}>
             <Text style={[styles.chipTexto, (painelFiltros || qtdFiltrosPainel > 0) && { color: colors.white }]}>
               ⚲ Filtros{qtdFiltrosPainel ? ` (${qtdFiltrosPainel})` : ''}
@@ -407,14 +462,6 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
             </View>
           </View>
         )}
-        {listaDaAba.length > 0 && aba !== 'resolvidas' && (
-          <TouchableOpacity style={styles.btnRota} onPress={() => setRota(paraRota(selecionadas.length ? selecionadas : listaDaAba))}>
-            <Feather name="navigation" size={16} color={AZUL} />
-            <Text style={styles.btnRotaTexto}>
-              Rota no mapa · {selecionadas.length && aba === 'abertas' ? `${selecionadas.length} marcados` : `${listaDaAba.length} produtos`}
-            </Text>
-          </TouchableOpacity>
-        )}
         {algumFiltro && (
           <View style={styles.resumoFiltro}>
             <Text style={styles.nota}>
@@ -436,17 +483,32 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
               const sel = VAI_PARA_ENCARREGADO.includes(s) || s === 'ruptura';
               // Na ruptura, "Marcar todos" pega só o que ainda não foi pedido.
               const marcaveis = s === 'ruptura' ? its.filter((t) => t.acao !== 'pedido_feito' && t.acao !== 'pedido_cd') : its;
+              const pedir = s === 'ruptura' ? marcaveis.filter((t) => (t.estoqueCd ?? 0) > 0) : [];
+              const jaPedidos = s === 'ruptura' ? its.length - marcaveis.length : 0;
               return (
                 <View key={s} style={{ marginBottom: spacing.lg }}>
                   <View style={styles.secTopo}>
-                    <Text style={[styles.secTitulo, { color: info.cor }]}>{info.emoji} {info.titulo} ({its.length})</Text>
-                    {sel && (
+                    <Text style={[styles.secTitulo, { color: info.cor }]}>{info.emoji} {info.titulo} · {its.length}</Text>
+                    {sel && marcaveis.length > 0 && (
                       <TouchableOpacity onPress={() => setMarcadas(new Set([...marcadas, ...marcaveis.map((t) => t.id)]))}>
                         <Text style={styles.link}>Marcar todos</Text>
                       </TouchableOpacity>
                     )}
                   </View>
-                  {its.map((t) => cartao(t, acoesAberta(t), sel))}
+                  {s === 'ruptura' && (
+                    <View style={styles.secResumo}>
+                      <Text style={styles.secResumoTexto}>
+                        {pedir.length} com estoque no CD para pedir{jaPedidos ? ` · ${jaPedidos} já pedidos` : ''}
+                      </Text>
+                      {pedir.length > 0 && (
+                        <TouchableOpacity style={styles.btnPedirTodos} onPress={() => setPedidoCD(pedir)} disabled={ocupado}>
+                          <Feather name="shopping-cart" size={14} color={colors.white} />
+                          <Text style={styles.btnPedirTodosTexto}>Pedir {pedir.length}</Text>
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  )}
+                  {its.map((t) => cartao(t, null, { selecionavel: sel, menu: opcoesAberta(t).length > 0, ocultarSituacao: true }))}
                 </View>
               );
             })}
@@ -504,6 +566,34 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
           )}
         </View>
       )}
+
+      {/* Menu ⋯ de um produto */}
+      <Modal visible={!!menu} transparent animationType="fade" onRequestClose={() => setMenu(null)}>
+        <TouchableOpacity style={styles.modalFundo} activeOpacity={1} onPress={() => setMenu(null)}>
+          <View style={styles.modal} onStartShouldSetResponder={() => true}>
+            <Text style={styles.modalTitulo} numberOfLines={2}>{menu?.produto}</Text>
+            <Text style={[styles.itemDet, { marginBottom: spacing.md }]}>{menu?.codigoInterno} · {menu ? SITUACOES[menu.situacao].titulo : ''}</Text>
+            {menu &&
+              opcoesAberta(menu).map((o) => (
+                <TouchableOpacity
+                  key={o.rotulo}
+                  style={styles.opcaoMenu}
+                  disabled={ocupado}
+                  onPress={() => {
+                    setMenu(null);
+                    o.fn();
+                  }}
+                >
+                  <Feather name={o.icone} size={18} color={o.perigo ? '#C0352B' : colors.navy700} />
+                  <Text style={[styles.opcaoMenuTexto, o.perigo && { color: '#C0352B' }]}>{o.rotulo}</Text>
+                </TouchableOpacity>
+              ))}
+            <TouchableOpacity onPress={() => setMenu(null)} style={{ marginTop: spacing.md, alignSelf: 'center' }}>
+              <Text style={styles.link}>Fechar</Text>
+            </TouchableOpacity>
+          </View>
+        </TouchableOpacity>
+      </Modal>
 
       {/* Confirmar envio ao Pedido CD automático */}
       <Modal visible={!!pedidoCD} transparent animationType="fade" onRequestClose={() => setPedidoCD(null)}>
@@ -760,10 +850,27 @@ function TelaEncarregado({ onVoltar }: { onVoltar: () => void }) {
 
 const styles = StyleSheet.create({
   tela: { flex: 1, backgroundColor: colors.gray50 },
-  abas: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingHorizontal: spacing.lg, paddingTop: spacing.md },
-  aba: { paddingHorizontal: 12, paddingVertical: 8, borderRadius: radius.full, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100 },
-  abaAtiva: { backgroundColor: AZUL, borderColor: AZUL },
-  abaTexto: { fontSize: 12.5, fontWeight: '700', color: colors.navy700 },
+  abas: { flexDirection: 'row', gap: 4, marginHorizontal: spacing.lg, marginTop: spacing.md, padding: 4, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100 },
+  aba: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: radius.sm },
+  abaAtiva: { backgroundColor: AZUL },
+  abaTexto: { fontSize: 12, fontWeight: '700', color: colors.navy700, flexShrink: 1 },
+  abaTextoAtivo: { color: colors.white },
+  abaNum: { minWidth: 18, paddingHorizontal: 5, height: 18, borderRadius: 9, backgroundColor: colors.gray100, alignItems: 'center', justifyContent: 'center' },
+  abaNumAtivo: { backgroundColor: 'rgba(255,255,255,0.25)' },
+  abaNumTexto: { fontSize: 10.5, fontWeight: '800', color: colors.navy700 },
+  chipRota: { backgroundColor: '#E3EDFF', borderColor: '#E3EDFF' },
+  selos: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 },
+  selo: { fontSize: 11, fontWeight: '700', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.full, overflow: 'hidden' },
+  seloVerde: { color: '#178553', backgroundColor: '#E6F6EE' },
+  seloVermelho: { color: '#C0352B', backgroundColor: '#FDECEA' },
+  seloCinza: { color: colors.gray600, backgroundColor: colors.gray50 },
+  btnMenu: { paddingLeft: 8, paddingTop: 1 },
+  secResumo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100, paddingVertical: 8, paddingHorizontal: spacing.md, marginBottom: spacing.sm },
+  secResumoTexto: { flex: 1, fontSize: 12.5, color: colors.gray600, fontWeight: '600' },
+  btnPedirTodos: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: VERDE_PEDIDO, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 8 },
+  btnPedirTodosTexto: { color: colors.white, fontWeight: '800', fontSize: 12.5 },
+  opcaoMenu: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: colors.gray100 },
+  opcaoMenuTexto: { fontSize: 14, fontWeight: '600', color: colors.navy900 },
   chip: { paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.full, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100, marginRight: 6 },
   chipAtivo: { backgroundColor: colors.navy700, borderColor: colors.navy700 },
   chipTexto: { fontSize: 12, fontWeight: '600', color: colors.navy700 },
