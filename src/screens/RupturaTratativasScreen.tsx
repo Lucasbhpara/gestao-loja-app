@@ -60,7 +60,7 @@ const SETORES_ENVIO: { key: SetorKey; nome: string }[] = [
 const ORDEM: Situacao[] = ['ruptura', 'nunca_veio', 'cd_sem', 'repor', 'suspeito', 'parado'];
 const VAI_PARA_ENCARREGADO: Situacao[] = ['repor', 'suspeito'];
 
-type Aba = 'abertas' | 'validar' | 'encarregado' | 'resolvidas';
+type Aba = 'abertas' | 'comprar' | 'validar' | 'encarregado' | 'resolvidas';
 type Idade = 'todas' | 'hoje' | '3' | '7';
 type Ordem = 'antigas' | 'recentes' | 'nome';
 type EstoqueAtual = { q: number; ean: string; em: string };
@@ -120,6 +120,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const [envio, setEnvio] = useState<{ itens: Tratativa[]; pedido: AcaoTratativa | null } | null>(null);
   const [pedidoCD, setPedidoCD] = useState<Tratativa[] | null>(null);
   const [menu, setMenu] = useState<Tratativa | null>(null);
+  const [verAguardando, setVerAguardando] = useState(false);
   const [descont, setDescont] = useState<Tratativa | null>(null);
   const [ajuste, setAjuste] = useState<Tratativa | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -198,8 +199,15 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const ordenar = (a: Tratativa, b: Tratativa) =>
     ordem === 'nome' ? a.produto.localeCompare(b.produto) : ordem === 'recentes' ? b.abertaEm.localeCompare(a.abertaEm) : a.abertaEm.localeCompare(b.abertaEm);
   const doSetor = passa;
-  const totalAbertas = lista.filter((t) => t.status === 'aberta').length;
-  const abertas = lista.filter((t) => t.status === 'aberta' && passa(t)).sort(ordenar);
+  // Já foi para o pedido (fila do Pedido CD ou "Pedido feito"): sai da ruptura e espera chegar.
+  const jaPedido = (t: Tratativa) => (t.situacao === 'ruptura' || t.situacao === 'nunca_veio') && (t.acao === 'pedido_feito' || t.acao === 'pedido_cd');
+  // Precisa comprar: ruptura sem estoque na loja, com estoque no CD, ainda não pedida.
+  const precisaComprar = (t: Tratativa) =>
+    t.status === 'aberta' && t.situacao === 'ruptura' && !jaPedido(t) && (t.estoqueCd ?? 0) > 0 && !((saldoAgora(t) ?? 0) > 0);
+  const totalAbertas = lista.filter((t) => t.status === 'aberta' && !jaPedido(t) && !precisaComprar(t)).length;
+  const abertas = lista.filter((t) => t.status === 'aberta' && !jaPedido(t) && !precisaComprar(t) && passa(t)).sort(ordenar);
+  const comprar = lista.filter((t) => precisaComprar(t) && passa(t)).sort((a, b) => (a.grupoNome ?? '').localeCompare(b.grupoNome ?? '') || a.produto.localeCompare(b.produto));
+  const aguardando = lista.filter((t) => t.status === 'aberta' && jaPedido(t) && passa(t)).sort(ordenar);
   const paraValidar = lista.filter((t) => t.status === 'validacao' && passa(t)).sort(ordenar);
   const comEncarregado = lista.filter((t) => t.status === 'encarregado' && passa(t)).sort(ordenar);
   const qtdFiltrosPainel = (idade !== 'todas' ? 1 : 0) + (soComEstoque ? 1 : 0) + (soAguardando ? 1 : 0) + (ordem !== 'antigas' ? 1 : 0) + (filtroSetor ? 1 : 0);
@@ -352,24 +360,25 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
     ]);
   }
 
-  const selecionadas = abertas.filter((t) => marcadas.has(t.id));
+  const selecionadas = (aba === 'comprar' ? comprar : abertas).filter((t) => marcadas.has(t.id));
   const selPedido = selecionadas.filter((t) => t.situacao === 'ruptura');
   const selEncarregado = selecionadas.filter((t) => t.situacao !== 'ruptura');
-  const listaDaAba = aba === 'abertas' ? abertas : aba === 'validar' ? paraValidar : aba === 'encarregado' ? comEncarregado : resolvidas.filter(passa);
+  const listaDaAba = aba === 'abertas' ? abertas : aba === 'comprar' ? comprar : aba === 'validar' ? paraValidar : aba === 'encarregado' ? comEncarregado : resolvidas.filter(passa);
 
   if (rota) return <RotaMapaScreen itens={rota} titulo="Rota das tratativas" onVoltar={() => setRota(null)} />;
 
   return (
     <View style={styles.tela}>
       <CabecalhoTela titulo="Tratativas" subtitulo="Produtos da ruptura até resolver" icone="check-square" onVoltar={onVoltar} />
-      <View style={styles.abas}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.abas}>
         {([
           ['abertas', 'Abertas', abertas.length],
+          ['comprar', '🛒 Precisa comprar', comprar.length],
           ['validar', 'Validar', paraValidar.length],
           ['encarregado', 'Encarregado', comEncarregado.length],
           ['resolvidas', 'Resolvidas', null],
         ] as [Aba, string, number | null][]).map(([k, r, n]) => (
-          <TouchableOpacity key={k} style={[styles.aba, aba === k && styles.abaAtiva]} onPress={() => setAba(k)}>
+          <TouchableOpacity key={k} style={[styles.aba, aba === k && styles.abaAtiva]} onPress={() => { setAba(k); setMarcadas(new Set()); }}>
             <Text style={[styles.abaTexto, aba === k && styles.abaTextoAtivo]} numberOfLines={1}>{r}</Text>
             {n != null && (
               <View style={[styles.abaNum, aba === k && styles.abaNumAtivo, k === 'validar' && n > 0 && aba !== k && { backgroundColor: '#C0352B' }]}>
@@ -378,7 +387,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
             )}
           </TouchableOpacity>
         ))}
-      </View>
+      </ScrollView>
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 140 }} refreshControl={<RefreshControl refreshing={carregando} onRefresh={() => carregar(true)} />}>
         {aviso && (
           <View style={styles.avisoAzul}>
@@ -480,11 +489,8 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
               const its = abertas.filter((t) => t.situacao === s);
               if (!its.length) return null;
               const info = SITUACOES[s];
-              const sel = VAI_PARA_ENCARREGADO.includes(s) || s === 'ruptura';
-              // Na ruptura, "Marcar todos" pega só o que ainda não foi pedido.
-              const marcaveis = s === 'ruptura' ? its.filter((t) => t.acao !== 'pedido_feito' && t.acao !== 'pedido_cd') : its;
-              const pedir = s === 'ruptura' ? marcaveis.filter((t) => (t.estoqueCd ?? 0) > 0) : [];
-              const jaPedidos = s === 'ruptura' ? its.length - marcaveis.length : 0;
+              const sel = VAI_PARA_ENCARREGADO.includes(s);
+              const marcaveis = its;
               return (
                 <View key={s} style={{ marginBottom: spacing.lg }}>
                   <View style={styles.secTopo}>
@@ -496,17 +502,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
                     )}
                   </View>
                   {s === 'ruptura' && (
-                    <View style={styles.secResumo}>
-                      <Text style={styles.secResumoTexto}>
-                        {pedir.length} com estoque no CD para pedir{jaPedidos ? ` · ${jaPedidos} já pedidos` : ''}
-                      </Text>
-                      {pedir.length > 0 && (
-                        <TouchableOpacity style={styles.btnPedirTodos} onPress={() => setPedidoCD(pedir)} disabled={ocupado}>
-                          <Feather name="shopping-cart" size={14} color={colors.white} />
-                          <Text style={styles.btnPedirTodosTexto}>Pedir {pedir.length}</Text>
-                        </TouchableOpacity>
-                      )}
-                    </View>
+                    <Text style={styles.nota}>Sem estoque no CD ou com estoque na loja. Os que dá para pedir estão em “🛒 Precisa comprar”.</Text>
                   )}
                   {its.map((t) => cartao(t, null, { selecionavel: sel, menu: opcoesAberta(t).length > 0, ocultarSituacao: true }))}
                 </View>
@@ -514,6 +510,55 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
             })}
             {!carregando && !abertas.length && (
               <Text style={styles.vazio}>{algumFiltro && totalAbertas ? 'Nenhuma tratativa com esses filtros.' : 'Nenhuma tratativa aberta. Elas aparecem ao salvar uma coleta.'}</Text>
+            )}
+            {aguardando.length > 0 && (
+              <View style={{ marginBottom: spacing.lg }}>
+                <TouchableOpacity style={styles.secTopo} onPress={() => setVerAguardando(!verAguardando)}>
+                  <Text style={[styles.secTitulo, { color: '#1D4ED8' }]}>🚚 Pedido feito · aguardando chegada · {aguardando.length}</Text>
+                  <Feather name={verAguardando ? 'chevron-up' : 'chevron-down'} size={18} color="#1D4ED8" />
+                </TouchableOpacity>
+                <Text style={styles.nota}>Fecham sozinhos quando o produto volta a ter estoque na loja.</Text>
+                {verAguardando && aguardando.map((t) => cartao(t, null, { menu: opcoesAberta(t).length > 0 }))}
+              </View>
+            )}
+          </>
+        )}
+
+        {aba === 'comprar' && (
+          <>
+            <View style={styles.secResumo}>
+              <Text style={styles.secResumoTexto}>
+                {comprar.length} sem estoque na loja e com estoque no CD{marcadas.size ? ` · ${selecionadas.length} marcados` : ''}
+              </Text>
+              {comprar.length > 0 && (
+                <TouchableOpacity onPress={() => setMarcadas(marcadas.size === comprar.length ? new Set() : new Set(comprar.map((t) => t.id)))}>
+                  <Text style={styles.link}>{marcadas.size === comprar.length ? 'Desmarcar' : 'Marcar todos'}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+            {[...new Set(comprar.map((t) => t.grupoNome ?? 'Sem grupo'))].map((g) => {
+              const its = comprar.filter((t) => (t.grupoNome ?? 'Sem grupo') === g);
+              const todos = its.every((t) => marcadas.has(t.id));
+              return (
+                <View key={g} style={{ marginBottom: spacing.md }}>
+                  <View style={styles.secTopo}>
+                    <Text style={[styles.secTitulo, { fontSize: 14, color: colors.navy700 }]}>{g} · {its.length}</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const n = new Set(marcadas);
+                        its.forEach((t) => (todos ? n.delete(t.id) : n.add(t.id)));
+                        setMarcadas(n);
+                      }}
+                    >
+                      <Text style={styles.link}>{todos ? 'Desmarcar' : 'Marcar grupo'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {its.map((t) => cartao(t, null, { selecionavel: true, menu: true, ocultarSituacao: true }))}
+                </View>
+              );
+            })}
+            {!carregando && !comprar.length && (
+              <Text style={styles.vazio}>Nada para comprar agora. 👍 Tudo que está em ruptura com estoque no CD já foi pedido.</Text>
             )}
           </>
         )}
@@ -550,7 +595,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
         )}
       </ScrollView>
 
-      {aba === 'abertas' && selecionadas.length > 0 && (
+      {(aba === 'abertas' || aba === 'comprar') && selecionadas.length > 0 && (
         <View style={[styles.rodape, { gap: spacing.sm }]}>
           {selPedido.length > 0 && (
             <TouchableOpacity style={[styles.btnGrande, { flex: 1, backgroundColor: VERDE_PEDIDO }]} onPress={() => setPedidoCD(selPedido)}>
@@ -850,9 +895,9 @@ function TelaEncarregado({ onVoltar }: { onVoltar: () => void }) {
 
 const styles = StyleSheet.create({
   tela: { flex: 1, backgroundColor: colors.gray50 },
-  abas: { flexDirection: 'row', gap: 4, marginHorizontal: spacing.lg, marginTop: spacing.md, padding: 4, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100 },
-  aba: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, paddingVertical: 8, borderRadius: radius.sm },
-  abaAtiva: { backgroundColor: AZUL },
+  abas: { flexDirection: 'row', gap: 6, paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: 2 },
+  aba: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingVertical: 8, paddingHorizontal: 12, borderRadius: radius.full, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100 },
+  abaAtiva: { backgroundColor: AZUL, borderColor: AZUL },
   abaTexto: { fontSize: 12, fontWeight: '700', color: colors.navy700, flexShrink: 1 },
   abaTextoAtivo: { color: colors.white },
   abaNum: { minWidth: 18, paddingHorizontal: 5, height: 18, borderRadius: 9, backgroundColor: colors.gray100, alignItems: 'center', justifyContent: 'center' },
