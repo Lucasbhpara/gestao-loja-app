@@ -60,7 +60,7 @@ const SETORES_ENVIO: { key: SetorKey; nome: string }[] = [
 const ORDEM: Situacao[] = ['ruptura', 'nunca_veio', 'cd_sem', 'repor', 'suspeito', 'parado'];
 const VAI_PARA_ENCARREGADO: Situacao[] = ['repor', 'suspeito'];
 
-type Aba = 'abertas' | 'comprar' | 'validar' | 'encarregado' | 'resolvidas';
+type Aba = 'comprar' | 'verificar' | 'abertas' | 'validar' | 'encarregado' | 'resolvidas';
 type Idade = 'todas' | 'hoje' | '3' | '7';
 type Ordem = 'antigas' | 'recentes' | 'nome';
 type EstoqueAtual = { q: number; ean: string; em: string };
@@ -123,7 +123,7 @@ export default function RupturaTratativasScreen({ modo, onVoltar }: { modo: 'ger
 function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
   const quem = usuarioAtual?.nome ?? '';
-  const [aba, setAba] = useState<Aba>('abertas');
+  const [aba, setAba] = useState<Aba>('comprar');
   const [lista, setLista] = useState<Tratativa[]>([]);
   const [resolvidas, setResolvidas] = useState<Tratativa[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -222,8 +222,13 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   // Precisa comprar: ruptura sem estoque na loja, com estoque no CD, ainda não pedida.
   const precisaComprar = (t: Tratativa) =>
     t.status === 'aberta' && t.situacao === 'ruptura' && !jaPedido(t) && (cdAtual(t) ?? 0) > 0 && !((saldoAgora(t) ?? 0) > 0);
-  const totalAbertas = lista.filter((t) => t.status === 'aberta' && !jaPedido(t) && !precisaComprar(t)).length;
-  const abertas = lista.filter((t) => t.status === 'aberta' && !jaPedido(t) && !precisaComprar(t) && passa(t)).sort(ordenar);
+  // Verificar estoque: não está na área de venda, mas o sistema tem estoque na loja → encarregado confere e leva.
+  const verificarEstoque = (t: Tratativa) =>
+    t.status === 'aberta' && !jaPedido(t) && !precisaComprar(t) && ['ruptura', 'repor', 'suspeito'].includes(t.situacao) && (saldoAgora(t) ?? 0) > 0;
+  const outra = (t: Tratativa) => t.status === 'aberta' && !jaPedido(t) && !precisaComprar(t) && !verificarEstoque(t);
+  const totalAbertas = lista.filter(outra).length;
+  const abertas = lista.filter((t) => outra(t) && passa(t)).sort(ordenar);
+  const verificar = lista.filter((t) => verificarEstoque(t) && passa(t)).sort((a, b) => (a.grupoNome ?? '').localeCompare(b.grupoNome ?? '') || (saldoAgora(b) ?? 0) - (saldoAgora(a) ?? 0));
   const comprar = lista.filter((t) => precisaComprar(t) && passa(t)).sort((a, b) => (a.grupoNome ?? '').localeCompare(b.grupoNome ?? '') || a.produto.localeCompare(b.produto));
   const aguardando = lista.filter((t) => t.status === 'aberta' && jaPedido(t) && passa(t)).sort(ordenar);
   const paraValidar = lista.filter((t) => t.status === 'validacao' && passa(t)).sort(ordenar);
@@ -380,10 +385,10 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
     ]);
   }
 
-  const selecionadas = (aba === 'comprar' ? comprar : abertas).filter((t) => marcadas.has(t.id));
+  const selecionadas = (aba === 'comprar' ? comprar : aba === 'verificar' ? verificar : abertas).filter((t) => marcadas.has(t.id));
   const selPedido = selecionadas.filter((t) => t.situacao === 'ruptura' && (cdAtual(t) ?? 0) > 0);
-  const selEncarregado = selecionadas.filter((t) => t.situacao !== 'ruptura');
-  const listaDaAba = aba === 'abertas' ? abertas : aba === 'comprar' ? comprar : aba === 'validar' ? paraValidar : aba === 'encarregado' ? comEncarregado : resolvidas.filter(passa);
+  const selEncarregado = aba === 'verificar' ? selecionadas : selecionadas.filter((t) => t.situacao !== 'ruptura');
+  const listaDaAba = aba === 'abertas' ? abertas : aba === 'comprar' ? comprar : aba === 'verificar' ? verificar : aba === 'validar' ? paraValidar : aba === 'encarregado' ? comEncarregado : resolvidas.filter(passa);
 
   if (rota) return <RotaMapaScreen itens={rota} titulo="Rota das tratativas" onVoltar={() => setRota(null)} />;
 
@@ -392,8 +397,9 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
       <CabecalhoTela titulo="Tratativas" subtitulo="Produtos da ruptura até resolver" icone="check-square" onVoltar={onVoltar} />
       <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0 }} contentContainerStyle={styles.abas}>
         {([
-          ['abertas', 'Abertas', abertas.length],
           ['comprar', '🛒 Precisa comprar', comprar.length],
+          ['verificar', '📦 Verificar estoque', verificar.length],
+          ['abertas', 'Outras', abertas.length],
           ['validar', 'Validar', paraValidar.length],
           ['encarregado', 'Encarregado', comEncarregado.length],
           ['resolvidas', 'Resolvidas', null],
@@ -444,11 +450,6 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
               ⚲ Filtros{qtdFiltrosPainel ? ` (${qtdFiltrosPainel})` : ''}
             </Text>
           </TouchableOpacity>
-          {[null, ...ORDEM].map((st) => (
-            <TouchableOpacity key={st ?? 'todas'} style={[styles.chip, filtroSituacao === st && styles.chipAtivo]} onPress={() => setFiltroSituacao(st)}>
-              <Text style={[styles.chipTexto, filtroSituacao === st && { color: colors.white }]}>{st ? `${SITUACOES[st].emoji} ${SITUACOES[st].titulo}` : 'Todas'}</Text>
-            </TouchableOpacity>
-          ))}
         </ScrollView>
         {painelFiltros && (
           <View style={styles.painel}>
@@ -531,16 +532,44 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
             {!carregando && !abertas.length && (
               <Text style={styles.vazio}>{algumFiltro && totalAbertas ? 'Nenhuma tratativa com esses filtros.' : 'Nenhuma tratativa aberta. Elas aparecem ao salvar uma coleta.'}</Text>
             )}
-            {aguardando.length > 0 && (
-              <View style={{ marginBottom: spacing.lg }}>
-                <TouchableOpacity style={styles.secTopo} onPress={() => setVerAguardando(!verAguardando)}>
-                  <Text style={[styles.secTitulo, { color: '#1D4ED8' }]}>🚚 Pedido feito · aguardando chegada · {aguardando.length}</Text>
-                  <Feather name={verAguardando ? 'chevron-up' : 'chevron-down'} size={18} color="#1D4ED8" />
+          </>
+        )}
+
+        {aba === 'verificar' && (
+          <>
+            <View style={styles.secResumo}>
+              <Text style={styles.secResumoTexto}>
+                {verificar.length} fora da área de venda com estoque na loja{marcadas.size ? ` · ${selecionadas.length} marcados` : ''}
+              </Text>
+              {verificar.length > 0 && (
+                <TouchableOpacity onPress={() => setMarcadas(marcadas.size === verificar.length ? new Set() : new Set(verificar.map((t) => t.id)))}>
+                  <Text style={styles.link}>{marcadas.size === verificar.length ? 'Desmarcar' : 'Marcar todos'}</Text>
                 </TouchableOpacity>
-                <Text style={styles.nota}>Fecham sozinhos quando o produto volta a ter estoque na loja.</Text>
-                {verAguardando && aguardando.map((t) => cartao(t, null, { menu: opcoesAberta(t).length > 0 }))}
-              </View>
-            )}
+              )}
+            </View>
+            <Text style={styles.nota}>Produto parado no estoque: mande ao encarregado conferir e levar para a loja.</Text>
+            {[...new Set(verificar.map((t) => t.grupoNome ?? 'Sem grupo'))].map((g) => {
+              const its = verificar.filter((t) => (t.grupoNome ?? 'Sem grupo') === g);
+              const todos = its.every((t) => marcadas.has(t.id));
+              return (
+                <View key={g} style={{ marginBottom: spacing.md }}>
+                  <View style={styles.secTopo}>
+                    <Text style={[styles.secTitulo, { fontSize: 14, color: colors.navy700 }]}>{g} · {its.length}</Text>
+                    <TouchableOpacity
+                      onPress={() => {
+                        const n = new Set(marcadas);
+                        its.forEach((t) => (todos ? n.delete(t.id) : n.add(t.id)));
+                        setMarcadas(n);
+                      }}
+                    >
+                      <Text style={styles.link}>{todos ? 'Desmarcar' : 'Marcar grupo'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                  {its.map((t) => cartao(t, null, { selecionavel: true, menu: true }))}
+                </View>
+              );
+            })}
+            {!carregando && !verificar.length && <Text style={styles.vazio}>Nada para verificar agora. 👍</Text>}
           </>
         )}
 
@@ -580,6 +609,17 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
             {!carregando && !comprar.length && (
               <Text style={styles.vazio}>Nada para comprar agora. 👍 Tudo que está em ruptura com estoque no CD já foi pedido.</Text>
             )}
+            {aguardando.length > 0 && (
+              <View style={{ marginBottom: spacing.lg }}>
+                <TouchableOpacity style={styles.secTopo} onPress={() => setVerAguardando(!verAguardando)}>
+                  <Text style={[styles.secTitulo, { color: '#1D4ED8' }]}>🚚 Pedido feito · aguardando chegada · {aguardando.length}</Text>
+                  <Feather name={verAguardando ? 'chevron-up' : 'chevron-down'} size={18} color="#1D4ED8" />
+                </TouchableOpacity>
+                <Text style={styles.nota}>Fecham sozinhos quando o produto volta a ter estoque na loja.</Text>
+                {verAguardando && aguardando.map((t) => cartao(t, null, { menu: opcoesAberta(t).length > 0 }))}
+              </View>
+            )}
+
           </>
         )}
 
@@ -615,7 +655,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
         )}
       </ScrollView>
 
-      {(aba === 'abertas' || aba === 'comprar') && selecionadas.length > 0 && (
+      {(aba === 'abertas' || aba === 'comprar' || aba === 'verificar') && selecionadas.length > 0 && (
         <View style={[styles.rodape, { gap: spacing.sm }]}>
           {selPedido.length > 0 && (
             <TouchableOpacity style={[styles.btnGrande, { flex: 1, backgroundColor: VERDE_PEDIDO }]} onPress={() => setPedidoCD(selPedido)}>

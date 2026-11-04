@@ -55,6 +55,7 @@ export const ROTULO_ACAO: Record<AcaoTratativa, string> = {
 // O que o encarregado precisa fazer, por tipo de envio.
 export const PEDIDO_ENCARREGADO: Partial<Record<AcaoTratativa | Situacao, string>> = {
   repor: 'Levar do depósito para a gôndola',
+  ruptura: 'Tem estoque na loja: procurar no depósito e levar para a gôndola',
   suspeito: 'Procurar no depósito e abastecer',
   sem_preco: 'Colocar a etiqueta de preço',
   mal_exposto: 'Organizar a exposição na gôndola',

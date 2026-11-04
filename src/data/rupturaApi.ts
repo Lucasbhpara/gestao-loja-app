@@ -83,6 +83,9 @@ export interface ColetaLocal {
   areaId?: string | null;
   // EAN lido -> código interno (null = não é do grupo)
   lidos: { ean: string; codigoInterno: string | null; produto: string | null; em: string; areaId?: string | null }[];
+  // Produtos que não foram bipados e que o coletor marcou como "não consegui
+  // conferir" ao finalizar: ficam fora do resultado desta coleta.
+  ignorados?: string[];
 }
 
 const CHAVE_COLETA = 'ruptura:coletaAtual';
@@ -182,6 +185,41 @@ export async function buscarProdutoPorEan(ean: string): Promise<string | null> {
   } catch {
     return null;
   }
+}
+
+// Produto bipado que não é do grupo: acha pelo código de barras e passa a
+// fazer parte do grupo que está sendo coletado (atualiza o sortimento).
+export async function incluirNoGrupoPorEan(ean: string, grupoId: string, por: string): Promise<ItemUniverso | null> {
+  const [{ data: est }, { data: cat }] = await Promise.all([
+    supabase.from('estoque_loja_itens').select('codigo_interno, produto, quantidade, atualizado_em').eq('codigo_barras', ean).order('atualizado_em', { ascending: false }).limit(1),
+    supabase.from('produtos_catalogo').select('codigo_interno, produto').eq('codigo_barras', ean).limit(1),
+  ]);
+  const cod = String(est?.[0]?.codigo_interno ?? cat?.[0]?.codigo_interno ?? '').trim();
+  if (!cod) return null;
+  const produto = est?.[0]?.produto ?? cat?.[0]?.produto ?? cod;
+  const [{ data: ant }, { data: mx }] = await Promise.all([
+    supabase.from('ruptura_produto_grupo').select('grupo_id').eq('codigo_interno', cod).limit(1),
+    supabase.from('mix_cd_itens').select('estoque_cd, zerado_desde, importacoes_zerado').eq('codigo_interno', cod).limit(1),
+  ]);
+  const { error } = await supabase.from('ruptura_produto_grupo').upsert({
+    codigo_interno: cod, grupo_id: grupoId, grupo_anterior: ant?.[0]?.grupo_id ?? null, produto,
+    movido_por: por, movido_em: new Date().toISOString(),
+  });
+  if (error) throw new Error(error.message);
+  return {
+    codigoInterno: cod,
+    produto,
+    eans: [ean],
+    saldo: est?.[0]?.quantidade == null ? null : Number(est[0].quantidade),
+    ultimaVenda: null,
+    noCd: !!mx?.length,
+    estoqueCd: mx?.[0]?.estoque_cd == null ? null : Number(mx[0].estoque_cd),
+    cdZeradoDesde: mx?.[0]?.zerado_desde ?? null,
+    importacoesZerado: Number(mx?.[0]?.importacoes_zerado ?? 0),
+    lojaTrabalha: true,
+    descontinuado: false,
+    motivoDescontinuado: null,
+  };
 }
 
 // --------------------------------------------------------- coleta local ----
