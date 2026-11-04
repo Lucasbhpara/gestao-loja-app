@@ -463,7 +463,7 @@ function TelaNaoColetados({
               <View style={{ flex: 1 }}>
                 <Text style={[styles.itemNome, m && { color: colors.gray600 }]} numberOfLines={2}>{u.produto}</Text>
                 <Text style={styles.itemDet}>
-                  {u.codigoInterno}
+                  {u.eans[0] ?? u.codigoInterno}
                   {u.saldo != null ? ` · loja ${u.saldo}` : ''}
                   {u.estoqueCd != null ? ` · CD ${u.estoqueCd}` : ''}
                   {m ? ' · não conferido' : ''}
@@ -603,6 +603,15 @@ function TelaColeta({
     }
   }
 
+  // Botão "Coletar" na lista: o produto está na área mas não deu para bipar.
+  function coletarManual(u: ItemUniverso) {
+    const c = coletaRef.current;
+    if (c.lidos.some((l) => l.codigoInterno === u.codigoInterno)) return;
+    Vibration.vibrate(40);
+    onMudar({ ...c, lidos: [...c.lidos, { ean: u.eans[0] ?? u.codigoInterno, codigoInterno: u.codigoInterno, produto: u.produto, em: new Date().toISOString(), areaId: c.areaId ?? null }] });
+    setFlash({ texto: `✓ Coletado: ${u.produto}`, tipo: 'ok' });
+  }
+
   function desfazerUltimo() {
     if (!coleta.lidos.length) return;
     const ult = coleta.lidos[coleta.lidos.length - 1];
@@ -685,13 +694,17 @@ function TelaColeta({
 
       <Text style={styles.titLista}>Ainda não bipados ({faltam.length})</Text>
       <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingHorizontal: spacing.lg, paddingBottom: 100 }}>
-        {faltam.length > 0 && <Text style={styles.dicaFalta}>Toque num produto para mandar para outro grupo, se ele fica em outro subsetor.</Text>}
+        {faltam.length > 0 && <Text style={styles.dicaFalta}>Está na área e não quer bipar? Toque em ✓ Coletar. Toque no nome para mandar para outro grupo.</Text>}
         {faltam.map((u) => (
-          <TouchableOpacity key={u.codigoInterno} style={styles.linhaFalta} onPress={() => tocarFalta(u)}>
-            <Text style={styles.linhaFaltaNome} numberOfLines={1}>{u.produto}</Text>
-            <Text style={styles.linhaFaltaCod}>{u.codigoInterno}</Text>
-            <Feather name="corner-up-right" size={15} color={colors.gray400} style={{ marginLeft: 6 }} />
-          </TouchableOpacity>
+          <View key={u.codigoInterno} style={styles.linhaFalta}>
+            <TouchableOpacity style={{ flex: 1 }} onPress={() => tocarFalta(u)}>
+              <Text style={styles.linhaFaltaNome} numberOfLines={2}>{u.produto}</Text>
+              <Text style={styles.linhaFaltaCod}>{u.eans[0] ?? u.codigoInterno}</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.btnColetar} onPress={() => coletarManual(u)}>
+              <Text style={styles.btnColetarTexto}>✓ Coletar</Text>
+            </TouchableOpacity>
+          </View>
         ))}
         {faltam.length === 0 && <Text style={styles.vazio}>Tudo bipado! 🎉</Text>}
       </ScrollView>
@@ -763,7 +776,8 @@ function SeletorGrupo({
   onEscolher: (g: GrupoRuptura) => void;
 }) {
   const [busca, setBusca] = useState('');
-  useEffect(() => { if (item) setBusca(''); }, [item]);
+  const [aberto, setAberto] = useState<string | null>(setorAtual);
+  useEffect(() => { if (item) { setBusca(''); setAberto(setorAtual); } }, [item, setorAtual]);
   const termo = busca.trim().toLowerCase();
   const filtrados = grupos.filter((g) => !termo || g.nome.toLowerCase().includes(termo) || g.setor.toLowerCase().includes(termo));
   // setor atual primeiro (o mais comum é trocar de subsetor dentro dele)
@@ -784,17 +798,27 @@ function SeletorGrupo({
           <TextInput style={styles.input} value={busca} onChangeText={setBusca} placeholder="Buscar grupo" placeholderTextColor={colors.gray400} autoCorrect={false} />
         </View>
         <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }} keyboardShouldPersistTaps="handled">
-          {setores.map((st) => (
-            <View key={st} style={{ marginBottom: spacing.md }}>
-              <Text style={[styles.titLista, { paddingHorizontal: 0, marginTop: 0 }]}>{nomeSetor(st)}</Text>
-              {filtrados.filter((g) => g.setor === st).map((g) => (
-                <TouchableOpacity key={g.id} style={styles.cardGrupo} onPress={() => onEscolher(g)}>
-                  <Text style={[styles.nomeGrupo, { flex: 1 }]}>{g.nome}</Text>
-                  <Feather name="chevron-right" size={18} color={colors.gray400} />
+          {setores.map((st) => {
+            const gs = filtrados.filter((g) => g.setor === st);
+            const ab = !!termo || aberto === st;
+            return (
+              <View key={st} style={[styles.gaveta, ab && styles.gavetaAberta]}>
+                <TouchableOpacity style={styles.gavetaTopo} onPress={() => setAberto(ab ? null : st)} disabled={!!termo}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.gavetaTitulo}>{nomeSetor(st)}</Text>
+                    <Text style={styles.subGrupo}>{gs.length} grupos{st === setorAtual ? ' · setor atual' : ''}</Text>
+                  </View>
+                  {!termo && <Feather name={ab ? 'chevron-up' : 'chevron-down'} size={22} color={colors.navy700} />}
                 </TouchableOpacity>
-              ))}
-            </View>
-          ))}
+                {ab && gs.map((g) => (
+                  <TouchableOpacity key={g.id} style={styles.cardGrupo} onPress={() => onEscolher(g)}>
+                    <Text style={[styles.nomeGrupo, { flex: 1 }]}>{g.nome}</Text>
+                    <Feather name="chevron-right" size={18} color={colors.gray400} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            );
+          })}
           {!setores.length && <Text style={styles.vazio}>Nenhum grupo com esse nome.</Text>}
         </ScrollView>
       </View>
@@ -1349,7 +1373,9 @@ const styles = StyleSheet.create({
   titLista: { fontSize: 13, fontWeight: '700', color: colors.gray600, paddingHorizontal: spacing.lg, marginTop: spacing.md, marginBottom: spacing.sm },
   linhaFalta: { flexDirection: 'row', alignItems: 'center', backgroundColor: colors.white, borderRadius: radius.sm, paddingHorizontal: spacing.md, paddingVertical: 10, marginBottom: 6 },
   linhaFaltaNome: { flex: 1, fontSize: 13, color: colors.gray900 },
-  linhaFaltaCod: { fontSize: 12, color: colors.gray400, marginLeft: spacing.sm },
+  linhaFaltaCod: { fontSize: 12, color: colors.gray400, marginTop: 2 },
+  btnColetar: { backgroundColor: '#E6F6EE', borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 9, marginLeft: spacing.sm },
+  btnColetarTexto: { color: '#178553', fontWeight: '800', fontSize: 13 },
   rodape: { position: 'absolute', left: 0, right: 0, bottom: 0, flexDirection: 'row', padding: spacing.lg, backgroundColor: colors.gray50, borderTopWidth: 1, borderTopColor: colors.gray100 },
   resumo: { flexDirection: 'row', backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, borderWidth: 1, borderColor: colors.gray100 },
   resumoBloco: { flex: 1, alignItems: 'center' },

@@ -17,7 +17,7 @@ import { ENTRADA, FonteLocal, buscarAreasComCache, buscarAreasDosGrupos, buscarA
 // chave: identifica o item na lista quando dois itens podem ter o mesmo código
 // (padrão = código). feito/acoes: a tela que chamou controla o "conferido" e
 // mostra os próprios botões embaixo de cada item (ex.: OK / Ruptura do jornal).
-export type ItemRota = { codigoInterno: string; produto: string; grupoId: string | null; detalhe?: string; chave?: string };
+export type ItemRota = { codigoInterno: string; produto: string; grupoId: string | null; detalhe?: string; chave?: string; codigoExibido?: string };
 type Props = {
   itens: ItemRota[];
   titulo?: string;
@@ -148,7 +148,7 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
                         <View style={{ flex: 1 }}>
                           <Text style={[styles.itemNome, ok && styles.riscado]}>{item.produto}</Text>
                           <Text style={styles.itemDet}>
-                            {item.codigoInterno}{item.detalhe ? ` · ${item.detalhe}` : ''}{certeza === 'grupo' ? ' · local do grupo' : certeza === 'sub' ? ' · local do sub-sortimento' : ''}
+                            {item.codigoExibido ?? item.codigoInterno}{item.detalhe ? ` · ${item.detalhe}` : ''}{certeza === 'grupo' ? ' · local do grupo' : certeza === 'sub' ? ' · local do sub-sortimento' : ''}
                           </Text>
                         </View>
                       </TouchableOpacity>
@@ -169,7 +169,7 @@ export default function RotaMapaScreen({ itens, titulo = 'Rota no mapa', onVolta
                   <Feather name="map-pin" size={18} color={AZUL} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.itemNome}>{item.produto}</Text>
-                    <Text style={styles.itemDet}>{item.codigoInterno}{item.detalhe ? ` · ${item.detalhe}` : ''}</Text>
+                    <Text style={styles.itemDet}>{item.codigoExibido ?? item.codigoInterno}{item.detalhe ? ` · ${item.detalhe}` : ''}</Text>
                   </View>
                   <Text style={styles.link}>Marcar</Text>
                 </TouchableOpacity>
