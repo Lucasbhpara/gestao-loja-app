@@ -187,3 +187,8 @@ grant execute on function pedido_cd_recentes(int) to anon, authenticated;
 grant execute on function ruptura_grupo_dos_produtos(text[]) to anon, authenticated;
 grant execute on function ruptura_sugerida_importar(text, jsonb, text) to anon, authenticated;
 grant execute on function ruptura_sugerida_enviar_pedido(uuid, text) to anon, authenticated;
+
+-- Atualização: cada item guarda a área do mapa (area_id) — local do produto
+-- pela conferência do jornal / coletas (produto_areas) e, se não tiver, o
+-- local do grupo. O app ordena a conferência pela rota do mapa.
+-- Ver migração ruptura_sugerida_area_produto (função ruptura_sugerida_definir_areas).
