@@ -32,6 +32,7 @@ import {
   buscarTratativas,
   descontinuar,
   enviarAoEncarregado,
+  enviarAoPedidoCD,
   marcarAcaoGerencia,
   resolverManual,
   responderEncarregado,
@@ -44,6 +45,7 @@ import {
 // modo "encarregado": só o que foi mandado para o setor dele, com os botões.
 
 const AZUL = '#2F7BFF';
+const VERDE_PEDIDO = '#1B5E20';
 const dataBR = (d: string | null) => (d ? new Date(d).toLocaleDateString('pt-BR') : '—');
 const diasAberta = (d: string) => Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 86400000));
 const nomeSetor = (s: string | null) => (s ? s.charAt(0) + s.slice(1).toLowerCase() : '');
@@ -115,6 +117,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const [aviso, setAviso] = useState<string | null>(null);
   const [marcadas, setMarcadas] = useState<Set<string>>(new Set());
   const [envio, setEnvio] = useState<{ itens: Tratativa[]; pedido: AcaoTratativa | null } | null>(null);
+  const [pedidoCD, setPedidoCD] = useState<Tratativa[] | null>(null);
   const [descont, setDescont] = useState<Tratativa | null>(null);
   const [ajuste, setAjuste] = useState<Tratativa | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -307,6 +310,8 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   }
 
   const selecionadas = abertas.filter((t) => marcadas.has(t.id));
+  const selPedido = selecionadas.filter((t) => t.situacao === 'ruptura');
+  const selEncarregado = selecionadas.filter((t) => t.situacao !== 'ruptura');
   const listaDaAba = aba === 'abertas' ? abertas : aba === 'validar' ? paraValidar : aba === 'encarregado' ? comEncarregado : resolvidas.filter(passa);
 
   if (rota) return <RotaMapaScreen itens={rota} titulo="Rota das tratativas" onVoltar={() => setRota(null)} />;
@@ -428,13 +433,15 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
               const its = abertas.filter((t) => t.situacao === s);
               if (!its.length) return null;
               const info = SITUACOES[s];
-              const sel = VAI_PARA_ENCARREGADO.includes(s);
+              const sel = VAI_PARA_ENCARREGADO.includes(s) || s === 'ruptura';
+              // Na ruptura, "Marcar todos" pega só o que ainda não foi pedido.
+              const marcaveis = s === 'ruptura' ? its.filter((t) => t.acao !== 'pedido_feito' && t.acao !== 'pedido_cd') : its;
               return (
                 <View key={s} style={{ marginBottom: spacing.lg }}>
                   <View style={styles.secTopo}>
                     <Text style={[styles.secTitulo, { color: info.cor }]}>{info.emoji} {info.titulo} ({its.length})</Text>
                     {sel && (
-                      <TouchableOpacity onPress={() => setMarcadas(new Set([...marcadas, ...its.map((t) => t.id)]))}>
+                      <TouchableOpacity onPress={() => setMarcadas(new Set([...marcadas, ...marcaveis.map((t) => t.id)]))}>
                         <Text style={styles.link}>Marcar todos</Text>
                       </TouchableOpacity>
                     )}
@@ -482,13 +489,59 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
       </ScrollView>
 
       {aba === 'abertas' && selecionadas.length > 0 && (
-        <View style={styles.rodape}>
-          <TouchableOpacity style={[styles.btnGrande, { flex: 1 }]} onPress={() => setEnvio({ itens: selecionadas, pedido: null })}>
-            <Feather name="send" size={16} color={colors.white} />
-            <Text style={styles.btnGrandeTexto}>Enviar {selecionadas.length} ao encarregado</Text>
-          </TouchableOpacity>
+        <View style={[styles.rodape, { gap: spacing.sm }]}>
+          {selPedido.length > 0 && (
+            <TouchableOpacity style={[styles.btnGrande, { flex: 1, backgroundColor: VERDE_PEDIDO }]} onPress={() => setPedidoCD(selPedido)}>
+              <Feather name="shopping-cart" size={16} color={colors.white} />
+              <Text style={styles.btnGrandeTexto}>Enviar {selPedido.length} ao Pedido CD</Text>
+            </TouchableOpacity>
+          )}
+          {selEncarregado.length > 0 && (
+            <TouchableOpacity style={[styles.btnGrande, { flex: 1 }]} onPress={() => setEnvio({ itens: selEncarregado, pedido: null })}>
+              <Feather name="send" size={16} color={colors.white} />
+              <Text style={styles.btnGrandeTexto}>Enviar {selEncarregado.length} ao encarregado</Text>
+            </TouchableOpacity>
+          )}
         </View>
       )}
+
+      {/* Confirmar envio ao Pedido CD automático */}
+      <Modal visible={!!pedidoCD} transparent animationType="fade" onRequestClose={() => setPedidoCD(null)}>
+        <View style={styles.modalFundo}>
+          <View style={styles.modal}>
+            <Text style={styles.modalTitulo}>Enviar ao Pedido CD</Text>
+            <Text style={styles.modalTexto}>
+              {pedidoCD?.length} {pedidoCD?.length === 1 ? 'produto vai' : 'produtos vão'} para o formulário MG SECOS do Portal 360.
+              A quantidade é o giro semanal (mínimo 1 caixa). Só entra o que está no mix do CD com estoque.
+              Quando terminar, você recebe o aviso "Pedido pronto" e as tratativas viram "Pedido feito".
+            </Text>
+            <ScrollView style={{ maxHeight: 220, marginBottom: spacing.md }}>
+              {pedidoCD?.map((t) => (
+                <Text key={t.id} style={styles.itemDet}>• {t.codigoInterno} – {t.produto}</Text>
+              ))}
+            </ScrollView>
+            <TouchableOpacity
+              style={[styles.btnGrande, { backgroundColor: VERDE_PEDIDO }]}
+              disabled={ocupado}
+              onPress={() => {
+                const l = pedidoCD;
+                setPedidoCD(null);
+                if (l)
+                  executar(async () => {
+                    await enviarAoPedidoCD(l, quem);
+                    setAviso(`${l.length} ${l.length === 1 ? 'produto enviado' : 'produtos enviados'} ao Pedido CD. Você recebe o aviso quando o pedido estiver pronto.`);
+                  });
+              }}
+            >
+              <Feather name="shopping-cart" size={16} color={colors.white} />
+              <Text style={styles.btnGrandeTexto}>Enviar</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setPedidoCD(null)} style={{ marginTop: spacing.md, alignSelf: 'center' }}>
+              <Text style={styles.link}>Cancelar</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Escolher setor do encarregado */}
       <Modal visible={!!envio} transparent animationType="fade" onRequestClose={() => setEnvio(null)}>
