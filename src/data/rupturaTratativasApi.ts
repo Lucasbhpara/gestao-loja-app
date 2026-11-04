@@ -26,7 +26,7 @@ import { ResultadoItem, Situacao, marcarDescontinuado } from './rupturaApi';
 export type StatusTratativa = 'aberta' | 'encarregado' | 'validacao' | 'resolvida';
 
 export type AcaoTratativa =
-  | 'pedido_feito' | 'cobrado' | 'descontinuado'
+  | 'pedido_feito' | 'pedido_cd' | 'cobrado' | 'descontinuado'
   | 'enviado' | 'na_area' | 'nao_achei' | 'nao_resolvido'
   | 'aprovado' | 'devolvido' | 'ajustado' | 'resolvido_manual'
   | 'auto_estoque' | 'auto_cd'
@@ -34,6 +34,7 @@ export type AcaoTratativa =
 
 export const ROTULO_ACAO: Record<AcaoTratativa, string> = {
   pedido_feito: 'Pedido feito',
+  pedido_cd: 'Na fila do Pedido CD',
   cobrado: 'Comprador cobrado',
   descontinuado: 'Descontinuado',
   enviado: 'Enviado ao encarregado',
@@ -255,6 +256,26 @@ export async function verificarAutomatico(por = 'Automático'): Promise<{ chegar
 
 export async function marcarAcaoGerencia(t: Tratativa, acao: 'pedido_feito' | 'cobrado', por: string): Promise<void> {
   await atualizar(t, { acao }, reg(por, acao));
+}
+
+// Manda as tratativas de ruptura para o Pedido CD automático: grava uma
+// solicitação em pedido_cd_solicitacoes, que a extensão do Chrome
+// "ULVA – Pedido CD" digita no formulário MG SECOS do Portal 360. Quando
+// termina, o banco (pedido_cd_concluir) marca cada uma como "Pedido feito" e
+// manda o aviso no celular de quem enviou.
+// Tabela: supabase/pedido_cd_solicitacoes.sql.
+export async function enviarAoPedidoCD(lista: Tratativa[], por: string): Promise<void> {
+  if (!lista.length) return;
+  const grupos = [...new Set(lista.map((t) => t.grupoNome).filter(Boolean))] as string[];
+  const { error } = await supabase.from('pedido_cd_solicitacoes').insert({
+    itens: lista.map((t) => ({ tratativa_id: t.id, codigo: t.codigoInterno, produto: t.produto, grupo_nome: t.grupoNome })),
+    grupos: grupos.length ? (grupos.length <= 2 ? grupos.join(' + ') : `${grupos[0]} + ${grupos.length - 1} grupos`) : 'Tratativas',
+    criado_por: por,
+  });
+  if (error) throw new Error(error.message);
+  for (const t of lista) {
+    await atualizar(t, { acao: 'pedido_cd' }, reg(por, 'pedido_cd'));
+  }
 }
 
 export async function resolverManual(t: Tratativa, por: string, obs?: string): Promise<void> {
