@@ -842,6 +842,14 @@
       </div>
     </div>
 
+    <div class="nav-gaveta aberta" data-gaveta="favoritos" id="nav-favoritos" style="display:none">
+      <button class="nav-gaveta-cabecalho" onclick="alternarGaveta('favoritos')">
+        <span><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z"/></svg></span><span><span class="nav-gaveta-nome">Favoritos</span><div class="nav-gaveta-desc">As ferramentas que você mais usa</div></span></span>
+        <span class="nav-gaveta-seta"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></span>
+      </button>
+      <div class="nav-gaveta-itens" id="nav-favoritos-itens"></div>
+    </div>
+
     <div class="nav-gaveta" data-gaveta="colaboradores">
       <button class="nav-gaveta-cabecalho" onclick="alternarGaveta('colaboradores')">
         <span><span class="nav-ico"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span><span><span class="nav-gaveta-nome">Colaboradores</span><div class="nav-gaveta-desc">Equipe, escalas e afastamentos</div></span></span>
@@ -898,6 +906,7 @@
         <button class="nav-item" data-pagina="pedidos" onclick="irPara('pedidos')"><span class="dot"></span>Pedidos</button>
         <button class="nav-item" data-pagina="estoque-loja" onclick="irPara('estoque-loja')"><span class="dot"></span>Estoque Loja</button>
         <button class="nav-item" id="nav-ruptura-mix" style="display:none" data-pagina="ruptura-mix" onclick="irPara('ruptura-mix')"><span class="dot"></span>Ruptura · Mix do CD</button>
+        <button class="nav-item" id="nav-ruptura-sugerida" style="display:none" data-pagina="ruptura-sugerida" onclick="irPara('ruptura-sugerida')"><span class="dot"></span>Ruptura sugerida (Falcon)</button>
         <button class="nav-item" data-pagina="uso-consumo" onclick="irPara('uso-consumo')"><span class="dot"></span>Uso e Consumo</button>
         <button class="nav-item" data-pagina="checklist-setor" onclick="irPara('checklist-setor')"><span class="dot"></span>Checklist</button>
         <button class="nav-item" data-pagina="visita-tecnica" onclick="irPara('visita-tecnica')"><span class="dot"></span>Visita Técnica</button>
@@ -1132,8 +1141,10 @@ async function fazerLogin() {
     document.getElementById('nav-venda-dia').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-importar-vendas').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-ruptura-mix').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
+    document.getElementById('nav-ruptura-sugerida').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-visitas-site').style.display = String(encontrado.matricula) === '7990353' ? '' : 'none';
-    irPara('equipe');
+    renderizarFavoritos();
+    irPara(favoritosDoUsuario()[0] || 'equipe');
   } catch (e) {
     erroBox.innerHTML = '<div class="login-erro">Não consegui conectar: ' + (e.message || 'tenta de novo.') + '</div>';
   } finally {
@@ -1164,7 +1175,7 @@ const GAVETA_POR_PAGINA = {
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'venda-dia': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'resultados-inventario': 'indicadores', 'visitas-site': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
-  pedidos: 'operacao', 'estoque-loja': 'operacao', 'ruptura-mix': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', chegadas: 'ofertas', 'pontas-extras': 'operacao',
+  pedidos: 'operacao', 'estoque-loja': 'operacao', 'ruptura-mix': 'operacao', 'ruptura-sugerida': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', chegadas: 'ofertas', 'pontas-extras': 'operacao',
 };
 function alternarMenu(abrir) {
   const shell = document.getElementById('app-shell');
@@ -1181,8 +1192,41 @@ function abrirGavetaDaPagina(pagina) {
   const el = document.querySelector('.nav-gaveta[data-gaveta="' + nome + '"]');
   if (el) el.classList.add('aberta');
 }
+// ---------- Favoritos: as ferramentas mais abertas por quem está logado ----------
+function chaveFavoritos() { return 'ulva:portal:usos:' + String((estado.usuario || {}).matricula || ''); }
+function lerUsosFavoritos() { try { return JSON.parse(localStorage.getItem(chaveFavoritos()) || '{}'); } catch (e) { return {}; } }
+function botaoNavDaPagina(pagina) {
+  return [...document.querySelectorAll('.sidebar .nav-item[data-pagina]')].find((b) => b.dataset.pagina === pagina && !b.closest('#nav-favoritos'));
+}
+function favoritosDoUsuario() {
+  const usos = lerUsosFavoritos();
+  return Object.keys(usos)
+    .filter((p) => { const b = botaoNavDaPagina(p); return b && b.style.display !== 'none'; })
+    .sort((a, b) => (usos[b].n - usos[a].n) || (usos[b].em - usos[a].em))
+    .slice(0, 6);
+}
+function contarUsoFavorito(pagina) {
+  if (!estado.usuario || !botaoNavDaPagina(pagina)) return;
+  const usos = lerUsosFavoritos();
+  usos[pagina] = { n: ((usos[pagina] || {}).n || 0) + 1, em: Date.now() };
+  try { localStorage.setItem(chaveFavoritos(), JSON.stringify(usos)); } catch (e) {}
+  renderizarFavoritos();
+}
+function renderizarFavoritos() {
+  const caixa = document.getElementById('nav-favoritos');
+  const itens = document.getElementById('nav-favoritos-itens');
+  if (!caixa || !itens) return;
+  const favs = favoritosDoUsuario();
+  caixa.style.display = favs.length ? '' : 'none';
+  itens.innerHTML = favs.map((p) => {
+    const nome = (botaoNavDaPagina(p).textContent || p).trim();
+    return '<button class="nav-item' + (estado.pagina === p ? ' ativo' : '') + '" data-pagina="' + p + '" onclick="irPara(\'' + p + '\')"><span class="dot"></span>' + rupEsc(nome) + '</button>';
+  }).join('');
+}
+
 async function irPara(pagina) {
   estado.pagina = pagina;
+  contarUsoFavorito(pagina);
   alternarMenu(false);
   document.querySelectorAll('.nav-item').forEach((el) => {
     el.classList.toggle('ativo', el.dataset.pagina === pagina);
@@ -1213,6 +1257,7 @@ async function irPara(pagina) {
     else if (pagina === 'pedidos') await paginaPedidos();
     else if (pagina === 'estoque-loja') await paginaEstoqueLoja();
     else if (pagina === 'ruptura-mix') await paginaRupturaMix();
+    else if (pagina === 'ruptura-sugerida') await paginaRupturaSugerida();
     else if (pagina === 'uso-consumo') await paginaUsoConsumo();
     else if (pagina === 'vendas') await paginaVendas();
     else if (pagina === 'vendas-comparativo') await paginaVendasComparativo();
@@ -1903,6 +1948,103 @@ async function importarMixCD() {
     await paginaRupturaMix();
   } catch (e) {
     mostrarToast('Erro ao importar: ' + (e.message || ''), 'erro');
+    btn.disabled = false; btn.textContent = '📥 Tentar de novo';
+  }
+}
+
+// =============================================================================
+// Ruptura sugerida (planilha da Falcon) — tabelas em supabase/ruptura_sugerida.sql
+// =============================================================================
+let rupSugLido = null;
+async function paginaRupturaSugerida() {
+  const el = document.getElementById('conteudo-principal');
+  const { data: lotes, error } = await sb.from('ruptura_sugerida_lotes').select('*').order('criado_em', { ascending: false }).limit(10);
+  if (error) throw error;
+  const ids = (lotes || []).map((l) => l.id);
+  const resumo = {};
+  if (ids.length) {
+    const { data: its } = await sb.from('ruptura_sugerida_itens').select('lote_id,status,enviado_pedido_em').in('lote_id', ids).limit(20000);
+    (its || []).forEach((i) => {
+      const r = resumo[i.lote_id] = resumo[i.lote_id] || { na_area: 0, ruptura: 0, pendente: 0, enviados: 0 };
+      r[i.status] = (r[i.status] || 0) + 1;
+      if (i.enviado_pedido_em) r.enviados++;
+    });
+  }
+  const st = { aberta: '🟢 Aberta no app', concluida: '✅ Concluída', substituida: '⚪ Substituída' };
+  const linhas = (lotes || []).map((l) => {
+    const r = resumo[l.id] || { na_area: 0, ruptura: 0, pendente: 0, enviados: 0 };
+    const ex = l.excluidos || {};
+    return '<tr><td><b>' + rupEsc(l.arquivo || '—') + '</b><br><span style="color:var(--text-muted);font-size:12px">' +
+      new Date(l.criado_em).toLocaleString('pt-BR') + ' · ' + rupEsc(l.criado_por || '') + '</span></td>' +
+      '<td>' + st[l.status] + '</td>' +
+      '<td class="vl-num">' + l.total_planilha + '</td>' +
+      '<td class="vl-num">' + (ex.pedido_14_dias || 0) + ' pedido · ' + (ex.descontinuados || 0) + ' descont.</td>' +
+      '<td class="vl-num">' + l.total_itens + '</td>' +
+      '<td class="vl-num">' + (r.na_area + r.ruptura) + ' de ' + l.total_itens + '</td>' +
+      '<td class="vl-num">' + r.ruptura + '</td>' +
+      '<td class="vl-num">' + r.enviados + '</td></tr>';
+  }).join('');
+  el.innerHTML = cabecalho('Ruptura sugerida', 'Planilha de ruptura da Falcon para conferir no app, sem coletar o corredor inteiro') +
+    '<div class="item-card" style="margin-bottom:16px;font-size:13px;line-height:1.6">' +
+    '📌 Suba a planilha <b>ruptura loja e CD</b> da Falcon. O ULVA tira os <b>descontinuados</b> e o que teve <b>pedido nos últimos 14 dias</b>, ' +
+    'descobre o grupo da gôndola de cada produto e manda a lista para o app em <b>Ruptura › Ruptura sugerida</b>. ' +
+    'Lá você bipa o que está na área de venda e marca como ruptura o que não está; as rupturas vão para o Pedido CD. ' +
+    'Subir uma planilha nova substitui a lista aberta.</div>' +
+    zonaArrastarSoltarPlanilhaHtml('arquivo-rup-sug', 'Planilha da Falcon (ruptura loja e CD)') +
+    '<div id="rup-sug-previa" style="margin-top:16px"></div>' +
+    '<h3 style="margin:28px 0 8px">Listas enviadas</h3>' +
+    '<div class="tabela-wrap"><table><thead><tr><th>Planilha</th><th>Situação</th><th style="text-align:right">Na planilha</th><th style="text-align:right">Tirados</th>' +
+    '<th style="text-align:right">Para conferir</th><th style="text-align:right">Conferidos</th><th style="text-align:right">Rupturas</th><th style="text-align:right">No pedido</th></tr></thead><tbody>' +
+    (linhas || '<tr><td colspan="8"><div class="celula-vazio">Nenhuma planilha enviada ainda.</div></td></tr>') + '</tbody></table></div>';
+  ligarZonaArrastarSoltarPlanilha('arquivo-rup-sug', lerPlanilhaRupturaSugerida);
+}
+
+async function lerPlanilhaRupturaSugerida(file) {
+  const previa = document.getElementById('rup-sug-previa');
+  previa.innerHTML = '<div class="carregando">Lendo a planilha…</div>';
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+    const norm = (v) => String(v || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+    const iCab = linhas.findIndex((l) => l.some((c) => /COD.*PRO|^CODIGO/.test(norm(c))));
+    if (iCab < 0) throw new Error('Não achei a coluna “COD PRO”. É a planilha de ruptura da Falcon?');
+    const cab = linhas[iCab].map(norm);
+    const col = (re) => cab.findIndex((c) => re.test(c));
+    const c = { cod: col(/COD.*PRO|^CODIGO/), desc: col(/DESCRI/), secao: col(/SECAO|SECCAO|SETOR/), cx: col(/QT.*CX.*CD|CX.*CD/), dias: col(/DIAS/), ult: col(/^ULT.*ENT/) };
+    const itens = linhas.slice(iCab + 1).filter((l) => String(l[c.cod] || '').trim()).map((l) => ({
+      codigo: String(l[c.cod]).replace(/\.0+$/, '').trim(),
+      produto: c.desc >= 0 ? String(l[c.desc] || '').trim() : '',
+      secao: c.secao >= 0 ? String(l[c.secao] || '').trim() : '',
+      cx_cd: c.cx >= 0 && l[c.cx] !== '' ? String(Math.round(Number(String(l[c.cx]).replace(',', '.')) * 10) / 10) : '',
+      dias: c.dias >= 0 ? String(l[c.dias] || '') : '',
+      ult_entrada: c.ult >= 0 ? String(l[c.ult] || '') : '',
+    }));
+    if (!itens.length) throw new Error('A planilha não tem produtos.');
+    rupSugLido = { arquivo: file.name, itens };
+    const secoes = {};
+    itens.forEach((i) => { secoes[i.secao || '—'] = (secoes[i.secao || '—'] || 0) + 1; });
+    previa.innerHTML = '<div class="item-card" style="font-size:13.5px;line-height:1.7"><b>' + rupEsc(file.name) + '</b> · ' +
+      itens.length.toLocaleString('pt-BR') + ' produtos<br><span style="color:var(--text-muted);font-size:12.5px">' +
+      Object.entries(secoes).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([s, n]) => rupEsc(s) + ': ' + n).join(' · ') + '</span>' +
+      '<div style="margin-top:12px"><button class="btn-acao" id="btn-importar-rup-sug" onclick="importarRupturaSugerida()">📥 Mandar para o app</button></div></div>';
+  } catch (e) {
+    previa.innerHTML = '<div class="celula-vazio">Não consegui ler a planilha: ' + rupEsc(e.message || '') + '</div>';
+  }
+}
+
+async function importarRupturaSugerida() {
+  const r = rupSugLido;
+  if (!r) return;
+  const btn = document.getElementById('btn-importar-rup-sug');
+  btn.disabled = true; btn.textContent = 'Enviando…';
+  try {
+    const { data, error } = await sb.rpc('ruptura_sugerida_importar', { p_arquivo: r.arquivo, p_itens: r.itens, p_por: (estado.usuario || {}).nome || '' });
+    if (error) throw error;
+    mostrarToast('Lista no app: ' + data.itens + ' produtos para conferir (' + data.pedido_14_dias + ' já pedidos nos últimos 14 dias e ' + data.descontinuados + ' descontinuados ficaram de fora).', 'sucesso');
+    rupSugLido = null;
+    await paginaRupturaSugerida();
+  } catch (e) {
+    mostrarToast('Erro ao enviar: ' + (e.message || ''), 'erro');
     btn.disabled = false; btn.textContent = '📥 Tentar de novo';
   }
 }

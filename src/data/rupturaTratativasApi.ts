@@ -26,7 +26,7 @@ import { ResultadoItem, Situacao, marcarDescontinuado } from './rupturaApi';
 export type StatusTratativa = 'aberta' | 'encarregado' | 'validacao' | 'resolvida';
 
 export type AcaoTratativa =
-  | 'pedido_feito' | 'pedido_cd' | 'cobrado' | 'descontinuado'
+  | 'pedido_feito' | 'pedido_cd' | 'zerado' | 'cobrado' | 'descontinuado'
   | 'enviado' | 'na_area' | 'nao_achei' | 'nao_resolvido'
   | 'aprovado' | 'devolvido' | 'ajustado' | 'resolvido_manual'
   | 'auto_estoque' | 'auto_cd'
@@ -35,6 +35,7 @@ export type AcaoTratativa =
 export const ROTULO_ACAO: Record<AcaoTratativa, string> = {
   pedido_feito: 'Pedido feito',
   pedido_cd: 'Na fila do Pedido CD',
+  zerado: 'Conferido: zerado na loja',
   cobrado: 'Comprador cobrado',
   descontinuado: 'Descontinuado',
   enviado: 'Enviado ao encarregado',
@@ -242,7 +243,8 @@ export async function verificarAutomatico(por = 'Automático'): Promise<{ chegar
   for (const t of alvo) {
     const s = saldo.get(t.codigoInterno);
     // Só conta estoque que foi atualizado depois que a tratativa abriu.
-    if (s && s.q > 0 && s.em > t.abertaEm && t.situacao !== 'cd_sem') {
+    const fantasma = t.acao === 'zerado' ? Number(t.saldo ?? 0) : 0;
+    if (s && s.q > fantasma && s.q > 0 && s.em > t.abertaEm && t.situacao !== 'cd_sem') {
       await atualizar(t, { status: 'resolvida', acao: 'auto_estoque', resolvida_em: agora(), resolvida_por: por, saldo: s.q }, reg(por, 'auto_estoque', `Saldo na loja: ${s.q}`));
       chegaram++;
     } else if (t.situacao === 'cd_sem' && (cd.get(t.codigoInterno) ?? 0) > 0) {
@@ -316,6 +318,17 @@ export async function enviarAoPedidoCD(lista: Tratativa[], por: string): Promise
     await atualizar(t, { acao: 'pedido_cd', estoque_cd: cd.get(t.codigoInterno) }, reg(por, 'pedido_cd'));
   }
   return { enviados: vai.length, semCd };
+}
+
+// "Verificar estoque": o sistema diz que tem, mas não tem na loja (estoque
+// fantasma). Vira ruptura para pedir. Guarda em "saldo" o que o sistema
+// mostrava, para não fechar sozinha achando que o produto chegou.
+export async function marcarZerado(t: Tratativa, saldoSistema: number | null, por: string): Promise<void> {
+  await atualizar(
+    t,
+    { acao: 'zerado', situacao: 'ruptura', saldo: saldoSistema ?? t.saldo },
+    reg(por, 'zerado', `Conferido: não tem na loja (sistema mostrava ${saldoSistema ?? '?'})`),
+  );
 }
 
 export async function resolverManual(t: Tratativa, por: string, obs?: string): Promise<void> {
