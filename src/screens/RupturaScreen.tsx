@@ -18,7 +18,7 @@ import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import CabecalhoTela from '../components/CabecalhoTela';
 import RupturaTratativasScreen from './RupturaTratativasScreen';
-import { abrirTratativasDaColeta } from '../data/rupturaTratativasApi';
+import { Tratativa, abrirTratativasDaColeta, enviarAoPedidoCD, tratativasParaPedidoCD } from '../data/rupturaTratativasApi';
 import SeletorAreaMapa from '../components/SeletorAreaMapa';
 import MapearSubsortimentosScreen from './MapearSubsortimentosScreen';
 import { AreaMapa } from '../data/mapaLojaApi';
@@ -706,6 +706,11 @@ function TelaResultado({
   const [descontinuar, setDescontinuar] = useState<ResultadoItem | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [enviada, setEnviada] = useState(false);
+  // Depois de salvar: resumo + o que já pode ir para o Pedido CD.
+  const [concluida, setConcluida] = useState<{ abertas: number; fechadas: number; pedir: Tratativa[]; erroPedido?: string } | null>(null);
+  const [desmarcados, setDesmarcados] = useState<Set<string>>(new Set());
+  const [enviandoPedido, setEnviandoPedido] = useState(false);
+  const [pedidoEnviado, setPedidoEnviado] = useState<number | null>(null);
 
   const grupos = ORDEM_SITUACOES.map((s) => ({ s, itens: resultado.filter((r) => r.situacao === s) })).filter((g) => g.itens.length);
   const ruptura = contaRuptura(resultado);
@@ -862,15 +867,18 @@ function TelaResultado({
                 resultado,
                 quem,
               );
-              Alert.alert(
-                'Coleta salva',
-                `${r.abertas} ${r.abertas === 1 ? 'tratativa aberta' : 'tratativas abertas'}` +
-                  (r.fechadas ? ` · ${r.fechadas} ${r.fechadas === 1 ? 'resolvida' : 'resolvidas'} (estavam na gôndola)` : '') + '.',
-                [
-                  { text: 'Voltar aos grupos', onPress: onConcluir },
-                  { text: 'Ver tratativas', onPress: onVerTratativas },
-                ],
-              );
+              let pedir: Tratativa[] = [];
+              let erroPedido: string | undefined;
+              try {
+                pedir = await tratativasParaPedidoCD(
+                  resultado.filter((x) => x.situacao === 'ruptura' && x.codigoInterno).map((x) => x.codigoInterno as string),
+                );
+              } catch (e: any) {
+                erroPedido = e?.message ?? 'erro';
+              }
+              setDesmarcados(new Set());
+              setPedidoEnviado(null);
+              setConcluida({ abertas: r.abertas, fechadas: r.fechadas, pedir, erroPedido });
             } catch (e: any) {
               Alert.alert('Coleta salva', 'Mas não consegui abrir as tratativas: ' + (e?.message ?? ''));
               onConcluir();
@@ -881,6 +889,87 @@ function TelaResultado({
           <Text style={styles.btnPrincipalTexto}>Salvar e concluir</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Coleta salva → já oferece o Pedido CD com as regras do pedido */}
+      <Modal visible={!!concluida} transparent animationType="fade" onRequestClose={() => { setConcluida(null); onConcluir(); }}>
+        <View style={styles.modalFundo}>
+          <View style={styles.modal}>
+            <Text style={styles.modalTitulo}>✅ Coleta salva</Text>
+            <Text style={styles.itemDet}>
+              {concluida?.abertas} {concluida?.abertas === 1 ? 'tratativa aberta' : 'tratativas abertas'}
+              {concluida?.fechadas ? ` · ${concluida.fechadas} ${concluida.fechadas === 1 ? 'resolvida' : 'resolvidas'} (estavam na gôndola)` : ''}
+            </Text>
+
+            {pedidoEnviado != null ? (
+              <View style={[styles.cardSit, { backgroundColor: '#E6F6EE', borderColor: '#E6F6EE', marginTop: spacing.md }]}>
+                <Text style={[styles.cardSitTitulo, { color: '#178553' }]}>🛒 {pedidoEnviado} enviados ao Pedido CD</Text>
+                <Text style={styles.cardSitDica}>A extensão digita no MG SECOS e você recebe o aviso “Pedido pronto” no celular.</Text>
+              </View>
+            ) : concluida && concluida.pedir.length > 0 ? (
+              <>
+                <Text style={[styles.cardSitTitulo, { marginTop: spacing.md }]}>🛒 Pedido CD · {concluida.pedir.length - desmarcados.size} de {concluida.pedir.length}</Text>
+                <Text style={styles.cardSitDica}>Em ruptura, no mix do CD com estoque e não descontinuados. Quantidade = giro semanal (mín. 1 cx).</Text>
+                <ScrollView style={{ maxHeight: 260, marginVertical: spacing.sm }}>
+                  {concluida.pedir.map((t) => {
+                    const fora = desmarcados.has(t.id);
+                    return (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={[styles.linhaItem, { paddingVertical: 6 }]}
+                        onPress={() => {
+                          const n = new Set(desmarcados);
+                          fora ? n.delete(t.id) : n.add(t.id);
+                          setDesmarcados(n);
+                        }}
+                      >
+                        <Feather name={fora ? 'square' : 'check-square'} size={18} color={fora ? colors.gray400 : '#1B5E20'} style={{ marginRight: 8 }} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.itemNome, fora && { color: colors.gray400 }]} numberOfLines={1}>{t.produto}</Text>
+                          <Text style={styles.itemDet}>{t.codigoInterno} · CD {t.estoqueCd ?? '?'}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <TouchableOpacity
+                  style={[styles.btnPrincipal, { backgroundColor: '#1B5E20' }]}
+                  disabled={enviandoPedido || concluida.pedir.length === desmarcados.size}
+                  onPress={async () => {
+                    const lista = concluida.pedir.filter((t) => !desmarcados.has(t.id));
+                    setEnviandoPedido(true);
+                    try {
+                      await enviarAoPedidoCD(lista, quem);
+                      setPedidoEnviado(lista.length);
+                    } catch (e: any) {
+                      Alert.alert('Não consegui enviar ao Pedido CD', e?.message ?? '');
+                    } finally {
+                      setEnviandoPedido(false);
+                    }
+                  }}
+                >
+                  {enviandoPedido ? <ActivityIndicator color={colors.white} /> : <Feather name="shopping-cart" size={18} color={colors.white} />}
+                  <Text style={styles.btnPrincipalTexto}>Enviar {concluida.pedir.length - desmarcados.size} ao Pedido CD</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <Text style={[styles.cardSitDica, { marginTop: spacing.md }]}>
+                {concluida?.erroPedido
+                  ? `Não consegui conferir o Pedido CD agora (${concluida.erroPedido}). Dá para enviar pelas Tratativas.`
+                  : 'Nada para o Pedido CD: nenhum item em ruptura com estoque no CD (ou já foram pedidos).'}
+              </Text>
+            )}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+              <TouchableOpacity style={[styles.btnSecundario, { flex: 1, marginTop: 0 }]} onPress={() => { setConcluida(null); onConcluir(); }}>
+                <Text style={styles.btnSecundarioTexto}>{pedidoEnviado != null || !concluida?.pedir.length ? 'Voltar aos grupos' : 'Agora não'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btnSecundario, { flex: 1, marginTop: 0 }]} onPress={() => { setConcluida(null); onVerTratativas(); }}>
+                <Text style={styles.btnSecundarioTexto}>Ver tratativas</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={!!descontinuar} transparent animationType="fade" onRequestClose={() => setDescontinuar(null)}>
         <View style={styles.modalFundo}>

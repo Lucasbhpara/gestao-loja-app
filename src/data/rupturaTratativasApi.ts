@@ -258,6 +258,33 @@ export async function marcarAcaoGerencia(t: Tratativa, acao: 'pedido_feito' | 'c
   await atualizar(t, { acao }, reg(por, acao));
 }
 
+// Tratativas abertas que podem ir para o Pedido CD (as regras do pedido):
+// situação "ruptura", ainda não pedidas, no mix do CD (MG SECOS) com estoque
+// no CD > 0 e fora dos descontinuados. Usado ao concluir a coleta.
+export async function tratativasParaPedidoCD(codigos: string[]): Promise<Tratativa[]> {
+  const cods = [...new Set(codigos.filter(Boolean))];
+  if (!cods.length) return [];
+  const saida: Tratativa[] = [];
+  for (let i = 0; i < cods.length; i += 300) {
+    const parte = cods.slice(i, i + 300);
+    const [{ data: t, error }, { data: m }, { data: d }] = await Promise.all([
+      supabase.from('ruptura_tratativas').select('*').in('codigo_interno', parte).eq('status', 'aberta').eq('situacao', 'ruptura'),
+      supabase.from('mix_cd_itens').select('codigo_interno, estoque_cd').in('codigo_interno', parte),
+      supabase.from('ruptura_descontinuados').select('codigo_interno').in('codigo_interno', parte),
+    ]);
+    if (error) throw new Error(error.message);
+    const cd = new Map((m ?? []).map((l: any) => [String(l.codigo_interno), Number(l.estoque_cd) || 0]));
+    const desc = new Set((d ?? []).map((l: any) => String(l.codigo_interno)));
+    for (const l of t ?? []) {
+      const tr = mapa(l);
+      if (tr.acao === 'pedido_feito' || tr.acao === 'pedido_cd') continue;
+      if (desc.has(tr.codigoInterno) || !((cd.get(tr.codigoInterno) ?? 0) > 0)) continue;
+      saida.push({ ...tr, estoqueCd: cd.get(tr.codigoInterno) ?? tr.estoqueCd });
+    }
+  }
+  return saida.sort((a, b) => a.produto.localeCompare(b.produto));
+}
+
 // Manda as tratativas de ruptura para o Pedido CD automático: grava uma
 // solicitação em pedido_cd_solicitacoes, que a extensão do Chrome
 // "ULVA – Pedido CD" digita no formulário MG SECOS do Portal 360. Quando
