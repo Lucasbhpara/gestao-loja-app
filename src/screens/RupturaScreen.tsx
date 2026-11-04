@@ -18,7 +18,7 @@ import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
 import CabecalhoTela from '../components/CabecalhoTela';
 import RupturaTratativasScreen from './RupturaTratativasScreen';
-import { abrirTratativasDaColeta } from '../data/rupturaTratativasApi';
+import { Tratativa, abrirTratativasDaColeta, enviarAoPedidoCD, tratativasParaPedidoCD } from '../data/rupturaTratativasApi';
 import SeletorAreaMapa from '../components/SeletorAreaMapa';
 import MapearSubsortimentosScreen from './MapearSubsortimentosScreen';
 import { AreaMapa } from '../data/mapaLojaApi';
@@ -44,6 +44,7 @@ import {
   buscarItensColetas,
   buscarGrupos,
   buscarProdutoPorEan,
+  incluirNoGrupoPorEan,
   calcularResultado,
   carregarColetaAtual,
   compartilharPedido,
@@ -70,7 +71,7 @@ const dataHoraBR = (d: string) => {
   return x.toLocaleDateString('pt-BR') + ' ' + x.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 };
 
-type Etapa = 'grupos' | 'coleta' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas' | 'subsortimentos';
+type Etapa = 'grupos' | 'coleta' | 'naoColetados' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas' | 'subsortimentos';
 
 export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -89,6 +90,7 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   const [abrindo, setAbrindo] = useState(false);
   // Cada setor é uma gaveta fechada; abre uma de cada vez para a tela não poluir.
   const [setorAberto, setSetorAberto] = useState<string | null>(null);
+  const [prioridadeAberta, setPrioridadeAberta] = useState(false);
   const [prioridade, setPrioridade] = useState<Map<string, PrioridadeGrupo>>(new Map());
   // Mapa da loja: áreas e em que área fica cada grupo.
   const [areas, setAreas] = useState<AreaMapa[]>([]);
@@ -117,6 +119,18 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
     } catch (e: any) {
       Alert.alert('Não consegui mover', 'Precisa de internet para mover o produto de grupo.\n\n' + (e?.message ?? ''));
       return false;
+    }
+  }
+
+  // Bipou produto que não é do grupo: passa a ser deste grupo, sem perguntar.
+  async function incluirNoGrupo(ean: string): Promise<ItemUniverso | null> {
+    if (!grupo) return null;
+    try {
+      const novo = await incluirNoGrupoPorEan(ean, grupo.id, quem);
+      if (novo) setUniverso((u) => (u.some((x) => x.codigoInterno === novo.codigoInterno) ? u : [...u, novo]));
+      return novo;
+    } catch {
+      return null; // sem internet: fica como "fora do grupo" nesta coleta
     }
   }
 
@@ -191,14 +205,32 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
         onDefinirAreaDoGrupo={(id) => definirAreaDoGrupo(grupo.id, id)}
         grupos={grupos}
         onMover={moverParaOutroGrupo}
+        onIncluir={incluirNoGrupo}
         onMudar={(c) => { setColeta(c); salvarColetaAtual(c); }}
-        onFinalizar={() => setEtapa('resultado')}
+        onFinalizar={() => setEtapa('naoColetados')}
         onCancelar={() =>
           Alert.alert('Cancelar coleta?', 'As leituras desta coleta serão apagadas.', [
             { text: 'Voltar', style: 'cancel' },
             { text: 'Cancelar coleta', style: 'destructive', onPress: encerrar },
           ])
         }
+      />
+    );
+  }
+
+  if (etapa === 'naoColetados' && grupo && coleta) {
+    return (
+      <TelaNaoColetados
+        grupo={grupo}
+        universo={universo}
+        coleta={coleta}
+        onVoltar={() => setEtapa('coleta')}
+        onConfirmar={(ignorados) => {
+          const c = { ...coleta, ignorados };
+          setColeta(c);
+          salvarColetaAtual(c);
+          setEtapa('resultado');
+        }}
       />
     );
   }
@@ -212,7 +244,7 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
         coleta={coleta}
         dataVendas={dataVendas}
         quem={quem}
-        onVoltarColeta={() => setEtapa('coleta')}
+        onVoltarColeta={() => setEtapa('naoColetados')}
         onConcluir={encerrar}
         onVerTratativas={async () => { await encerrar(); setEtapa('tratativas'); }}
       />
@@ -257,6 +289,18 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
             <Text style={styles.avisoTexto}>Baixando a lista do grupo…</Text>
           </View>
         )}
+        <View style={styles.topoBotoes}>
+          <TouchableOpacity style={styles.topoBotao} onPress={() => setEtapa('tratativas')}>
+            <Feather name="check-square" size={20} color={AZUL} />
+            <Text style={styles.topoBotaoTexto}>Tratativas</Text>
+            <Text style={styles.topoBotaoSub}>Comprar, verificar estoque</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.topoBotao} onPress={() => setEtapa('historico')}>
+            <Feather name="clock" size={20} color={AZUL} />
+            <Text style={styles.topoBotaoTexto}>Histórico de pedidos</Text>
+            <Text style={styles.topoBotaoSub}>Coletas e lista de pedido</Text>
+          </TouchableOpacity>
+        </View>
         {(() => {
           const top = grupos
             .map((g) => ({ g, p: prioridade.get(g.id), n: notaPrioridade(prioridade.get(g.id), g.ultimaColeta?.data ?? null) }))
@@ -265,10 +309,17 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
             .slice(0, 5);
           if (!top.length) return null;
           return (
-            <View style={styles.painel}>
-              <Text style={styles.painelTitulo}>🎯 Prioridade de coleta</Text>
-              <Text style={styles.painelSub}>Zerados na loja que vendiam · cruzado com estoque, vendas e CD</Text>
-              {top.map(({ g, p }, i) => {
+            <View style={[styles.gaveta, prioridadeAberta && styles.gavetaAberta, { borderColor: '#F3C9C4' }]}>
+              <TouchableOpacity style={styles.gavetaTopo} onPress={() => setPrioridadeAberta(!prioridadeAberta)}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.gavetaTitulo}>🎯 Prioridade de coleta</Text>
+                  <Text style={styles.subGrupo}>
+                    {prioridadeAberta ? 'Zerados na loja que vendiam · cruzado com estoque, vendas e CD' : `Comece por: ${top.slice(0, 2).map((x) => x.g.nome).join(', ')}${top.length > 2 ? '…' : ''}`}
+                  </Text>
+                </View>
+                <Feather name={prioridadeAberta ? 'chevron-up' : 'chevron-down'} size={22} color={colors.navy700} />
+              </TouchableOpacity>
+              {prioridadeAberta && top.map(({ g, p }, i) => {
                 const u = g.ultimaColeta;
                 const dias = u ? Math.floor((Date.now() - new Date(u.data).getTime()) / 86400000) : null;
                 return (
@@ -328,14 +379,6 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
           );
         })}
         {!carregando && grupos.length === 0 && !erro && <Text style={styles.vazio}>Nenhum grupo cadastrado ainda.</Text>}
-        <TouchableOpacity style={[styles.btnSecundario, { backgroundColor: '#E3EDFF', borderColor: '#E3EDFF' }]} onPress={() => setEtapa('tratativas')}>
-          <Feather name="check-square" size={16} color={colors.navy700} />
-          <Text style={styles.btnSecundarioTexto}>Tratativas</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.btnSecundario} onPress={() => setEtapa('historico')}>
-          <Feather name="clock" size={16} color={colors.navy700} />
-          <Text style={styles.btnSecundarioTexto}>Histórico e lista de pedido</Text>
-        </TouchableOpacity>
         {String(usuarioAtual?.matricula ?? '') === '7990353' && (
           <TouchableOpacity style={styles.btnSecundario} onPress={() => setEtapa('subsortimentos')}>
             <Feather name="map" size={16} color={colors.navy700} />
@@ -347,6 +390,75 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
           <Text style={styles.btnSecundarioTexto}>Produtos descontinuados</Text>
         </TouchableOpacity>
       </ScrollView>
+    </View>
+  );
+}
+
+// ========================================================== não coletados ==
+// Ao finalizar: mostra o que não foi bipado. Marcado = "não consegui conferir
+// agora" (fica fora desta coleta). O que não for marcado conta como ruptura.
+function TelaNaoColetados({
+  grupo,
+  universo,
+  coleta,
+  onVoltar,
+  onConfirmar,
+}: {
+  grupo: GrupoRuptura;
+  universo: ItemUniverso[];
+  coleta: ColetaLocal;
+  onVoltar: () => void;
+  onConfirmar: (ignorados: string[]) => void;
+}) {
+  const bipados = new Set(coleta.lidos.map((l) => l.codigoInterno).filter(Boolean) as string[]);
+  const faltam = universo
+    .filter((u) => !u.descontinuado && u.lojaTrabalha && !bipados.has(u.codigoInterno))
+    .sort((a, b) => a.produto.localeCompare(b.produto));
+  const [marcados, setMarcados] = useState<Set<string>>(new Set(coleta.ignorados ?? []));
+  const alternar = (c: string) => {
+    const n = new Set(marcados);
+    n.has(c) ? n.delete(c) : n.add(c);
+    setMarcados(n);
+  };
+  const viraRuptura = faltam.length - faltam.filter((u) => marcados.has(u.codigoInterno)).length;
+  return (
+    <View style={styles.tela}>
+      <CabecalhoTela titulo="Não coletados" subtitulo={`${grupo.nome} · ${faltam.length} não bipados`} icone="list" onVoltar={onVoltar} rotuloVoltar="Voltar à coleta" />
+      <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 140 }}>
+        <View style={[styles.aviso, { backgroundColor: '#E3EDFF' }]}>
+          <Feather name="info" size={16} color={AZUL} />
+          <Text style={styles.avisoTexto}>
+            Marque só o que você <Text style={{ fontWeight: '800' }}>não conseguiu conferir</Text> agora (fica fora desta coleta). O que ficar sem marcar conta como ruptura.
+          </Text>
+        </View>
+        {faltam.map((u) => {
+          const m = marcados.has(u.codigoInterno);
+          return (
+            <TouchableOpacity key={u.codigoInterno} style={[styles.naoColLinha, m && { borderColor: AZUL, backgroundColor: '#F5F9FF' }]} onPress={() => alternar(u.codigoInterno)}>
+              <Feather name={m ? 'check-square' : 'square'} size={20} color={m ? AZUL : colors.gray400} />
+              <View style={{ flex: 1 }}>
+                <Text style={[styles.itemNome, m && { color: colors.gray600 }]} numberOfLines={2}>{u.produto}</Text>
+                <Text style={styles.itemDet}>
+                  {u.codigoInterno}
+                  {u.saldo != null ? ` · loja ${u.saldo}` : ''}
+                  {u.estoqueCd != null ? ` · CD ${u.estoqueCd}` : ''}
+                  {m ? ' · não conferido' : ''}
+                </Text>
+              </View>
+            </TouchableOpacity>
+          );
+        })}
+        {!faltam.length && <Text style={styles.vazio}>Tudo bipado. 👍</Text>}
+      </ScrollView>
+      <View style={styles.rodape}>
+        <TouchableOpacity style={[styles.btnPrincipal, { flex: 1 }]} onPress={() => onConfirmar([...marcados].filter((c) => faltam.some((u) => u.codigoInterno === c)))}>
+          <Feather name="check" size={18} color={colors.white} />
+          <Text style={styles.btnPrincipalTexto}>
+            Ver resultado · {viraRuptura} {viraRuptura === 1 ? 'em falta' : 'em falta'}
+            {marcados.size ? ` · ${marcados.size} não conferidos` : ''}
+          </Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -363,6 +475,7 @@ function TelaColeta({
   onDefinirAreaDoGrupo,
   grupos,
   onMover,
+  onIncluir,
   onMudar,
   onFinalizar,
   onCancelar,
@@ -376,6 +489,7 @@ function TelaColeta({
   onDefinirAreaDoGrupo: (areaId: string) => void;
   grupos: GrupoRuptura[];
   onMover: (item: ItemUniverso, destino: GrupoRuptura) => Promise<boolean>;
+  onIncluir: (ean: string) => Promise<ItemUniverso | null>;
   onMudar: (c: ColetaLocal) => void;
   onFinalizar: () => void;
   onCancelar: () => void;
@@ -392,16 +506,9 @@ function TelaColeta({
   const coletaRef = useRef(coleta);
   coletaRef.current = coleta;
   // Primeira coleta do grupo: abre o mapa para marcar onde ele fica.
-  const [seletorArea, setSeletorArea] = useState(!coleta.areaId && !areaDoGrupo && areas.length > 0);
+  // O local de cada sortimento já está no mapa (conferência do jornal): não pergunta mais.
+  const [seletorArea, setSeletorArea] = useState(false);
   const [mover, setMover] = useState<ItemUniverso | null>(null);
-  const perguntouArea = useRef(seletorArea);
-  useEffect(() => {
-    // o mapa pode terminar de carregar depois que a coleta abriu
-    if (!perguntouArea.current && !coleta.areaId && !areaDoGrupo && areas.length > 0) {
-      perguntouArea.current = true;
-      setSeletorArea(true);
-    }
-  }, [areas.length, areaDoGrupo, coleta.areaId]);
   const areaAtual = areas.find((a) => a.id === coleta.areaId) ?? null;
 
   function escolherArea(a: AreaMapa) {
@@ -456,13 +563,18 @@ function TelaColeta({
     let produto = it?.produto ?? null;
     const novo: ColetaLocal = { ...c, lidos: [...c.lidos, { ean, codigoInterno: it?.codigoInterno ?? null, produto, em: new Date().toISOString(), areaId: c.areaId ?? null }] };
     onMudar(novo);
-    setFlash(it ? { texto: it.produto, tipo: 'ok' } : { texto: `Código ${ean} não é deste grupo`, tipo: 'fora' });
+    setFlash(it ? { texto: it.produto, tipo: 'ok' } : { texto: `Procurando ${ean}…`, tipo: 'repetido' });
     if (!it) {
-      produto = await buscarProdutoPorEan(ean);
-      if (produto) {
-        const atual = coletaRef.current;
-        onMudar({ ...atual, lidos: atual.lidos.map((l) => (l.ean === ean && !l.codigoInterno ? { ...l, produto } : l)) });
-        setFlash({ texto: `Fora do grupo: ${produto}`, tipo: 'fora' });
+      // Não é deste grupo: inclui neste sortimento (atualiza o setor do produto).
+      const novo = await onIncluir(ean);
+      const atual = coletaRef.current;
+      if (novo) {
+        onMudar({ ...atual, lidos: atual.lidos.map((l) => (l.ean === ean && !l.codigoInterno ? { ...l, codigoInterno: novo.codigoInterno, produto: novo.produto } : l)) });
+        setFlash({ texto: `➕ Incluído neste grupo: ${novo.produto}`, tipo: 'ok' });
+      } else {
+        produto = await buscarProdutoPorEan(ean);
+        if (produto) onMudar({ ...atual, lidos: atual.lidos.map((l) => (l.ean === ean && !l.codigoInterno ? { ...l, produto } : l)) });
+        setFlash({ texto: produto ? `Fora do grupo: ${produto}` : `Código ${ean} não cadastrado`, tipo: 'fora' });
       }
     }
   }
@@ -492,15 +604,6 @@ function TelaColeta({
       <View style={styles.barraFundo}>
         <View style={[styles.barra, { width: `${pct}%` }]} />
       </View>
-      {areas.length > 0 && (
-        <TouchableOpacity style={styles.ondeEstou} onPress={() => setSeletorArea(true)}>
-          <Feather name="map-pin" size={15} color={AZUL} />
-          <Text style={styles.ondeEstouTexto} numberOfLines={1}>
-            {areaAtual ? `Estou em: ${areaAtual.nome}` : 'Marcar no mapa onde estou'}
-          </Text>
-          <Text style={styles.link}>{areaAtual ? 'Trocar' : 'Abrir mapa'}</Text>
-        </TouchableOpacity>
-      )}
 
       {camera ? (
         <View style={styles.areaCamera}>
@@ -698,14 +801,20 @@ function TelaResultado({
   onConcluir: () => void;
   onVerTratativas: () => void;
 }) {
-  const { resultado, voltaram, esperados, coletados } = useMemo(
-    () => calcularResultado(coleta, universo, grupo.diasSemVenda ?? 10, dataVendas),
-    [coleta, universo, grupo, dataVendas],
-  );
+  const { resultado, voltaram, esperados, coletados } = useMemo(() => {
+    // "Não consegui conferir" (tela de não coletados) fica fora desta coleta.
+    const ign = new Set(coleta.ignorados ?? []);
+    return calcularResultado(coleta, universo.filter((u) => !ign.has(u.codigoInterno)), grupo.diasSemVenda ?? 10, dataVendas);
+  }, [coleta, universo, grupo, dataVendas]);
   const [aberta, setAberta] = useState<Situacao | null>(null);
   const [descontinuar, setDescontinuar] = useState<ResultadoItem | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [enviada, setEnviada] = useState(false);
+  // Depois de salvar: resumo + o que já pode ir para o Pedido CD.
+  const [concluida, setConcluida] = useState<{ abertas: number; fechadas: number; pedir: Tratativa[]; erroPedido?: string } | null>(null);
+  const [desmarcados, setDesmarcados] = useState<Set<string>>(new Set());
+  const [enviandoPedido, setEnviandoPedido] = useState(false);
+  const [pedidoEnviado, setPedidoEnviado] = useState<number | null>(null);
 
   const grupos = ORDEM_SITUACOES.map((s) => ({ s, itens: resultado.filter((r) => r.situacao === s) })).filter((g) => g.itens.length);
   const ruptura = contaRuptura(resultado);
@@ -770,7 +879,7 @@ function TelaResultado({
 
   return (
     <View style={styles.tela}>
-      <CabecalhoTela titulo={grupo.nome} subtitulo={`Resultado · ${coletados} de ${esperados} na gôndola`} icone="alert-octagon" onVoltar={onVoltarColeta} rotuloVoltar="Voltar à coleta" />
+      <CabecalhoTela titulo={grupo.nome} subtitulo={`Resultado · ${coletados} de ${esperados} na gôndola`} icone="alert-octagon" onVoltar={onVoltarColeta} rotuloVoltar="Voltar" />
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 140 }}>
         <View style={styles.resumo}>
           <View style={styles.resumoBloco}>
@@ -862,15 +971,18 @@ function TelaResultado({
                 resultado,
                 quem,
               );
-              Alert.alert(
-                'Coleta salva',
-                `${r.abertas} ${r.abertas === 1 ? 'tratativa aberta' : 'tratativas abertas'}` +
-                  (r.fechadas ? ` · ${r.fechadas} ${r.fechadas === 1 ? 'resolvida' : 'resolvidas'} (estavam na gôndola)` : '') + '.',
-                [
-                  { text: 'Voltar aos grupos', onPress: onConcluir },
-                  { text: 'Ver tratativas', onPress: onVerTratativas },
-                ],
-              );
+              let pedir: Tratativa[] = [];
+              let erroPedido: string | undefined;
+              try {
+                pedir = await tratativasParaPedidoCD(
+                  resultado.filter((x) => x.situacao === 'ruptura' && x.codigoInterno).map((x) => x.codigoInterno as string),
+                );
+              } catch (e: any) {
+                erroPedido = e?.message ?? 'erro';
+              }
+              setDesmarcados(new Set());
+              setPedidoEnviado(null);
+              setConcluida({ abertas: r.abertas, fechadas: r.fechadas, pedir, erroPedido });
             } catch (e: any) {
               Alert.alert('Coleta salva', 'Mas não consegui abrir as tratativas: ' + (e?.message ?? ''));
               onConcluir();
@@ -881,6 +993,87 @@ function TelaResultado({
           <Text style={styles.btnPrincipalTexto}>Salvar e concluir</Text>
         </TouchableOpacity>
       </View>
+
+      {/* Coleta salva → já oferece o Pedido CD com as regras do pedido */}
+      <Modal visible={!!concluida} transparent animationType="fade" onRequestClose={() => { setConcluida(null); onConcluir(); }}>
+        <View style={styles.modalFundo}>
+          <View style={styles.modal}>
+            <Text style={styles.modalTitulo}>✅ Coleta salva</Text>
+            <Text style={styles.itemDet}>
+              {concluida?.abertas} {concluida?.abertas === 1 ? 'tratativa aberta' : 'tratativas abertas'}
+              {concluida?.fechadas ? ` · ${concluida.fechadas} ${concluida.fechadas === 1 ? 'resolvida' : 'resolvidas'} (estavam na gôndola)` : ''}
+            </Text>
+
+            {pedidoEnviado != null ? (
+              <View style={[styles.cardSit, { backgroundColor: '#E6F6EE', borderColor: '#E6F6EE', marginTop: spacing.md }]}>
+                <Text style={[styles.cardSitTitulo, { color: '#178553' }]}>🛒 {pedidoEnviado} enviados ao Pedido CD</Text>
+                <Text style={styles.cardSitDica}>A extensão digita no MG SECOS e você recebe o aviso “Pedido pronto” no celular.</Text>
+              </View>
+            ) : concluida && concluida.pedir.length > 0 ? (
+              <>
+                <Text style={[styles.cardSitTitulo, { marginTop: spacing.md }]}>🛒 Pedido CD · {concluida.pedir.length - desmarcados.size} de {concluida.pedir.length}</Text>
+                <Text style={styles.cardSitDica}>Em ruptura, no mix do CD com estoque e não descontinuados. Quantidade = giro semanal (mín. 1 cx).</Text>
+                <ScrollView style={{ maxHeight: 260, marginVertical: spacing.sm }}>
+                  {concluida.pedir.map((t) => {
+                    const fora = desmarcados.has(t.id);
+                    return (
+                      <TouchableOpacity
+                        key={t.id}
+                        style={[styles.linhaItem, { paddingVertical: 6 }]}
+                        onPress={() => {
+                          const n = new Set(desmarcados);
+                          fora ? n.delete(t.id) : n.add(t.id);
+                          setDesmarcados(n);
+                        }}
+                      >
+                        <Feather name={fora ? 'square' : 'check-square'} size={18} color={fora ? colors.gray400 : '#1B5E20'} style={{ marginRight: 8 }} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={[styles.itemNome, fora && { color: colors.gray400 }]} numberOfLines={1}>{t.produto}</Text>
+                          <Text style={styles.itemDet}>{t.codigoInterno} · CD {t.estoqueCd ?? '?'}</Text>
+                        </View>
+                      </TouchableOpacity>
+                    );
+                  })}
+                </ScrollView>
+                <TouchableOpacity
+                  style={[styles.btnPrincipal, { backgroundColor: '#1B5E20' }]}
+                  disabled={enviandoPedido || concluida.pedir.length === desmarcados.size}
+                  onPress={async () => {
+                    const lista = concluida.pedir.filter((t) => !desmarcados.has(t.id));
+                    setEnviandoPedido(true);
+                    try {
+                      const r = await enviarAoPedidoCD(lista, quem);
+                      setPedidoEnviado(r.enviados);
+                    } catch (e: any) {
+                      Alert.alert('Não consegui enviar ao Pedido CD', e?.message ?? '');
+                    } finally {
+                      setEnviandoPedido(false);
+                    }
+                  }}
+                >
+                  {enviandoPedido ? <ActivityIndicator color={colors.white} /> : <Feather name="shopping-cart" size={18} color={colors.white} />}
+                  <Text style={styles.btnPrincipalTexto}>Enviar {concluida.pedir.length - desmarcados.size} ao Pedido CD</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <Text style={[styles.cardSitDica, { marginTop: spacing.md }]}>
+                {concluida?.erroPedido
+                  ? `Não consegui conferir o Pedido CD agora (${concluida.erroPedido}). Dá para enviar pelas Tratativas.`
+                  : 'Nada para o Pedido CD: nenhum item em ruptura com estoque no CD (ou já foram pedidos).'}
+              </Text>
+            )}
+
+            <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.md }}>
+              <TouchableOpacity style={[styles.btnSecundario, { flex: 1, marginTop: 0 }]} onPress={() => { setConcluida(null); onConcluir(); }}>
+                <Text style={styles.btnSecundarioTexto}>{pedidoEnviado != null || !concluida?.pedir.length ? 'Voltar aos grupos' : 'Agora não'}</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.btnSecundario, { flex: 1, marginTop: 0 }]} onPress={() => { setConcluida(null); onVerTratativas(); }}>
+                <Text style={styles.btnSecundarioTexto}>Ver tratativas</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       <Modal visible={!!descontinuar} transparent animationType="fade" onRequestClose={() => setDescontinuar(null)}>
         <View style={styles.modalFundo}>
@@ -1090,6 +1283,11 @@ function TelaDescontinuados({ onVoltar }: { onVoltar: () => void }) {
 // =================================================================== estilos ==
 
 const styles = StyleSheet.create({
+  topoBotoes: { flexDirection: 'row', gap: spacing.sm, marginBottom: spacing.md },
+  topoBotao: { flex: 1, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100, padding: spacing.md, gap: 4 },
+  topoBotaoTexto: { fontSize: 14, fontWeight: '800', color: colors.navy900 },
+  topoBotaoSub: { fontSize: 11.5, color: colors.gray600 },
+  naoColLinha: { flexDirection: 'row', alignItems: 'center', gap: 10, backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100, padding: spacing.md, marginBottom: 6 },
   ondeEstou: { flexDirection: 'row', alignItems: 'center', gap: 8, backgroundColor: '#E3EDFF', marginHorizontal: spacing.lg, marginTop: spacing.sm, borderRadius: radius.md, paddingHorizontal: spacing.md, paddingVertical: 10 },
   ondeEstouTexto: { flex: 1, fontSize: 13.5, fontWeight: '700', color: colors.navy900 },
   dicaFalta: { fontSize: 11.5, color: colors.gray600, marginBottom: 6 },

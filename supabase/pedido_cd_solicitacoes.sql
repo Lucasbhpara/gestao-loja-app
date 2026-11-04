@@ -107,3 +107,8 @@ $$;
 
 grant execute on function pedido_cd_pegar() to anon, authenticated;
 grant execute on function pedido_cd_concluir(uuid, text, jsonb, text) to anon, authenticated;
+
+-- Atualização: item que NÃO entrou no pedido (CD sem estoque, fora do mix,
+-- não achou no portal) volta a ficar aberto (sai de "Na fila do Pedido CD").
+-- Ver a versão completa da função aplicada no Supabase (migração
+-- pedido_cd_concluir_libera_fora).

@@ -28,6 +28,7 @@ export const GRUPOS_ULVA2: Grupo[] = [
     icone: 'check-circle', cor: '#2F7BFF', fundo: '#E3EDFF',
     ferramentas: [
       { nome: 'Checklist', desc: 'Rotina do dia e avaliação de setor', icone: 'check-square', tela: 'checklist' },
+      { nome: 'Ruptura', desc: 'Coleta da gôndola, tratativas e pedidos', icone: 'alert-octagon', tela: 'ruptura', somenteDono: true },
       { nome: 'Visita Técnica', desc: 'Checklist do técnico veterinário', icone: 'shield', tela: 'visitaTecnica' },
       { nome: 'Visita Supervisor', desc: 'Orientações do supervisor por setor', icone: 'user-check', tela: 'visitaSupervisor' },
       { nome: 'Criar tarefa', desc: 'Tarefas para os encarregados', icone: 'edit-3', tela: 'tarefas' },
@@ -68,7 +69,6 @@ export const GRUPOS_ULVA2: Grupo[] = [
       { nome: 'Validade', desc: 'Produtos perto de vencer', icone: 'calendar', tela: 'validade' },
       { nome: 'De olho na validade', desc: 'Cliente achou produto vencido', icone: 'eye', tela: 'olhoValidade' },
       { nome: 'Inventário', desc: 'Contagem de estoque', icone: 'list', tela: 'inventario' },
-      { nome: 'Ruptura', desc: 'Bipar a gôndola e ver o que falta', icone: 'alert-octagon', tela: 'ruptura', somenteDono: true },
       { nome: 'Estoque Loja', desc: 'Saldo e preço de cada produto', icone: 'archive', tela: 'estoqueLoja' },
       { nome: 'Uso e Consumo', desc: 'Retirada de material por setor', icone: 'box', tela: 'usoConsumo' },
     ],

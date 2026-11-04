@@ -55,6 +55,7 @@ export const ROTULO_ACAO: Record<AcaoTratativa, string> = {
 // O que o encarregado precisa fazer, por tipo de envio.
 export const PEDIDO_ENCARREGADO: Partial<Record<AcaoTratativa | Situacao, string>> = {
   repor: 'Levar do depósito para a gôndola',
+  ruptura: 'Tem estoque na loja: procurar no depósito e levar para a gôndola',
   suspeito: 'Procurar no depósito e abastecer',
   sem_preco: 'Colocar a etiqueta de preço',
   mal_exposto: 'Organizar a exposição na gôndola',
@@ -258,24 +259,63 @@ export async function marcarAcaoGerencia(t: Tratativa, acao: 'pedido_feito' | 'c
   await atualizar(t, { acao }, reg(por, acao));
 }
 
+// Tratativas abertas que podem ir para o Pedido CD (as regras do pedido):
+// situação "ruptura", ainda não pedidas, no mix do CD (MG SECOS) com estoque
+// no CD > 0 e fora dos descontinuados. Usado ao concluir a coleta.
+export async function tratativasParaPedidoCD(codigos: string[]): Promise<Tratativa[]> {
+  const cods = [...new Set(codigos.filter(Boolean))];
+  if (!cods.length) return [];
+  const saida: Tratativa[] = [];
+  for (let i = 0; i < cods.length; i += 300) {
+    const parte = cods.slice(i, i + 300);
+    const [{ data: t, error }, { data: m }, { data: d }] = await Promise.all([
+      supabase.from('ruptura_tratativas').select('*').in('codigo_interno', parte).eq('status', 'aberta').eq('situacao', 'ruptura'),
+      supabase.from('mix_cd_itens').select('codigo_interno, estoque_cd').in('codigo_interno', parte),
+      supabase.from('ruptura_descontinuados').select('codigo_interno').in('codigo_interno', parte),
+    ]);
+    if (error) throw new Error(error.message);
+    const cd = new Map((m ?? []).map((l: any) => [String(l.codigo_interno), Number(l.estoque_cd) || 0]));
+    const desc = new Set((d ?? []).map((l: any) => String(l.codigo_interno)));
+    for (const l of t ?? []) {
+      const tr = mapa(l);
+      if (tr.acao === 'pedido_feito' || tr.acao === 'pedido_cd') continue;
+      if (desc.has(tr.codigoInterno) || !((cd.get(tr.codigoInterno) ?? 0) > 0)) continue;
+      saida.push({ ...tr, estoqueCd: cd.get(tr.codigoInterno) ?? tr.estoqueCd });
+    }
+  }
+  return saida.sort((a, b) => a.produto.localeCompare(b.produto));
+}
+
 // Manda as tratativas de ruptura para o Pedido CD automático: grava uma
 // solicitação em pedido_cd_solicitacoes, que a extensão do Chrome
 // "ULVA – Pedido CD" digita no formulário MG SECOS do Portal 360. Quando
 // termina, o banco (pedido_cd_concluir) marca cada uma como "Pedido feito" e
 // manda o aviso no celular de quem enviou.
 // Tabela: supabase/pedido_cd_solicitacoes.sql.
-export async function enviarAoPedidoCD(lista: Tratativa[], por: string): Promise<void> {
-  if (!lista.length) return;
-  const grupos = [...new Set(lista.map((t) => t.grupoNome).filter(Boolean))] as string[];
+export async function enviarAoPedidoCD(lista: Tratativa[], por: string): Promise<{ enviados: number; semCd: number }> {
+  if (!lista.length) return { enviados: 0, semCd: 0 };
+  // Produto sem estoque no CD não entra: o portal não aceita e dá erro.
+  const cods = [...new Set(lista.map((t) => t.codigoInterno))];
+  const cd = new Map<string, number>();
+  for (let i = 0; i < cods.length; i += 300) {
+    const { data, error } = await supabase.from('mix_cd_itens').select('codigo_interno, estoque_cd').in('codigo_interno', cods.slice(i, i + 300));
+    if (error) throw new Error(error.message);
+    for (const l of data ?? []) cd.set(String(l.codigo_interno), Number(l.estoque_cd) || 0);
+  }
+  const vai = lista.filter((t) => (cd.get(t.codigoInterno) ?? 0) > 0);
+  const semCd = lista.length - vai.length;
+  if (!vai.length) return { enviados: 0, semCd };
+  const grupos = [...new Set(vai.map((t) => t.grupoNome).filter(Boolean))] as string[];
   const { error } = await supabase.from('pedido_cd_solicitacoes').insert({
-    itens: lista.map((t) => ({ tratativa_id: t.id, codigo: t.codigoInterno, produto: t.produto, grupo_nome: t.grupoNome })),
+    itens: vai.map((t) => ({ tratativa_id: t.id, codigo: t.codigoInterno, produto: t.produto, grupo_nome: t.grupoNome })),
     grupos: grupos.length ? (grupos.length <= 2 ? grupos.join(' + ') : `${grupos[0]} + ${grupos.length - 1} grupos`) : 'Tratativas',
     criado_por: por,
   });
   if (error) throw new Error(error.message);
-  for (const t of lista) {
-    await atualizar(t, { acao: 'pedido_cd' }, reg(por, 'pedido_cd'));
+  for (const t of vai) {
+    await atualizar(t, { acao: 'pedido_cd', estoque_cd: cd.get(t.codigoInterno) }, reg(por, 'pedido_cd'));
   }
+  return { enviados: vai.length, semCd };
 }
 
 export async function resolverManual(t: Tratativa, por: string, obs?: string): Promise<void> {
