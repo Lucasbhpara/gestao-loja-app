@@ -41,6 +41,8 @@ import OfertasHubScreen from './OfertasHubScreen';
 import ChegadasScreen from './ChegadasScreen';
 import OlhoValidadeScreen from './OlhoValidadeScreen';
 import RupturaTratativasScreen from './RupturaTratativasScreen';
+import InventarioScreen from './InventarioScreen';
+import { supabase } from '../lib/supabase';
 import InicioUlva2, { Grupo, GrupoId, TelaFerramenta, Ferramenta } from './InicioUlva2';
 import { buscarUlva2Liberado, ulva2LiberadoEmCache } from '../data/ulva2Flag';
 
@@ -80,7 +82,27 @@ export default function HomeColaboradorScreen() {
     | 'ofertas'
     | 'chegadas'
     | 'olhoValidade'
+    | 'inventario'
   >('home');
+
+  // Inventário (contagem de estoque) liberado só para quem o administrador
+  // colocou na lista system_config 'inventario_liberados' (matrículas).
+  const [podeInventario, setPodeInventario] = useState(false);
+  useEffect(() => {
+    supabase
+      .from('system_config')
+      .select('value')
+      .eq('key', 'inventario_liberados')
+      .maybeSingle()
+      .then(({ data }) => {
+        try {
+          const lista: string[] = data?.value ? JSON.parse(data.value) : [];
+          setPodeInventario(lista.map(String).includes(String(usuarioAtual.matricula)));
+        } catch {
+          setPodeInventario(false);
+        }
+      }, () => {});
+  }, [usuarioAtual.matricula]);
 
   // Seta/gesto nativo de voltar do Android: sem isso, como as telas aqui não
   // usam uma pilha de navegação, o Android trata o botão físico como "sair
@@ -268,6 +290,9 @@ export default function HomeColaboradorScreen() {
   }
   if (tela === 'olhoValidade') {
     return <OlhoValidadeScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'inventario' && podeInventario) {
+    return <InventarioScreen onVoltar={() => setTela('home')} podeReiniciar={false} />;
   }
 
   const nomeSetor = setores.find((s) => s.key === usuarioAtual.setor)?.nome ?? usuarioAtual.setor;
@@ -547,6 +572,7 @@ export default function HomeColaboradorScreen() {
         ...(!somenteValidade && ehFlv ? f('Pedidos', 'Pedidos do FLV', 'shopping-cart', 'pedidos') : []),
         ...(somenteValidade ? [] : f('Uso e Consumo', 'Retirada de material por setor', 'box', 'usoConsumo')),
         ...(somenteValidade ? [] : f('Ruptura', 'Produtos para repor e conferir', 'alert-octagon', 'rupturaTratativas')),
+        ...(podeInventario ? f('Inventário', 'Contagem de estoque', 'list', 'inventario', null) : []),
       ],
     },
   ];
@@ -570,6 +596,7 @@ export default function HomeColaboradorScreen() {
       usoConsumo: 'usoConsumo',
       escalaFaltas: 'escalaFaltas',
       sobre: 'sobre',
+      inventario: 'inventario',
     };
     const destino = mapa[t];
     if (destino) setTela(destino);
@@ -716,7 +743,7 @@ export default function HomeColaboradorScreen() {
                 { label: 'Chegou hoje', icone: 'truck' as const, chave: 'chegadas', onPress: () => setTela('chegadas') },
                 { label: 'Uso e Consumo', icone: 'box' as const, chave: 'usoConsumo', onPress: () => setTela('usoConsumo') },
                 { label: 'Ruptura', icone: 'alert-octagon' as const, chave: 'rupturaTratativas', onPress: () => setTela('rupturaTratativas') },
-                { label: 'Inventário', icone: 'package' as const, chave: null, onPress: undefined },
+                { label: 'Inventário', icone: 'package' as const, chave: null, onPress: podeInventario ? () => setTela('inventario') : undefined },
                 { label: 'Mural de Avisos', icone: 'bell' as const, chave: 'avisos', onPress: () => setTela('avisos') },
                 { label: 'Abrir ocorrência', icone: 'alert-triangle' as const, chave: 'ocorrencia', onPress: () => setTela('ocorrencia') },
                 ...(podeConferir
