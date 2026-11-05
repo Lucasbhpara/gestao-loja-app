@@ -53,11 +53,12 @@ import {
   usarVersaoAntiga,
   definirUsarVersaoAntiga,
 } from '../data/ulva2Flag';
+import { ehDonoMatricula } from '../data/donos';
 
 // Aba de chat com a IA visível só nesse login específico (Lucas), não pros
 // demais administradores. Identificado pela matrícula (e não pelo id),
 // porque o id muda de formato ao migrar para o Supabase.
-const MATRICULA_DONO_DA_ABA_IA = '7990353';
+// Lucas e Rodrigo (ver src/data/donos.ts).
 // Giro de Produtos: Lucas, Rodrigo e Valmir.
 const MATRICULAS_GIRO = ['7990353', '9728010', '999999'];
 
@@ -110,7 +111,7 @@ export default function HomeAdminScreen() {
   // a tela de compartilhar o PDF.
   const [diaRelatorio, setDiaRelatorio] = useState<string | null>(null);
   const [relatorioPelaNotificacao, setRelatorioPelaNotificacao] = useState(false);
-  const ehDono = String(usuarioAtual?.matricula ?? '') === MATRICULA_DONO_DA_ABA_IA;
+  const ehDono = ehDonoMatricula(usuarioAtual?.matricula);
   useEffect(() => {
     if (!ehDono) return;
     const abrir = (resp: Notifications.NotificationResponse | null) => {
@@ -192,7 +193,8 @@ export default function HomeAdminScreen() {
     ]);
   }
 
-  const podeUsarChatIA = usuarioAtual.matricula === MATRICULA_DONO_DA_ABA_IA;
+  // Chat com a IA: por enquanto só o Lucas.
+  const podeUsarChatIA = String(usuarioAtual.matricula) === '7990353';
   const top5Vencendo = [...validades]
     .sort((a, b) => (a.dataValidade < b.dataValidade ? -1 : 1))
     .slice(0, 5);

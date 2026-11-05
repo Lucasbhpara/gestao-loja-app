@@ -16,6 +16,7 @@ import { Feather } from '@expo/vector-icons';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { colors, radius, spacing } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
+import { ehDonoMatricula } from '../data/donos';
 import CabecalhoTela from '../components/CabecalhoTela';
 import RupturaTratativasScreen from './RupturaTratativasScreen';
 import RupturaSugeridaScreen, { contarRupturaSugerida } from './RupturaSugeridaScreen';
@@ -408,7 +409,7 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
           );
         })}
         {!carregando && grupos.length === 0 && !erro && <Text style={styles.vazio}>Nenhum grupo cadastrado ainda.</Text>}
-        {String(usuarioAtual?.matricula ?? '') === '7990353' && (
+        {ehDonoMatricula(usuarioAtual?.matricula) && (
           <TouchableOpacity style={styles.btnSecundario} onPress={() => setEtapa('subsortimentos')}>
             <Feather name="map" size={16} color={colors.navy700} />
             <Text style={styles.btnSecundarioTexto}>Mapear sub-sortimentos no mapa</Text>
