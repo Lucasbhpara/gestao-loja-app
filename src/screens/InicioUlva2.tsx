@@ -16,7 +16,7 @@ export type TelaFerramenta =
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
   | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'relatorioMensal' | 'buscaProduto' | 'olhoValidade' | 'resultadosInventario'
-  | 'pedidos' | 'relatorioDiario' | 'ruptura' | 'rupturaTratativas' | 'conferenciaFolheto';
+  | 'pedidos' | 'pedidoFlv' | 'relatorioDiario' | 'ruptura' | 'rupturaTratativas' | 'conferenciaFolheto';
 
 export type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
 export type GrupoId = 'rotina' | 'comercial' | 'resultados' | 'estoque';
@@ -68,6 +68,7 @@ export const GRUPOS_ULVA2: Grupo[] = [
       { nome: 'Conferência', desc: 'Recebimento de mercadoria', icone: 'clipboard', tela: 'conferencias' },
       { nome: 'Validade', desc: 'Produtos perto de vencer', icone: 'calendar', tela: 'validade' },
       { nome: 'De olho na validade', desc: 'Cliente achou produto vencido', icone: 'eye', tela: 'olhoValidade' },
+      { nome: 'Pedido FLV', desc: 'Sugestão pelo mês passado + contagem da câmara', icone: 'shopping-cart', tela: 'pedidoFlv', somenteDono: true },
       { nome: 'Inventário', desc: 'Contagem de estoque', icone: 'list', tela: 'inventario' },
       { nome: 'Estoque Loja', desc: 'Saldo e preço de cada produto', icone: 'archive', tela: 'estoqueLoja' },
       { nome: 'Uso e Consumo', desc: 'Retirada de material por setor', icone: 'box', tela: 'usoConsumo' },
