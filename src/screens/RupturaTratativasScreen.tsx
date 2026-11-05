@@ -47,6 +47,8 @@ import {
 
 const AZUL = '#2F7BFF';
 const VERDE_PEDIDO = '#1B5E20';
+// "Pedir tudo com pouco estoque": abaixo disso (unidades na loja) vai para o Pedido CD.
+const LIMITE_POUCO_ESTOQUE = 12;
 const dataBR = (d: string | null) => (d ? new Date(d).toLocaleDateString('pt-BR') : '—');
 const dataCurta = (d: string | null) => (d ? new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '');
 const diasAberta = (d: string) => Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 86400000));
@@ -235,6 +237,10 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const verificar = lista.filter((t) => verificarEstoque(t) && passa(t)).sort((a, b) => (a.grupoNome ?? '').localeCompare(b.grupoNome ?? '') || (saldoAgora(b) ?? 0) - (saldoAgora(a) ?? 0));
   const comprar = lista.filter((t) => precisaComprar(t) && passa(t)).sort((a, b) => (a.grupoNome ?? '').localeCompare(b.grupoNome ?? '') || a.produto.localeCompare(b.produto));
   const aguardando = lista.filter((t) => t.status === 'aberta' && jaPedido(t) && passa(t)).sort(ordenar);
+  // Qualquer tratativa aberta com menos de 12 un. na loja, CD com estoque e ainda não pedida.
+  const poucoEstoque = lista.filter(
+    (t) => t.status === 'aberta' && t.acao !== 'pedido_feito' && t.acao !== 'pedido_cd' && (cdAtual(t) ?? 0) > 0 && (saldoAgora(t) ?? 0) < LIMITE_POUCO_ESTOQUE,
+  );
   const paraValidar = lista.filter((t) => t.status === 'validacao' && passa(t)).sort(ordenar);
   const comEncarregado = lista.filter((t) => t.status === 'encarregado' && passa(t)).sort(ordenar);
   const qtdFiltrosPainel = (idade !== 'todas' ? 1 : 0) + (soComEstoque ? 1 : 0) + (soAguardando ? 1 : 0) + (ordem !== 'antigas' ? 1 : 0) + (filtroSetor ? 1 : 0);
@@ -592,6 +598,12 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
 
         {aba === 'comprar' && (
           <>
+            {poucoEstoque.length > 0 && (
+              <TouchableOpacity style={[styles.btnGrande, { backgroundColor: VERDE_PEDIDO, marginBottom: spacing.sm }]} onPress={() => setPedidoCD(poucoEstoque)} disabled={ocupado}>
+                <Feather name="shopping-cart" size={16} color={colors.white} />
+                <Text style={styles.btnGrandeTexto}>Pedir tudo com menos de {LIMITE_POUCO_ESTOQUE} un. na loja · {poucoEstoque.length}</Text>
+              </TouchableOpacity>
+            )}
             <View style={styles.secResumo}>
               <Text style={styles.secResumoTexto}>
                 {comprar.length} sem estoque na loja e com estoque no CD{marcadas.size ? ` · ${selecionadas.length} marcados` : ''}
