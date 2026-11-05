@@ -19,6 +19,7 @@ import { useAuth } from '../context/AuthContext';
 import CabecalhoTela from '../components/CabecalhoTela';
 import RupturaTratativasScreen from './RupturaTratativasScreen';
 import RupturaSugeridaScreen, { contarRupturaSugerida } from './RupturaSugeridaScreen';
+import PedidosCDScreen from './PedidosCDScreen';
 import { Tratativa, abrirTratativasDaColeta, enviarAoPedidoCD, tratativasParaPedidoCD } from '../data/rupturaTratativasApi';
 import SeletorAreaMapa from '../components/SeletorAreaMapa';
 import MapearSubsortimentosScreen from './MapearSubsortimentosScreen';
@@ -72,7 +73,7 @@ const dataHoraBR = (d: string) => {
   return x.toLocaleDateString('pt-BR') + ' ' + x.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 };
 
-type Etapa = 'grupos' | 'sugerida' | 'coleta' | 'naoColetados' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas' | 'subsortimentos';
+type Etapa = 'grupos' | 'sugerida' | 'pedidosCD' | 'coleta' | 'naoColetados' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas' | 'subsortimentos';
 
 export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -254,6 +255,10 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
     );
   }
 
+  if (etapa === 'pedidosCD') {
+    return <PedidosCDScreen quem={quem} onVoltar={() => setEtapa('grupos')} onHistoricoColetas={() => setEtapa('historico')} />;
+  }
+
   if (etapa === 'sugerida') {
     return <RupturaSugeridaScreen quem={quem} onVoltar={() => { setEtapa('grupos'); carregarGrupos(); }} />;
   }
@@ -319,10 +324,10 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
             <Text style={styles.topoBotaoTexto}>Tratativas</Text>
             <Text style={styles.topoBotaoSub}>Comprar, verificar estoque</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.topoBotao} onPress={() => setEtapa('historico')}>
-            <Feather name="clock" size={20} color={AZUL} />
-            <Text style={styles.topoBotaoTexto}>Histórico de pedidos</Text>
-            <Text style={styles.topoBotaoSub}>Coletas e lista de pedido</Text>
+          <TouchableOpacity style={styles.topoBotao} onPress={() => setEtapa('pedidosCD')}>
+            <Feather name="shopping-cart" size={20} color={AZUL} />
+            <Text style={styles.topoBotaoTexto}>Pedidos</Text>
+            <Text style={styles.topoBotaoSub}>Na fila e já digitados</Text>
           </TouchableOpacity>
         </View>
         {(() => {

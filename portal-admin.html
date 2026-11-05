@@ -907,6 +907,7 @@
         <button class="nav-item" data-pagina="estoque-loja" onclick="irPara('estoque-loja')"><span class="dot"></span>Estoque Loja</button>
         <button class="nav-item" id="nav-ruptura-mix" style="display:none" data-pagina="ruptura-mix" onclick="irPara('ruptura-mix')"><span class="dot"></span>Ruptura · Mix do CD</button>
         <button class="nav-item" id="nav-ruptura-sugerida" style="display:none" data-pagina="ruptura-sugerida" onclick="irPara('ruptura-sugerida')"><span class="dot"></span>Ruptura sugerida (Falcon)</button>
+        <button class="nav-item" id="nav-pedidos-cd" style="display:none" data-pagina="pedidos-cd" onclick="irPara('pedidos-cd')"><span class="dot"></span>Pedidos CD (fila e digitados)</button>
         <button class="nav-item" data-pagina="uso-consumo" onclick="irPara('uso-consumo')"><span class="dot"></span>Uso e Consumo</button>
         <button class="nav-item" data-pagina="checklist-setor" onclick="irPara('checklist-setor')"><span class="dot"></span>Checklist</button>
         <button class="nav-item" data-pagina="visita-tecnica" onclick="irPara('visita-tecnica')"><span class="dot"></span>Visita Técnica</button>
@@ -1142,6 +1143,7 @@ async function fazerLogin() {
     document.getElementById('nav-importar-vendas').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-ruptura-mix').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-ruptura-sugerida').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
+    document.getElementById('nav-pedidos-cd').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-visitas-site').style.display = String(encontrado.matricula) === '7990353' ? '' : 'none';
     renderizarFavoritos();
     irPara(favoritosDoUsuario()[0] || 'equipe');
@@ -1175,7 +1177,7 @@ const GAVETA_POR_PAGINA = {
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'venda-dia': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'resultados-inventario': 'indicadores', 'visitas-site': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
-  pedidos: 'operacao', 'estoque-loja': 'operacao', 'ruptura-mix': 'operacao', 'ruptura-sugerida': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', chegadas: 'ofertas', 'pontas-extras': 'operacao',
+  pedidos: 'operacao', 'estoque-loja': 'operacao', 'ruptura-mix': 'operacao', 'ruptura-sugerida': 'operacao', 'pedidos-cd': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', chegadas: 'ofertas', 'pontas-extras': 'operacao',
 };
 function alternarMenu(abrir) {
   const shell = document.getElementById('app-shell');
@@ -1258,6 +1260,7 @@ async function irPara(pagina) {
     else if (pagina === 'estoque-loja') await paginaEstoqueLoja();
     else if (pagina === 'ruptura-mix') await paginaRupturaMix();
     else if (pagina === 'ruptura-sugerida') await paginaRupturaSugerida();
+    else if (pagina === 'pedidos-cd') await paginaPedidosCD();
     else if (pagina === 'uso-consumo') await paginaUsoConsumo();
     else if (pagina === 'vendas') await paginaVendas();
     else if (pagina === 'vendas-comparativo') await paginaVendasComparativo();
@@ -2047,6 +2050,56 @@ async function importarRupturaSugerida() {
     mostrarToast('Erro ao enviar: ' + (e.message || ''), 'erro');
     btn.disabled = false; btn.textContent = '📥 Tentar de novo';
   }
+}
+
+// =============================================================================
+// Pedidos CD — fila da extensão do Chrome e o que já foi digitado no Portal 360
+// (tabela pedido_cd_solicitacoes)
+// =============================================================================
+async function paginaPedidosCD() {
+  const el = document.getElementById('conteudo-principal');
+  const desde = new Date(Date.now() - 30 * 86400000).toISOString();
+  const { data, error } = await sb.from('pedido_cd_solicitacoes').select('*')
+    .or('criado_em.gte.' + desde + ',status.in.(pendente,processando,parou)')
+    .order('criado_em', { ascending: false }).limit(300);
+  if (error) throw error;
+  const ROT = { pendente: ['⏳ Na fila', '#9A5B00', '#FFF4E0'], processando: ['⌨️ Digitando agora', '#2F7BFF', '#E3EDFF'],
+    parou: ['⚠ Parou (Confirmar digitação)', '#C0352B', '#FDECEA'], pronto: ['✅ Digitado', '#178553', '#E6F6EE'],
+    erro: ['❌ Erro', '#C0352B', '#FDECEA'], cancelada: ['Cancelado', '#666', '#F3F4F6'] };
+  const hora = (d) => d ? new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : '—';
+  const naFila = (data || []).filter((p) => ['pendente', 'processando', 'parou'].includes(p.status));
+  const feitos = (data || []).filter((p) => !['pendente', 'processando', 'parou'].includes(p.status));
+  const linha = (p) => {
+    const r = p.resultado || {}; const ok = r.ok || []; const ja = r.ja || []; const fora = (r.fora || []).concat(r.naoAchou || []);
+    const cx = ok.reduce((s, i) => s + (Number(i.qtd) || 0), 0);
+    const rot = ROT[p.status] || [p.status, '#333', '#eee'];
+    const itensDet = (p.status === 'pronto' || p.status === 'parou' || p.status === 'erro')
+      ? ok.map((i) => '<tr><td>' + rupEsc(i.codigo) + '</td><td>' + rupEsc(i.produto || '') + '</td><td style="color:#178553;font-weight:700">✓ ' + (i.qtd ?? '?') + ' cx</td></tr>').join('') +
+        ja.map((i) => '<tr><td>' + rupEsc(i.codigo) + '</td><td>' + rupEsc(i.produto || '') + '</td><td>já tinha ' + rupEsc(String(i.valor ?? '')) + '</td></tr>').join('') +
+        fora.map((i) => '<tr><td>' + rupEsc(i.codigo) + '</td><td>' + rupEsc(i.produto || '') + '</td><td style="color:#999">' + rupEsc(i.motivo || 'não achou no portal') + '</td></tr>').join('')
+      : (p.itens || []).map((i) => '<tr><td>' + rupEsc(i.codigo) + '</td><td>' + rupEsc(i.produto || '') + '</td><td></td></tr>').join('');
+    return '<tr><td><b>' + rupEsc(p.grupos || 'Pedido') + '</b><br><span style="color:var(--text-muted);font-size:12px">por ' + rupEsc(p.criado_por || '—') + '</span>' +
+      '<details style="margin-top:6px"><summary style="cursor:pointer;font-size:12.5px;color:#2F7BFF">ver produtos</summary><table style="margin-top:6px;font-size:12.5px">' + itensDet + '</table></details></td>' +
+      '<td><span style="font-weight:700;padding:3px 8px;border-radius:999px;color:' + rot[1] + ';background:' + rot[2] + '">' + rot[0] + '</span>' +
+      (r.erro ? '<br><span style="font-size:12px;color:#C0352B">' + rupEsc(r.erro) + '</span>' : '') + '</td>' +
+      '<td>' + hora(p.criado_em) + '</td><td>' + (p.status === 'cancelada' ? '—' : hora(p.concluido_em)) + '</td>' +
+      '<td class="vl-num">' + (p.itens || []).length + '</td><td class="vl-num">' + ok.length + '</td><td class="vl-num">' + cx + '</td><td class="vl-num">' + fora.length + '</td>' +
+      '<td>' + (p.status === 'pendente' || p.status === 'parou' ? '<button class="btn-acao" onclick="cancelarPedidoCD(\'' + p.id + '\')">Tirar da fila</button>' : '') + '</td></tr>';
+  };
+  const cab = '<thead><tr><th>Pedido</th><th>Situação</th><th>Enviado</th><th>Digitado</th><th style="text-align:right">Produtos</th><th style="text-align:right">Digitados</th><th style="text-align:right">Caixas</th><th style="text-align:right">Fora</th><th></th></tr></thead>';
+  el.innerHTML = cabecalho('Pedidos CD', 'O que está na fila para a extensão digitar no Portal 360 e o que já foi digitado') +
+    '<h3 style="margin:8px 0">⏳ Na fila · ' + naFila.length + '</h3>' +
+    '<div class="tabela-wrap"><table>' + cab + '<tbody>' + (naFila.map(linha).join('') || '<tr><td colspan="9"><div class="celula-vazio">Nada esperando para digitar.</div></td></tr>') + '</tbody></table></div>' +
+    (naFila.some((p) => p.status === 'pendente') ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:8px">A extensão digita quando o MG SECOS está aberto no Chrome com o modo automático ligado.</div>' : '') +
+    '<h3 style="margin:28px 0 8px">✅ Digitados (últimos 30 dias)</h3>' +
+    '<div class="tabela-wrap"><table>' + cab + '<tbody>' + (feitos.map(linha).join('') || '<tr><td colspan="9"><div class="celula-vazio">Nenhum pedido digitado ainda.</div></td></tr>') + '</tbody></table></div>';
+}
+async function cancelarPedidoCD(id) {
+  if (!confirm('Tirar este pedido da fila? Os produtos voltam a ficar para pedir.')) return;
+  const { data, error } = await sb.rpc('pedido_cd_cancelar', { p_id: id, p_por: (estado.usuario || {}).nome || '' });
+  if (error || !data) mostrarToast('Não consegui tirar da fila' + (error ? ': ' + error.message : ' (talvez já esteja sendo digitado).'), 'erro');
+  else mostrarToast('Pedido tirado da fila.', 'sucesso');
+  await paginaPedidosCD();
 }
 
 async function salvarDiasGrupoRuptura(id, valor) {
