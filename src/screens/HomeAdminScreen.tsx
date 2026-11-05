@@ -15,6 +15,7 @@ import SobreScreen from './SobreScreen';
 import OcorrenciaAdminScreen from './OcorrenciaAdminScreen';
 import ConferenciaScreen from './ConferenciaScreen';
 import PedidosScreen from './PedidosScreen';
+import PedidoFlvScreen from './PedidoFlvScreen';
 import EstoqueLojaScreen from './EstoqueLojaScreen';
 import PainelResultadosScreen from './PainelResultadosScreen';
 import VendasScreen from './VendasScreen';
@@ -74,6 +75,7 @@ export default function HomeAdminScreen() {
     | 'ocorrencias'
     | 'conferencias'
     | 'pedidos'
+    | 'pedidoFlv'
     | 'estoqueLoja'
     | 'painelResultados'
     | 'vendas'
@@ -256,6 +258,9 @@ export default function HomeAdminScreen() {
   }
   if (tela === 'pedidos') {
     return <PedidosScreen onVoltar={() => setTela('home')} setorPedido="flv" />;
+  }
+  if (tela === 'pedidoFlv') {
+    return <PedidoFlvScreen onVoltar={() => setTela('home')} />;
   }
   if (tela === 'estoqueLoja') {
     return <EstoqueLojaScreen onVoltar={() => setTela('home')} />;
@@ -511,6 +516,7 @@ export default function HomeAdminScreen() {
             { label: 'Ocorrências', icone: 'alert-triangle' as const, onPress: () => setTela('ocorrencias') },
             { label: 'Conferência', icone: 'clipboard' as const, onPress: () => setTela('conferencias') },
             { label: 'Pedidos', icone: 'shopping-cart' as const, onPress: () => setTela('pedidos') },
+            { label: 'Pedido FLV', icone: 'shopping-cart' as const, onPress: () => setTela('pedidoFlv') },
             { label: 'Painel Resultados', icone: 'bar-chart-2' as const, onPress: () => setTela('painelResultados') },
             { label: 'Resultados de inventário', icone: 'award' as const, onPress: () => setTela('resultadosInventario') },
             { label: 'Vendas da Loja', icone: 'pie-chart' as const, onPress: () => setTela('vendasLoja'), somenteDono: true },
