@@ -1,14 +1,15 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
   StyleSheet,
-  ScrollView,
+  FlatList,
   TouchableOpacity,
   TextInput,
   ActivityIndicator,
   Alert,
   Share,
+  Keyboard,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import { colors, radius, spacing } from '../theme/colors';
@@ -17,14 +18,14 @@ import CabecalhoTela from '../components/CabecalhoTela';
 import AreaTeclado from '../components/AreaTeclado';
 import {
   BaseSugestao,
-  ItemSugestao,
+  ConversaoFlv,
+  calcularItem,
   calcularSugestao,
   carregarBaseSugestao,
   dataCurta,
   enviarPedidoFlv,
   formatarNumero,
   proximosPedidos,
-  rotuloSugestao,
   salvarContagem,
   salvarMargem,
   textoPedido,
@@ -33,16 +34,99 @@ import {
 // Pedido FLV — sugestão automática pela venda do mês passado.
 // Fluxo: escolhe o dia do pedido → conta as caixas da câmara → confere a
 // sugestão (dá pra ajustar item a item) → envia o pedido / manda no WhatsApp.
+//
+// Desempenho: cada produto é uma linha independente (memo) que guarda o que
+// está sendo digitado e refaz só a PRÓPRIA conta. A tela inteira só é
+// atualizada quando o campo perde o foco. A lista é uma FlatList, que só
+// desenha o que está perto da área visível.
 
 type Filtro = 'venda' | 'todos';
 
-const paraNumero = (t: string | undefined): number | null => {
-  if (t === undefined) return null;
+const paraNumero = (t: string | undefined | null): number | null => {
+  if (t === undefined || t === null) return null;
   const s = t.trim().replace(',', '.');
   if (!s) return null;
   const n = Number(s);
   return Number.isFinite(n) && n >= 0 ? n : null;
 };
+const paraTexto = (n: number | undefined) => (n === undefined ? '' : String(n).replace('.', ','));
+
+type PropsLinha = {
+  conv: ConversaoFlv;
+  preco: number | null;
+  valores: number[];
+  margem: number;
+  contagem: number | undefined;
+  ajuste: number | undefined;
+  onContagem: (codigo: string, n: number | null) => void;
+  onAjuste: (codigo: string, n: number | null) => void;
+};
+
+const LinhaProduto = memo(function LinhaProduto({ conv, preco, valores, margem, contagem, ajuste, onContagem, onAjuste }: PropsLinha) {
+  const [txtCont, setTxtCont] = useState(paraTexto(contagem));
+  const [txtPed, setTxtPed] = useState<string | null>(ajuste === undefined ? null : paraTexto(ajuste));
+  const contNum = paraNumero(txtCont) ?? 0;
+  const i = useMemo(() => calcularItem(conv, preco, valores, margem, contNum), [conv, preco, valores, margem, contNum]);
+  const unidade = i.fator ? 'cx' : i.unidade;
+  const ajustado = txtPed !== null && paraNumero(txtPed) !== i.sugestao;
+
+  return (
+    <View style={s.card}>
+      <Text style={s.produto}>
+        {i.codigo} · {i.produto}
+      </Text>
+      <Text style={s.info}>
+        {i.fator ? `${i.embalagem ?? 'Caixa'} · ${formatarNumero(i.fator)} ${i.unidade}/cx` : `Sem conversão de caixa${i.embalagem ? ' · ' + i.embalagem : ''}`}
+      </Text>
+      <Text style={s.info}>
+        {i.preco
+          ? `Vendeu ${formatarNumero(i.vendaBase)} ${i.unidade} (${i.vendaPorDia.map((v) => formatarNumero(v, 0)).join(' + ')}) · com margem ${formatarNumero(i.necessidade)} ${i.unidade}`
+          : 'Sem preço de venda: não dá pra calcular o volume'}
+      </Text>
+      <View style={s.linhaCampos}>
+        <View style={s.campo}>
+          <Text style={s.campoRotulo}>Câmara ({unidade})</Text>
+          <TextInput
+            style={s.campoInput}
+            placeholder="0"
+            placeholderTextColor={colors.gray400}
+            keyboardType="decimal-pad"
+            value={txtCont}
+            onChangeText={setTxtCont}
+            onEndEditing={() => onContagem(conv.codigo, paraNumero(txtCont))}
+          />
+        </View>
+        <Feather name="arrow-right" size={16} color={colors.gray400} style={{ marginTop: 18 }} />
+        <View style={s.campo}>
+          <Text style={s.campoRotulo}>Pedir ({unidade})</Text>
+          <TextInput
+            style={[s.campoInput, s.pedirInput, ajustado && s.pedirAjustado]}
+            keyboardType="decimal-pad"
+            value={txtPed ?? String(i.sugestao)}
+            onChangeText={setTxtPed}
+            onEndEditing={() => {
+              const n = paraNumero(txtPed);
+              if (n === null || n === i.sugestao) {
+                setTxtPed(null);
+                onAjuste(conv.codigo, null);
+              } else onAjuste(conv.codigo, n);
+            }}
+          />
+        </View>
+      </View>
+      {ajustado && (
+        <TouchableOpacity
+          onPress={() => {
+            setTxtPed(null);
+            onAjuste(conv.codigo, null);
+          }}
+        >
+          <Text style={s.link}>Voltar para a sugestão ({i.sugestao} {unidade})</Text>
+        </TouchableOpacity>
+      )}
+    </View>
+  );
+});
 
 export default function PedidoFlvScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -51,12 +135,17 @@ export default function PedidoFlvScreen({ onVoltar }: { onVoltar: () => void }) 
   const [base, setBase] = useState<BaseSugestao | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [erro, setErro] = useState<string | null>(null);
-  const [margemTxt, setMargemTxt] = useState('');
-  const [contagemTxt, setContagemTxt] = useState<Record<string, string>>({});
-  const [ajustes, setAjustes] = useState<Record<string, string>>({});
+  const [margem, setMargem] = useState(4);
+  const [margemTxt, setMargemTxt] = useState('4');
+  const [contagem, setContagem] = useState<Record<string, number>>({});
+  const [ajustes, setAjustes] = useState<Record<string, number>>({});
   const [pesquisa, setPesquisa] = useState('');
   const [filtro, setFiltro] = useState<Filtro>('venda');
   const [enviando, setEnviando] = useState(false);
+
+  // Referências estáveis para as linhas não serem redesenhadas à toa.
+  const ref = useRef({ dataPedido, nome: usuarioAtual?.nome ?? '' });
+  ref.current = { dataPedido, nome: usuarioAtual?.nome ?? '' };
 
   function carregar(d: string) {
     setCarregando(true);
@@ -64,10 +153,9 @@ export default function PedidoFlvScreen({ onVoltar }: { onVoltar: () => void }) 
     carregarBaseSugestao(d)
       .then((b) => {
         setBase(b);
-        setMargemTxt(String(b.margem).replace('.', ','));
-        const c: Record<string, string> = {};
-        Object.entries(b.contagem).forEach(([k, v]) => (c[k] = String(v).replace('.', ',')));
-        setContagemTxt(c);
+        setMargem(b.margem);
+        setMargemTxt(paraTexto(b.margem));
+        setContagem(b.contagem);
         setAjustes({});
       })
       .catch((e: any) => {
@@ -85,51 +173,57 @@ export default function PedidoFlvScreen({ onVoltar }: { onVoltar: () => void }) 
     carregar(dataPedido);
   }, [dataPedido]);
 
-  const margem = paraNumero(margemTxt) ?? base?.margem ?? 4;
-  const contagem = useMemo(() => {
-    const r: Record<string, number> = {};
-    Object.entries(contagemTxt).forEach(([k, v]) => {
-      const n = paraNumero(v);
-      if (n !== null) r[k] = n;
+  const contagemRef = useRef(contagem);
+  contagemRef.current = contagem;
+  const onContagem = useCallback((codigo: string, n: number | null) => {
+    if ((contagemRef.current[codigo] ?? null) === n) return;
+    setContagem((p) => {
+      const novo = { ...p };
+      if (n === null) delete novo[codigo];
+      else novo[codigo] = n;
+      return novo;
     });
-    return r;
-  }, [contagemTxt]);
-
-  const itens = useMemo(() => (base ? calcularSugestao(base, margem, contagem) : []), [base, margem, contagem]);
-  const qtdFinal = (i: ItemSugestao) => {
-    const a = paraNumero(ajustes[i.codigo]);
-    return a !== null ? a : i.sugestao;
-  };
-
-  const visiveis = useMemo(() => {
-    const termo = pesquisa.trim().toLowerCase();
-    return itens
-      .filter((i) => filtro === 'todos' || i.vendaBase > 0 || (contagem[i.codigo] ?? 0) > 0)
-      .filter((i) => !termo || i.produto.toLowerCase().includes(termo) || i.codigo.includes(termo));
-  }, [itens, filtro, pesquisa, contagem]);
-
-  const paraEnviar = itens.map((item) => ({ item, qtd: qtdFinal(item) })).filter((x) => x.qtd > 0);
-  const semConversao = itens.filter((i) => !i.fator && i.vendaBase > 0).length;
-  const semPreco = itens.filter((i) => !i.preco).length;
-
-  function salvarCampoContagem(codigo: string) {
-    if (!usuarioAtual) return;
-    salvarContagem(dataPedido, codigo, paraNumero(contagemTxt[codigo]), usuarioAtual.nome).catch(() =>
+    salvarContagem(ref.current.dataPedido, codigo, n, ref.current.nome).catch(() =>
       Alert.alert('Não salvei a contagem', 'Verifique a internet. O número continua na tela.'),
     );
-  }
+  }, []);
+
+  const onAjuste = useCallback((codigo: string, n: number | null) => {
+    setAjustes((p) => {
+      if ((p[codigo] ?? null) === n) return p;
+      const novo = { ...p };
+      if (n === null) delete novo[codigo];
+      else novo[codigo] = n;
+      return novo;
+    });
+  }, []);
+
+  const itens = useMemo(() => (base ? calcularSugestao(base, margem, contagem) : []), [base, margem, contagem]);
+  const paraEnviar = useMemo(
+    () => itens.map((item) => ({ item, qtd: ajustes[item.codigo] ?? item.sugestao })).filter((x) => x.qtd > 0),
+    [itens, ajustes],
+  );
+  const semConversao = useMemo(() => itens.filter((i) => !i.fator && i.vendaBase > 0).length, [itens]);
+  const semPreco = useMemo(() => itens.filter((i) => !i.preco).length, [itens]);
+
+  const visiveis = useMemo(() => {
+    if (!base) return [];
+    const termo = pesquisa.trim().toLowerCase();
+    const vendeu = new Set(itens.filter((i) => i.vendaBase > 0).map((i) => i.codigo));
+    return base.conversao
+      .filter((c) => filtro === 'todos' || vendeu.has(c.codigo) || (contagem[c.codigo] ?? 0) > 0)
+      .filter((c) => !termo || c.produto.toLowerCase().includes(termo) || c.codigo.includes(termo));
+  }, [base, itens, filtro, pesquisa, contagem]);
 
   function salvarCampoMargem() {
     const n = paraNumero(margemTxt);
     if (n === null || n > 50) {
-      setMargemTxt(String(base?.margem ?? 4).replace('.', ','));
+      setMargemTxt(paraTexto(margem));
       return;
     }
-    if (base && n !== base.margem) {
-      salvarMargem(n)
-        .then(() => setBase({ ...base, margem: n }))
-        .catch(() => Alert.alert('Não salvei a margem', 'Ela vale só nesta tela até salvar.'));
-    }
+    if (n === margem) return;
+    setMargem(n);
+    salvarMargem(n).catch(() => Alert.alert('Não salvei a margem', 'Ela vale só nesta tela até salvar.'));
   }
 
   async function compartilhar() {
@@ -162,7 +256,67 @@ export default function PedidoFlvScreen({ onVoltar }: { onVoltar: () => void }) 
     ]);
   }
 
+  // Toque num botão com um campo ainda aberto: fecha o teclado (o campo
+  // confirma o número), espera a tela atualizar e só então executa.
+  const acoes = useRef({ compartilhar, confirmarEnvio });
+  acoes.current = { compartilhar, confirmarEnvio };
+  const depoisDoTeclado = (acao: 'compartilhar' | 'confirmarEnvio') => {
+    Keyboard.dismiss();
+    setTimeout(() => acoes.current[acao](), 120);
+  };
+
   const janela = base?.janela;
+
+  const cabecalhoLista =
+    janela && base ? (
+      <View>
+        <View style={s.card}>
+          <Text style={s.resumoTitulo}>
+            Entrega {dataCurta(janela.entrega)} · cobre até {dataCurta(janela.proximaEntrega)}
+          </Text>
+          <Text style={s.resumoLinha}>
+            Base (mês passado): {janela.dias.map((d) => `${dataCurta(d.base)}${d.trocouFeriado ? '*' : ''}`).join(', ')}
+          </Text>
+          {janela.dias.some((d) => d.trocouFeriado) && (
+            <Text style={s.resumoNota}>* feriado no mês passado: usei o mesmo dia da semana anterior.</Text>
+          )}
+          <View style={s.margemLinha}>
+            <Text style={s.resumoLinha}>Margem de quebra</Text>
+            <TextInput
+              style={s.margemInput}
+              value={margemTxt}
+              onChangeText={setMargemTxt}
+              onEndEditing={salvarCampoMargem}
+              keyboardType="decimal-pad"
+              maxLength={4}
+            />
+            <Text style={s.resumoLinha}>%</Text>
+          </View>
+          {base.diasBaseSemDados.length > 0 && (
+            <Text style={s.alerta}>Ainda não tem venda carregada de {base.diasBaseSemDados.map(dataCurta).join(', ')}.</Text>
+          )}
+          {semConversao > 0 && (
+            <Text style={s.resumoNota}>{semConversao} itens sem conversão de caixa: a sugestão sai em kg/unidade.</Text>
+          )}
+          {semPreco > 0 && <Text style={s.resumoNota}>{semPreco} itens sem preço de venda: ficam sem sugestão.</Text>}
+          <Text style={s.resumoNota}>Conte na câmara só caixas fechadas (caixa aberta = 0). Volume vendido ≈ valor vendido ÷ preço atual.</Text>
+        </View>
+        <TextInput
+          style={s.pesquisa}
+          placeholder="Pesquisar produto ou código…"
+          placeholderTextColor={colors.gray400}
+          value={pesquisa}
+          onChangeText={setPesquisa}
+        />
+        <View style={s.filtros}>
+          {(['venda', 'todos'] as Filtro[]).map((f) => (
+            <TouchableOpacity key={f} style={[s.filtro, filtro === f && s.filtroAtivo]} onPress={() => setFiltro(f)}>
+              <Text style={[s.filtroTxt, filtro === f && s.filtroTxtAtivo]}>{f === 'venda' ? 'Vendeu no mês passado' : 'Todos'}</Text>
+            </TouchableOpacity>
+          ))}
+        </View>
+      </View>
+    ) : null;
 
   return (
     <AreaTeclado style={s.flex}>
@@ -176,135 +330,52 @@ export default function PedidoFlvScreen({ onVoltar }: { onVoltar: () => void }) 
         </View>
       </CabecalhoTela>
 
-      <ScrollView style={s.flex} contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 }} keyboardShouldPersistTaps="handled">
-        {carregando ? (
-          <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.xxl }} />
-        ) : erro ? (
-          <View style={s.aviso}>
-            <Text style={s.avisoTxt}>{erro}</Text>
-            <TouchableOpacity onPress={() => carregar(dataPedido)}>
-              <Text style={s.link}>Tentar de novo</Text>
-            </TouchableOpacity>
-          </View>
-        ) : janela && base ? (
-          <>
-            <View style={s.card}>
-              <Text style={s.resumoTitulo}>
-                Entrega {dataCurta(janela.entrega)} · cobre até {dataCurta(janela.proximaEntrega)}
-              </Text>
-              <Text style={s.resumoLinha}>
-                Base (mês passado):{' '}
-                {janela.dias.map((d) => `${dataCurta(d.base)}${d.trocouFeriado ? '*' : ''}`).join(', ')}
-              </Text>
-              {janela.dias.some((d) => d.trocouFeriado) && (
-                <Text style={s.resumoNota}>* feriado no mês passado: usei o mesmo dia da semana anterior.</Text>
-              )}
-              <View style={s.margemLinha}>
-                <Text style={s.resumoLinha}>Margem de quebra</Text>
-                <TextInput
-                  style={s.margemInput}
-                  value={margemTxt}
-                  onChangeText={setMargemTxt}
-                  onBlur={salvarCampoMargem}
-                  keyboardType="decimal-pad"
-                  maxLength={4}
-                />
-                <Text style={s.resumoLinha}>%</Text>
-              </View>
-              {base.diasBaseSemDados.length > 0 && (
-                <Text style={s.alerta}>Ainda não tem venda carregada de {base.diasBaseSemDados.map(dataCurta).join(', ')}.</Text>
-              )}
-              {semConversao > 0 && (
-                <Text style={s.resumoNota}>
-                  {semConversao} itens sem conversão de caixa: a sugestão sai em kg/unidade até preencher a tabela.
-                </Text>
-              )}
-              {semPreco > 0 && <Text style={s.resumoNota}>{semPreco} itens sem preço de venda: ficam sem sugestão.</Text>}
-              <Text style={s.resumoNota}>
-                Conte na câmara só caixas fechadas (caixa aberta = 0). Volume vendido ≈ valor vendido ÷ preço atual.
-              </Text>
-            </View>
-
-            <TextInput
-              style={s.pesquisa}
-              placeholder="Pesquisar produto ou código…"
-              placeholderTextColor={colors.gray400}
-              value={pesquisa}
-              onChangeText={setPesquisa}
+      {carregando ? (
+        <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.xxl }} />
+      ) : erro ? (
+        <View style={[s.aviso, { margin: spacing.lg }]}>
+          <Text style={s.avisoTxt}>{erro}</Text>
+          <TouchableOpacity onPress={() => carregar(dataPedido)}>
+            <Text style={s.link}>Tentar de novo</Text>
+          </TouchableOpacity>
+        </View>
+      ) : base ? (
+        <FlatList
+          style={s.flex}
+          contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 }}
+          data={visiveis}
+          keyExtractor={(c) => `${dataPedido}-${c.codigo}`}
+          ListHeaderComponent={cabecalhoLista}
+          ListEmptyComponent={<Text style={s.vazio}>Nenhum produto aqui.</Text>}
+          renderItem={({ item: c }) => (
+            <LinhaProduto
+              conv={c}
+              preco={base.precos[c.codigo] ?? null}
+              valores={base.valores[c.codigo]}
+              margem={margem}
+              contagem={contagem[c.codigo]}
+              ajuste={ajustes[c.codigo]}
+              onContagem={onContagem}
+              onAjuste={onAjuste}
             />
-            <View style={s.filtros}>
-              {(['venda', 'todos'] as Filtro[]).map((f) => (
-                <TouchableOpacity key={f} style={[s.filtro, filtro === f && s.filtroAtivo]} onPress={() => setFiltro(f)}>
-                  <Text style={[s.filtroTxt, filtro === f && s.filtroTxtAtivo]}>{f === 'venda' ? 'Vendeu no mês passado' : 'Todos'}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            {visiveis.length === 0 ? (
-              <Text style={s.vazio}>Nenhum produto aqui.</Text>
-            ) : (
-              visiveis.map((i) => {
-                const unidadeContagem = i.fator ? 'cx' : i.unidade;
-                const ajustado = ajustes[i.codigo] !== undefined && paraNumero(ajustes[i.codigo]) !== i.sugestao;
-                return (
-                  <View key={i.codigo} style={s.card}>
-                    <Text style={s.produto}>
-                      {i.codigo} · {i.produto}
-                    </Text>
-                    <Text style={s.info}>
-                      {i.fator ? `${i.embalagem ?? 'Caixa'} · ${formatarNumero(i.fator)} ${i.unidade}/cx` : 'Sem conversão de caixa'}
-                    </Text>
-                    <Text style={s.info}>
-                      Vendeu {formatarNumero(i.vendaBase)} {i.unidade} ({i.vendaPorDia.map((v) => formatarNumero(v, 0)).join(' + ')}) · com
-                      margem {formatarNumero(i.necessidade)} {i.unidade}
-                    </Text>
-                    <View style={s.linhaCampos}>
-                      <View style={s.campo}>
-                        <Text style={s.campoRotulo}>Câmara ({unidadeContagem})</Text>
-                        <TextInput
-                          style={s.campoInput}
-                          placeholder="0"
-                          placeholderTextColor={colors.gray400}
-                          keyboardType="decimal-pad"
-                          value={contagemTxt[i.codigo] ?? ''}
-                          onChangeText={(v) => setContagemTxt((p) => ({ ...p, [i.codigo]: v }))}
-                          onBlur={() => salvarCampoContagem(i.codigo)}
-                        />
-                      </View>
-                      <Feather name="arrow-right" size={16} color={colors.gray400} style={{ marginTop: 18 }} />
-                      <View style={s.campo}>
-                        <Text style={s.campoRotulo}>Pedir ({unidadeContagem})</Text>
-                        <TextInput
-                          style={[s.campoInput, s.pedirInput, ajustado && s.pedirAjustado]}
-                          keyboardType="decimal-pad"
-                          value={ajustes[i.codigo] ?? String(i.sugestao)}
-                          onChangeText={(v) => setAjustes((p) => ({ ...p, [i.codigo]: v }))}
-                        />
-                      </View>
-                    </View>
-                    {ajustado && (
-                      <TouchableOpacity onPress={() => setAjustes((p) => { const n = { ...p }; delete n[i.codigo]; return n; })}>
-                        <Text style={s.link}>Voltar para a sugestão ({rotuloSugestao(i)})</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                );
-              })
-            )}
-          </>
-        ) : null}
-      </ScrollView>
+          )}
+          keyboardShouldPersistTaps="handled"
+          initialNumToRender={10}
+          maxToRenderPerBatch={10}
+          windowSize={9}
+        />
+      ) : null}
 
       {!carregando && !erro && (
         <View style={s.rodape}>
-          <TouchableOpacity style={[s.btn, s.btnSec]} onPress={compartilhar} disabled={paraEnviar.length === 0}>
+          <TouchableOpacity style={[s.btn, s.btnSec]} onPress={() => depoisDoTeclado('compartilhar')}>
             <Feather name="share-2" size={16} color={colors.navy700} />
             <Text style={s.btnSecTxt}>WhatsApp</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={[s.btn, s.btnPri, (paraEnviar.length === 0 || enviando) && { opacity: 0.5 }]}
-            onPress={confirmarEnvio}
-            disabled={paraEnviar.length === 0 || enviando}
+            onPress={() => depoisDoTeclado('confirmarEnvio')}
+            disabled={enviando}
           >
             <Text style={s.btnPriTxt}>{enviando ? 'Enviando…' : `Enviar pedido (${paraEnviar.length})`}</Text>
           </TouchableOpacity>
