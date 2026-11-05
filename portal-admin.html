@@ -963,6 +963,8 @@
 </div>
 
 <script>
+// Funções do dono: Lucas (7990353) e Rodrigo (9728010).
+var MATRICULAS_DONO = ['7990353', '9728010'];
 // =============================================================================
 // Conexão com o Supabase — mesmo projeto usado pelo app do celular.
 // =============================================================================
@@ -1144,7 +1146,7 @@ async function fazerLogin() {
     document.getElementById('nav-ruptura-mix').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-ruptura-sugerida').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-pedidos-cd').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
-    document.getElementById('nav-visitas-site').style.display = String(encontrado.matricula) === '7990353' ? '' : 'none';
+    document.getElementById('nav-visitas-site').style.display = MATRICULAS_DONO.includes(String(encontrado.matricula)) ? '' : 'none';
     renderizarFavoritos();
     irPara(favoritosDoUsuario()[0] || 'equipe');
   } catch (e) {
@@ -1719,7 +1721,7 @@ const MATRICULA_VISITAS_SITE = '7990353';
 const VS_CORES = { Instagram: '#E1306C', Facebook: '#1877F2', LinkedIn: '#0A66C2', WhatsApp: '#25D366', Google: '#F2A600', YouTube: '#FF0000', Direto: '#5B6577' };
 
 async function paginaVisitasSite() {
-  if (!estado.usuario || String(estado.usuario.matricula) !== MATRICULA_VISITAS_SITE) {
+  if (!estado.usuario || !MATRICULAS_DONO.includes(String(estado.usuario.matricula))) {
     document.getElementById('conteudo-principal').innerHTML = cabecalho('Visitas do site', '') + '<div class="celula-vazio">Acesso restrito.</div>';
     return;
   }

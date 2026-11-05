@@ -10,13 +10,13 @@ import JornalOfertasScreen from './JornalOfertasScreen';
 import ConferenciaEncarteScreen from './ConferenciaEncarteScreen';
 import { listarCampanhas, campanhaAtual, listarItens, ehAlerta } from '../data/jornalEstoqueApi';
 import { supabase } from '../lib/supabase';
+import { ehDonoMatricula } from '../data/donos';
 
 // Aba "Ofertas": junta o Jornal de Ofertas, o Estoque do Jornal e as
 // Ofertas no WhatsApp num lugar só.
 
 type Tela = 'hub' | 'whats' | 'estoque' | 'jornal' | 'encarte';
-// Conferência do jornal: por enquanto só o Lucas.
-const MATRICULA_DONO = '7990353';
+// Conferência do jornal: Lucas e Rodrigo (ver src/data/donos.ts).
 
 export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -57,7 +57,7 @@ export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void })
   if (tela === 'estoque') return <EstoqueJornalScreen onVoltar={() => setTela('hub')} />;
   if (tela === 'jornal') return <JornalOfertasScreen onVoltar={() => setTela('hub')} />;
   if (tela === 'encarte') return <ConferenciaEncarteScreen onVoltar={() => setTela('hub')} />;
-  const ehDono = String(usuarioAtual?.matricula ?? '') === MATRICULA_DONO;
+  const ehDono = ehDonoMatricula(usuarioAtual?.matricula);
 
   const cards: { k: Tela; titulo: string; texto: string; icone: React.ComponentProps<typeof Feather>['name']; badge?: string | null; cor?: string }[] = [
     {
