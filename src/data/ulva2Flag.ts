@@ -5,7 +5,7 @@ import { supabase } from '../lib/supabase';
 // Enquanto não for liberado, só quem está nesta lista vê a versão nova.
 // A liberação para todos é a chave 'ulva2_liberado' na tabela system_config
 // (o próprio Lucas liga pelo app — botão "Liberar ULVA 2.0 para todos").
-export const MATRICULAS_TESTE_ULVA2 = ['7990353', '9728010'];
+export const MATRICULAS_TESTE_ULVA2 = ['7990353'];
 
 const CHAVE = 'ulva2_liberado';
 const CACHE_LIBERADO = 'ulva2:liberado';

@@ -193,7 +193,8 @@ export default function HomeAdminScreen() {
     ]);
   }
 
-  const podeUsarChatIA = ehDonoMatricula(usuarioAtual.matricula);
+  // Chat com a IA: por enquanto só o Lucas.
+  const podeUsarChatIA = String(usuarioAtual.matricula) === '7990353';
   const top5Vencendo = [...validades]
     .sort((a, b) => (a.dataValidade < b.dataValidade ? -1 : 1))
     .slice(0, 5);
