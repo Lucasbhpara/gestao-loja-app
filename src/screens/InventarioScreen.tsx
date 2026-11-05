@@ -45,7 +45,7 @@ function nomeDoSortimento(s: Sortimento | null): string {
   return SORTIMENTOS_INVENTARIO.find((x) => x.key === s)?.nome ?? '';
 }
 
-export default function InventarioScreen({ onVoltar }: { onVoltar: () => void }) {
+export default function InventarioScreen({ onVoltar, podeReiniciar = true }: { onVoltar: () => void; podeReiniciar?: boolean }) {
   const [modo, setModo] = useState<Modo>('pessoa');
   const [erro, setErro] = useState<string | null>(null);
 
@@ -422,15 +422,17 @@ export default function InventarioScreen({ onVoltar }: { onVoltar: () => void })
                   <Text style={styles.sortimentoDescricao}>{s.descricao}</Text>
                 </View>
               </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.btnReiniciarInventario}
-                onPress={() => confirmarReiniciarInventario(s.key)}
-                disabled={reiniciandoSortimento === s.key}
-              >
-                <Text style={styles.btnReiniciarInventarioTexto}>
-                  {reiniciandoSortimento === s.key ? 'Reiniciando…' : '↻ Reiniciar'}
-                </Text>
-              </TouchableOpacity>
+              {podeReiniciar ? (
+                <TouchableOpacity
+                  style={styles.btnReiniciarInventario}
+                  onPress={() => confirmarReiniciarInventario(s.key)}
+                  disabled={reiniciandoSortimento === s.key}
+                >
+                  <Text style={styles.btnReiniciarInventarioTexto}>
+                    {reiniciandoSortimento === s.key ? 'Reiniciando…' : '↻ Reiniciar'}
+                  </Text>
+                </TouchableOpacity>
+              ) : null}
             </View>
           ))}
         </ScrollView>
