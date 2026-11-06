@@ -24,6 +24,7 @@ import {
   carregarBaseSugestao,
   dataCurta,
   enviarPedidoFlv,
+  enviarFlvParaPortal,
   formatarNumero,
   proximosPedidos,
   salvarContagem,
@@ -233,26 +234,31 @@ export default function PedidoFlvScreen({ onVoltar }: { onVoltar: () => void }) 
 
   function confirmarEnvio() {
     if (!base || paraEnviar.length === 0) return;
-    Alert.alert('Enviar pedido FLV', `Pedido de ${dataCurta(dataPedido)} com ${paraEnviar.length} itens. Confirma?`, [
+    const enviar = async (portal: boolean) => {
+      if (!usuarioAtual) return;
+      setEnviando(true);
+      try {
+        await enviarPedidoFlv(base.janela, paraEnviar, usuarioAtual.nome);
+        let txt = 'Ficou salvo no histórico de Pedidos.';
+        if (portal) {
+          const r = await enviarFlvParaPortal(base.janela, paraEnviar, usuarioAtual.nome);
+          txt += `\n\n🛒 ${r.enviados} itens foram para a fila do Portal (MG CEASA). A extensão digita e você recebe o aviso.`;
+          if (r.semCaixa) txt += `\n${r.semCaixa} sem conversão para caixa ficaram de fora do Portal.`;
+        }
+        Alert.alert('Pedido enviado', txt + '\n\nQuer mandar no WhatsApp também?', [
+          { text: 'Agora não', style: 'cancel' },
+          { text: 'Compartilhar', onPress: compartilhar },
+        ]);
+      } catch (e: any) {
+        Alert.alert('Não consegui enviar', e?.message ?? 'Tente de novo em alguns instantes.');
+      } finally {
+        setEnviando(false);
+      }
+    };
+    Alert.alert('Enviar pedido FLV', `Pedido de ${dataCurta(dataPedido)} com ${paraEnviar.length} itens.`, [
       { text: 'Cancelar', style: 'cancel' },
-      {
-        text: 'Enviar',
-        onPress: async () => {
-          if (!usuarioAtual) return;
-          setEnviando(true);
-          try {
-            await enviarPedidoFlv(base.janela, paraEnviar, usuarioAtual.nome);
-            Alert.alert('Pedido enviado', 'Ficou salvo no histórico de Pedidos. Quer mandar no WhatsApp também?', [
-              { text: 'Agora não', style: 'cancel' },
-              { text: 'Compartilhar', onPress: compartilhar },
-            ]);
-          } catch (e: any) {
-            Alert.alert('Não consegui enviar', e?.message ?? 'Tente de novo em alguns instantes.');
-          } finally {
-            setEnviando(false);
-          }
-        },
-      },
+      { text: 'Só salvar', onPress: () => enviar(false) },
+      { text: 'Salvar e digitar no Portal (MG CEASA)', onPress: () => enviar(true) },
     ]);
   }
 
