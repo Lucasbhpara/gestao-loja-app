@@ -347,4 +347,21 @@ export async function enviarPedidoFlv(janela: JanelaPedido, itens: { item: ItemS
   return enviarPedido({ setor: SETOR_FLV, encarregadoNome: nome, itens: lista });
 }
 
+// Manda o pedido para a fila da extensão do Chrome, que digita no formulário
+// MG CEASA do Portal 360 (tabela pedido_cd_solicitacoes, formulario = 'MG CEASA').
+// Vai a quantidade já decidida aqui (caixas). Item sem conversão para caixa fica de fora.
+export async function enviarFlvParaPortal(janela: JanelaPedido, itens: { item: ItemSugestao; qtd: number }[], nome: string) {
+  const comCaixa = itens.filter((x) => x.qtd > 0 && x.item.fator);
+  const semCaixa = itens.filter((x) => x.qtd > 0 && !x.item.fator);
+  if (!comCaixa.length) return { enviados: 0, semCaixa: semCaixa.length };
+  const { error } = await supabase.from('pedido_cd_solicitacoes').insert({
+    formulario: 'MG CEASA',
+    grupos: `FLV · pedido ${dataCurta(janela.pedido)} (entrega ${dataCurta(janela.entrega)})`,
+    criado_por: nome,
+    itens: comCaixa.map((x) => ({ codigo: x.item.codigo, produto: x.item.produto, qtd: x.qtd })),
+  });
+  if (error) throw new Error(error.message);
+  return { enviados: comCaixa.length, semCaixa: semCaixa.length };
+}
+
 export { fmt as formatarNumero };
