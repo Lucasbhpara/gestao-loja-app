@@ -21,6 +21,7 @@ import CabecalhoTela from '../components/CabecalhoTela';
 import RupturaTratativasScreen from './RupturaTratativasScreen';
 import RupturaSugeridaScreen, { contarRupturaSugerida } from './RupturaSugeridaScreen';
 import PedidosCDScreen from './PedidosCDScreen';
+import CortesPedidoCDScreen from './CortesPedidoCDScreen';
 import { Tratativa, abrirTratativasDaColeta, enviarAoPedidoCD, tratativasParaPedidoCD } from '../data/rupturaTratativasApi';
 import SeletorAreaMapa from '../components/SeletorAreaMapa';
 import MapearSubsortimentosScreen from './MapearSubsortimentosScreen';
@@ -74,7 +75,7 @@ const dataHoraBR = (d: string) => {
   return x.toLocaleDateString('pt-BR') + ' ' + x.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
 };
 
-type Etapa = 'grupos' | 'sugerida' | 'pedidosCD' | 'coleta' | 'naoColetados' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas' | 'subsortimentos';
+type Etapa = 'grupos' | 'sugerida' | 'pedidosCD' | 'cortesCD' | 'coleta' | 'naoColetados' | 'resultado' | 'descontinuados' | 'historico' | 'tratativas' | 'subsortimentos';
 
 export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
   const { usuarioAtual } = useAuth();
@@ -260,6 +261,10 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
     return <PedidosCDScreen quem={quem} onVoltar={() => setEtapa('grupos')} onHistoricoColetas={() => setEtapa('historico')} />;
   }
 
+  if (etapa === 'cortesCD') {
+    return <CortesPedidoCDScreen quem={quem} onVoltar={() => setEtapa('grupos')} />;
+  }
+
   if (etapa === 'sugerida') {
     return <RupturaSugeridaScreen quem={quem} onVoltar={() => { setEtapa('grupos'); carregarGrupos(); }} />;
   }
@@ -329,6 +334,11 @@ export default function RupturaScreen({ onVoltar }: { onVoltar: () => void }) {
             <Feather name="shopping-cart" size={20} color={AZUL} />
             <Text style={styles.topoBotaoTexto}>Pedidos</Text>
             <Text style={styles.topoBotaoSub}>Na fila e já digitados</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.topoBotao} onPress={() => setEtapa('cortesCD')}>
+            <Feather name="repeat" size={20} color={AZUL} />
+            <Text style={styles.topoBotaoTexto}>Cortes CD</Text>
+            <Text style={styles.topoBotaoSub}>Reenviar o que foi cortado</Text>
           </TouchableOpacity>
         </View>
         {(() => {

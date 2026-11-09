@@ -2207,10 +2207,14 @@ async function dispararCortesCD(origem) {
   if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
   try {
     const itens = r.grupos[origem].map((i) => ({ codigo: i.codigo, produto: i.produto, qtd_corte: i.qtd_corte, n_pedido: i.n_pedido }));
-    const { data, error } = await sb.rpc('pedido_cortes_importar', {
-      p_arquivo: r.arquivo, p_origem: origem, p_itens: itens, p_por: (estado.usuario || {}).nome || '',
-    });
-    if (error) throw error;
+    const por = (estado.usuario || {}).nome || '';
+    // Importa (grava o lote) e já dispara em seguida — as duas etapas existem
+    // separadas pra dar pra disparar depois pelo app também, sem subir a
+    // planilha de novo (tela "Pedidos CD" no app).
+    const { data: imp, error: e1 } = await sb.rpc('pedido_cortes_importar', { p_arquivo: r.arquivo, p_origem: origem, p_itens: itens, p_por: por });
+    if (e1) throw e1;
+    const { data, error: e2 } = await sb.rpc('pedido_cortes_disparar', { p_lote: imp.lote_id, p_por: por });
+    if (e2) throw e2;
     mostrarToast('CD ' + origem + ': ' + data.itens + ' produtos enviados pra fila do Pedido CD (' +
       data.pedido_14_dias + ' já pedidos nos últimos 14 dias e ' + data.descontinuados + ' descontinuados ficaram de fora).', 'sucesso');
     delete r.grupos[origem];
