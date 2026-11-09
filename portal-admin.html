@@ -908,6 +908,7 @@
         <button class="nav-item" id="nav-ruptura-mix" style="display:none" data-pagina="ruptura-mix" onclick="irPara('ruptura-mix')"><span class="dot"></span>Ruptura · Mix do CD</button>
         <button class="nav-item" id="nav-ruptura-sugerida" style="display:none" data-pagina="ruptura-sugerida" onclick="irPara('ruptura-sugerida')"><span class="dot"></span>Ruptura sugerida (Falcon)</button>
         <button class="nav-item" id="nav-pedidos-cd" style="display:none" data-pagina="pedidos-cd" onclick="irPara('pedidos-cd')"><span class="dot"></span>Pedidos CD (fila e digitados)</button>
+        <button class="nav-item" id="nav-cortes-cd" style="display:none" data-pagina="cortes-cd" onclick="irPara('cortes-cd')"><span class="dot"></span>Cortes do pedido (CD)</button>
         <button class="nav-item" data-pagina="uso-consumo" onclick="irPara('uso-consumo')"><span class="dot"></span>Uso e Consumo</button>
         <button class="nav-item" data-pagina="checklist-setor" onclick="irPara('checklist-setor')"><span class="dot"></span>Checklist</button>
         <button class="nav-item" data-pagina="visita-tecnica" onclick="irPara('visita-tecnica')"><span class="dot"></span>Visita Técnica</button>
@@ -1146,6 +1147,7 @@ async function fazerLogin() {
     document.getElementById('nav-ruptura-mix').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-ruptura-sugerida').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-pedidos-cd').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
+    document.getElementById('nav-cortes-cd').style.display = MATRICULAS_GIRO.includes(String(encontrado.matricula)) ? '' : 'none';
     document.getElementById('nav-visitas-site').style.display = MATRICULAS_DONO.includes(String(encontrado.matricula)) ? '' : 'none';
     renderizarFavoritos();
     irPara(favoritosDoUsuario()[0] || 'equipe');
@@ -1179,7 +1181,7 @@ const GAVETA_POR_PAGINA = {
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'venda-dia': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'resultados-inventario': 'indicadores', 'visitas-site': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
-  pedidos: 'operacao', 'estoque-loja': 'operacao', 'ruptura-mix': 'operacao', 'ruptura-sugerida': 'operacao', 'pedidos-cd': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', chegadas: 'ofertas', 'pontas-extras': 'operacao',
+  pedidos: 'operacao', 'estoque-loja': 'operacao', 'ruptura-mix': 'operacao', 'ruptura-sugerida': 'operacao', 'pedidos-cd': 'operacao', 'cortes-cd': 'operacao', 'uso-consumo': 'operacao', 'checklist-setor': 'operacao', 'visita-tecnica': 'operacao', 'mapa-loja': 'operacao', 'jornal-ofertas': 'ofertas', 'ofertas-whats': 'ofertas', 'estoque-jornal': 'ofertas', 'pesquisa-preco': 'ofertas', chegadas: 'ofertas', 'pontas-extras': 'operacao',
 };
 function alternarMenu(abrir) {
   const shell = document.getElementById('app-shell');
@@ -1263,6 +1265,7 @@ async function irPara(pagina) {
     else if (pagina === 'ruptura-mix') await paginaRupturaMix();
     else if (pagina === 'ruptura-sugerida') await paginaRupturaSugerida();
     else if (pagina === 'pedidos-cd') await paginaPedidosCD();
+    else if (pagina === 'cortes-cd') await paginaCortesCD();
     else if (pagina === 'uso-consumo') await paginaUsoConsumo();
     else if (pagina === 'vendas') await paginaVendas();
     else if (pagina === 'vendas-comparativo') await paginaVendasComparativo();
@@ -2102,6 +2105,122 @@ async function cancelarPedidoCD(id) {
   if (error || !data) mostrarToast('Não consegui tirar da fila' + (error ? ': ' + error.message : ' (talvez já esteja sendo digitado).'), 'erro');
   else mostrarToast('Pedido tirado da fila.', 'sucesso');
   await paginaPedidosCD();
+}
+
+// =============================================================================
+// Cortes do pedido (CD) — tabelas em supabase/pedido_cortes.sql
+//
+// Planilha exportada do sistema de pedidos (colunas DT_EMISSAO, N_PEDIO,
+// ORIGEM, DESTINO, COD_PROD, DESCRICAO_PRO, QTD, QTD_CORTE, STATUS,
+// SITUACAO_PEV) mostrando o que foi cortado do pedido nos últimos dias. O
+// ULVA agrupa por CD de origem (ORIGEM) e, pra cada grupo, mostra quantos
+// produtos e quanto foi cortado; ao clicar em "Disparar pedido" naquele
+// grupo, soma a quantidade cortada por produto, tira descontinuados e quem
+// já teve pedido novo nos últimos 14 dias, e manda pra mesma fila do Pedido
+// CD que a extensão do Chrome já digita sozinha no Portal 360.
+// =============================================================================
+let cortesCDLido = null; // { arquivo, grupos: { [origem]: [{codigo, produto, qtd_corte, n_pedido}] } }
+
+async function paginaCortesCD() {
+  const el = document.getElementById('conteudo-principal');
+  const { data: lotes, error } = await sb.from('pedido_cortes_lotes').select('*').order('criado_em', { ascending: false }).limit(15);
+  if (error) throw error;
+  const linhas = (lotes || []).map((l) => {
+    const ex = l.excluidos || {};
+    return '<tr><td><b>' + rupEsc(l.arquivo || '—') + '</b><br><span style="color:var(--text-muted);font-size:12px">' +
+      new Date(l.criado_em).toLocaleString('pt-BR') + ' · ' + rupEsc(l.criado_por || '') + '</span></td>' +
+      '<td>CD ' + rupEsc(l.origem_cd) + '</td>' +
+      '<td class="vl-num">' + l.total_planilha + '</td>' +
+      '<td class="vl-num">' + (ex.pedido_14_dias || 0) + ' pedido · ' + (ex.descontinuados || 0) + ' descont.</td>' +
+      '<td class="vl-num">' + l.total_itens + '</td>' +
+      '<td>' + (l.enviado_em ? '✅ Disparado ' + new Date(l.enviado_em).toLocaleString('pt-BR') : '—') + '</td></tr>';
+  }).join('');
+  el.innerHTML = cabecalho('Cortes do pedido (CD)', 'Produtos cortados do pedido para pedir de novo no CD, direto pela fila do Pedido CD') +
+    '<div class="item-card" style="margin-bottom:16px;font-size:13px;line-height:1.6">' +
+    '📌 Suba a planilha de <b>pedidos cortados</b> (colunas DT_EMISSAO, N_PEDIO, ORIGEM, DESTINO, COD_PROD, DESCRICAO_PRO, QTD, QTD_CORTE, STATUS, SITUACAO_PEV). ' +
+    'O ULVA separa por <b>CD de origem</b> — escolha o grupo certo (ex.: o de produtos de mercearia/secos) e clique em <b>Disparar pedido</b>. ' +
+    'Isso soma a quantidade cortada por produto, tira descontinuados e quem já teve pedido nos últimos 14 dias, e manda pra fila do Pedido CD — ' +
+    'a mesma que a extensão do Chrome digita sozinha no Portal 360.</div>' +
+    zonaArrastarSoltarPlanilhaHtml('arquivo-cortes-cd', 'Planilha de pedidos cortados') +
+    '<div id="cortes-cd-previa" style="margin-top:16px"></div>' +
+    '<h3 style="margin:28px 0 8px">Disparos anteriores</h3>' +
+    '<div class="tabela-wrap"><table><thead><tr><th>Planilha</th><th>CD</th><th style="text-align:right">Na planilha</th>' +
+    '<th style="text-align:right">Tirados</th><th style="text-align:right">Enviados ao CD</th><th>Situação</th></tr></thead><tbody>' +
+    (linhas || '<tr><td colspan="6"><div class="celula-vazio">Nenhuma planilha enviada ainda.</div></td></tr>') + '</tbody></table></div>';
+  ligarZonaArrastarSoltarPlanilha('arquivo-cortes-cd', lerPlanilhaCortesCD);
+}
+
+async function lerPlanilhaCortesCD(file) {
+  const previa = document.getElementById('cortes-cd-previa');
+  previa.innerHTML = '<div class="carregando">Lendo a planilha…</div>';
+  try {
+    const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+    const linhas = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, raw: true, defval: '' });
+    const norm = (v) => String(v || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase().replace(/\s+/g, ' ').trim();
+    const iCab = linhas.findIndex((l) => l.some((c) => /^ORIGEM/.test(norm(c))) && l.some((c) => /COD.*PROD/.test(norm(c))));
+    if (iCab < 0) throw new Error('Não achei as colunas ORIGEM / COD_PROD. É a planilha de pedidos cortados?');
+    const cab = linhas[iCab].map(norm);
+    const col = (re) => cab.findIndex((c) => re.test(c));
+    const c = { origem: col(/^ORIGEM/), cod: col(/COD.*PROD/), desc: col(/DESCRI/), qtdCorte: col(/QTD.*CORTE/), nPedido: col(/N.*PEDI/), dtEmissao: col(/DT.*EMISS/) };
+    if (c.origem < 0 || c.cod < 0 || c.qtdCorte < 0) throw new Error('Faltou alguma coluna (ORIGEM, COD_PROD ou QTD_CORTE).');
+    const grupos = {};
+    linhas.slice(iCab + 1).forEach((l) => {
+      const codigo = String(l[c.cod] || '').replace(/\.0+$/, '').trim();
+      const qtd = Number(String(l[c.qtdCorte] ?? '').replace(',', '.')) || 0;
+      if (!codigo || qtd <= 0) return;
+      const origem = String(l[c.origem] || '').replace(/\.0+$/, '').trim() || '—';
+      (grupos[origem] = grupos[origem] || []).push({
+        codigo, qtd_corte: qtd,
+        produto: c.desc >= 0 ? String(l[c.desc] || '').trim() : '',
+        n_pedido: c.nPedido >= 0 ? String(l[c.nPedido] || '').trim() : '',
+        dt_emissao: c.dtEmissao >= 0 ? String(l[c.dtEmissao] || '').trim() : '',
+      });
+    });
+    if (!Object.keys(grupos).length) throw new Error('Não achei nenhuma linha com QTD_CORTE maior que zero.');
+    cortesCDLido = { arquivo: file.name, grupos };
+    renderizarPreviaCortesCD();
+  } catch (e) {
+    previa.innerHTML = '<div class="celula-vazio">Não consegui ler a planilha: ' + rupEsc(e.message || '') + '</div>';
+  }
+}
+
+function renderizarPreviaCortesCD() {
+  const previa = document.getElementById('cortes-cd-previa');
+  const r = cortesCDLido;
+  if (!r) return;
+  const blocos = Object.entries(r.grupos).sort((a, b) => b[1].length - a[1].length).map(([origem, itens]) => {
+    const totalQtd = itens.reduce((s, i) => s + i.qtd_corte, 0);
+    const amostra = itens.slice(0, 5).map((i) => rupEsc(i.produto || i.codigo)).join(', ');
+    return '<div class="item-card" style="margin-top:10px;font-size:13.5px;line-height:1.6">' +
+      '<b>CD ' + rupEsc(origem) + '</b> · ' + itens.length.toLocaleString('pt-BR') + ' produtos cortados · ' +
+      totalQtd.toLocaleString('pt-BR') + ' unid. cortadas<br>' +
+      '<span style="color:var(--text-muted);font-size:12.5px">Ex.: ' + amostra + (itens.length > 5 ? '…' : '') + '</span>' +
+      '<div style="margin-top:10px"><button class="btn-acao" id="btn-disparar-cortes-' + rupEsc(origem) + '" onclick="dispararCortesCD(' + JSON.stringify(origem) + ')">🚀 Disparar pedido deste CD</button></div></div>';
+  }).join('');
+  previa.innerHTML = '<div style="font-size:13.5px"><b>' + rupEsc(r.arquivo) + '</b> · lida com sucesso. Escolha o CD certo (confira a amostra de produtos) e dispare o pedido.</div>' + blocos;
+}
+
+async function dispararCortesCD(origem) {
+  const r = cortesCDLido;
+  if (!r || !r.grupos[origem]) return;
+  const btn = document.getElementById('btn-disparar-cortes-' + origem);
+  if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
+  try {
+    const itens = r.grupos[origem].map((i) => ({ codigo: i.codigo, produto: i.produto, qtd_corte: i.qtd_corte, n_pedido: i.n_pedido }));
+    const { data, error } = await sb.rpc('pedido_cortes_importar', {
+      p_arquivo: r.arquivo, p_origem: origem, p_itens: itens, p_por: (estado.usuario || {}).nome || '',
+    });
+    if (error) throw error;
+    mostrarToast('CD ' + origem + ': ' + data.itens + ' produtos enviados pra fila do Pedido CD (' +
+      data.pedido_14_dias + ' já pedidos nos últimos 14 dias e ' + data.descontinuados + ' descontinuados ficaram de fora).', 'sucesso');
+    delete r.grupos[origem];
+    if (Object.keys(r.grupos).length) renderizarPreviaCortesCD();
+    else { cortesCDLido = null; document.getElementById('cortes-cd-previa').innerHTML = ''; }
+    await paginaCortesCD();
+  } catch (e) {
+    mostrarToast('Erro ao disparar: ' + (e.message || ''), 'erro');
+    if (btn) { btn.disabled = false; btn.textContent = '🚀 Tentar de novo'; }
+  }
 }
 
 async function salvarDiasGrupoRuptura(id, valor) {
