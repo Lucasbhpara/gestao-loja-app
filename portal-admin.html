@@ -2121,8 +2121,13 @@ async function cancelarPedidoCD(id) {
 // =============================================================================
 let cortesCDLido = null; // { arquivo, grupos: { [origem]: [{codigo, produto, qtd_corte, n_pedido}] } }
 
-async function paginaCortesCD() {
-  const el = document.getElementById('conteudo-principal');
+async function paginaCortesCDLista() {
+  const el = document.getElementById('cortes-cd-lista');
+  if (!el) return paginaCortesCD();
+  el.innerHTML = await htmlListaCortesCD();
+}
+
+async function htmlListaCortesCD() {
   const { data: lotes, error } = await sb.from('pedido_cortes_lotes').select('*').order('criado_em', { ascending: false }).limit(15);
   if (error) throw error;
   const linhas = (lotes || []).map((l) => {
@@ -2133,20 +2138,25 @@ async function paginaCortesCD() {
       '<td class="vl-num">' + l.total_planilha + '</td>' +
       '<td class="vl-num">' + (ex.pedido_14_dias || 0) + ' pedido · ' + (ex.descontinuados || 0) + ' descont.</td>' +
       '<td class="vl-num">' + l.total_itens + '</td>' +
-      '<td>' + (l.enviado_em ? '✅ Disparado ' + new Date(l.enviado_em).toLocaleString('pt-BR') : '—') + '</td></tr>';
+      '<td>' + (l.enviado_em ? '✅ Disparado ' + new Date(l.enviado_em).toLocaleString('pt-BR') : '📲 No app, esperando disparo') + '</td></tr>';
   }).join('');
+  return '<div class="tabela-wrap"><table><thead><tr><th>Planilha</th><th>CD</th><th style="text-align:right">Na planilha</th>' +
+    '<th style="text-align:right">Tirados</th><th style="text-align:right">Produtos</th><th>Situação</th></tr></thead><tbody>' +
+    (linhas || '<tr><td colspan="6"><div class="celula-vazio">Nenhuma planilha enviada ainda.</div></td></tr>') + '</tbody></table></div>';
+}
+
+async function paginaCortesCD() {
+  const el = document.getElementById('conteudo-principal');
+  const lista = await htmlListaCortesCD();
   el.innerHTML = cabecalho('Cortes do pedido (CD)', 'Produtos cortados do pedido para pedir de novo no CD, direto pela fila do Pedido CD') +
     '<div class="item-card" style="margin-bottom:16px;font-size:13px;line-height:1.6">' +
     '📌 Suba a planilha de <b>pedidos cortados</b> (colunas DT_EMISSAO, N_PEDIO, ORIGEM, DESTINO, COD_PROD, DESCRICAO_PRO, QTD, QTD_CORTE, STATUS, SITUACAO_PEV). ' +
-    'O ULVA separa por <b>CD de origem</b> — escolha o grupo certo (ex.: o de produtos de mercearia/secos) e clique em <b>Disparar pedido</b>. ' +
+    'Ao subir, ela já vai para o app em <b>Ruptura › Cortes</b>, separada por <b>CD de origem</b>, para disparar de lá (ou dispare aqui mesmo). ' +
     'Isso soma a quantidade cortada por produto, tira descontinuados e quem já teve pedido nos últimos 14 dias, e manda pra fila do Pedido CD — ' +
     'a mesma que a extensão do Chrome digita sozinha no Portal 360.</div>' +
     zonaArrastarSoltarPlanilhaHtml('arquivo-cortes-cd', 'Planilha de pedidos cortados') +
     '<div id="cortes-cd-previa" style="margin-top:16px"></div>' +
-    '<h3 style="margin:28px 0 8px">Disparos anteriores</h3>' +
-    '<div class="tabela-wrap"><table><thead><tr><th>Planilha</th><th>CD</th><th style="text-align:right">Na planilha</th>' +
-    '<th style="text-align:right">Tirados</th><th style="text-align:right">Enviados ao CD</th><th>Situação</th></tr></thead><tbody>' +
-    (linhas || '<tr><td colspan="6"><div class="celula-vazio">Nenhuma planilha enviada ainda.</div></td></tr>') + '</tbody></table></div>';
+    '<h3 style="margin:28px 0 8px">Planilhas enviadas</h3><div id="cortes-cd-lista">' + lista + '</div>';
   ligarZonaArrastarSoltarPlanilha('arquivo-cortes-cd', lerPlanilhaCortesCD);
 }
 
@@ -2177,11 +2187,30 @@ async function lerPlanilhaCortesCD(file) {
       });
     });
     if (!Object.keys(grupos).length) throw new Error('Não achei nenhuma linha com QTD_CORTE maior que zero.');
-    cortesCDLido = { arquivo: file.name, grupos };
+    cortesCDLido = { arquivo: file.name, grupos, lotes: {} };
+    previa.innerHTML = '<div class="carregando">Mandando para o app…</div>';
+    await importarCortesCD();
     renderizarPreviaCortesCD();
+    await paginaCortesCDLista();
   } catch (e) {
     previa.innerHTML = '<div class="celula-vazio">Não consegui ler a planilha: ' + rupEsc(e.message || '') + '</div>';
   }
+}
+
+// Grava cada CD da planilha como um lote pendente: assim ele já aparece no
+// app (Ruptura › Cortes) para disparar de lá. Subir a mesma planilha de novo
+// substitui os lotes ainda não disparados dela (não duplica).
+async function importarCortesCD() {
+  const r = cortesCDLido;
+  const por = (estado.usuario || {}).nome || '';
+  await sb.from('pedido_cortes_lotes').delete().eq('arquivo', r.arquivo).is('enviado_em', null);
+  for (const [origem, lista] of Object.entries(r.grupos)) {
+    const itens = lista.map((i) => ({ codigo: i.codigo, produto: i.produto, qtd_corte: i.qtd_corte, n_pedido: i.n_pedido }));
+    const { data, error } = await sb.rpc('pedido_cortes_importar', { p_arquivo: r.arquivo, p_origem: origem, p_itens: itens, p_por: por });
+    if (error) throw error;
+    r.lotes[origem] = data.lote_id;
+  }
+  mostrarToast('Planilha no app: ' + Object.keys(r.grupos).length + ' CD(s) esperando disparo em Ruptura › Cortes.', 'sucesso');
 }
 
 function renderizarPreviaCortesCD() {
@@ -2197,7 +2226,7 @@ function renderizarPreviaCortesCD() {
       '<span style="color:var(--text-muted);font-size:12.5px">Ex.: ' + amostra + (itens.length > 5 ? '…' : '') + '</span>' +
       '<div style="margin-top:10px"><button class="btn-acao" id="btn-disparar-cortes-' + rupEsc(origem) + '" onclick="dispararCortesCD(' + JSON.stringify(origem) + ')">🚀 Disparar pedido deste CD</button></div></div>';
   }).join('');
-  previa.innerHTML = '<div style="font-size:13.5px"><b>' + rupEsc(r.arquivo) + '</b> · lida com sucesso. Escolha o CD certo (confira a amostra de produtos) e dispare o pedido.</div>' + blocos;
+  previa.innerHTML = '<div style="font-size:13.5px">✅ <b>' + rupEsc(r.arquivo) + '</b> já está no app (Ruptura › Cortes) para disparar de lá. Se preferir, dispare aqui mesmo o CD certo (confira a amostra de produtos).</div>' + blocos;
 }
 
 async function dispararCortesCD(origem) {
@@ -2206,21 +2235,17 @@ async function dispararCortesCD(origem) {
   const btn = document.getElementById('btn-disparar-cortes-' + origem);
   if (btn) { btn.disabled = true; btn.textContent = 'Enviando…'; }
   try {
-    const itens = r.grupos[origem].map((i) => ({ codigo: i.codigo, produto: i.produto, qtd_corte: i.qtd_corte, n_pedido: i.n_pedido }));
     const por = (estado.usuario || {}).nome || '';
-    // Importa (grava o lote) e já dispara em seguida — as duas etapas existem
-    // separadas pra dar pra disparar depois pelo app também, sem subir a
-    // planilha de novo (tela "Pedidos CD" no app).
-    const { data: imp, error: e1 } = await sb.rpc('pedido_cortes_importar', { p_arquivo: r.arquivo, p_origem: origem, p_itens: itens, p_por: por });
-    if (e1) throw e1;
-    const { data, error: e2 } = await sb.rpc('pedido_cortes_disparar', { p_lote: imp.lote_id, p_por: por });
+    const lote = r.lotes && r.lotes[origem];
+    if (!lote) throw new Error('lote não encontrado, suba a planilha de novo');
+    const { data, error: e2 } = await sb.rpc('pedido_cortes_disparar', { p_lote: lote, p_por: por });
     if (e2) throw e2;
     mostrarToast('CD ' + origem + ': ' + data.itens + ' produtos enviados pra fila do Pedido CD (' +
       data.pedido_14_dias + ' já pedidos nos últimos 14 dias e ' + data.descontinuados + ' descontinuados ficaram de fora).', 'sucesso');
     delete r.grupos[origem];
     if (Object.keys(r.grupos).length) renderizarPreviaCortesCD();
     else { cortesCDLido = null; document.getElementById('cortes-cd-previa').innerHTML = ''; }
-    await paginaCortesCD();
+    await paginaCortesCDLista();
   } catch (e) {
     mostrarToast('Erro ao disparar: ' + (e.message || ''), 'erro');
     if (btn) { btn.disabled = false; btn.textContent = '🚀 Tentar de novo'; }
