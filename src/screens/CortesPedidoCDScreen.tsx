@@ -35,12 +35,27 @@ async function buscarLotesCortes(): Promise<LoteCortes[]> {
   }));
 }
 
+interface ItemCorte { codigo: string; produto: string; qtd: number }
+
 const hora = (d: string) => new Date(d).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 
 export default function CortesPedidoCDScreen({ quem, onVoltar }: { quem: string; onVoltar: () => void }) {
   const [lotes, setLotes] = useState<LoteCortes[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [disparando, setDisparando] = useState<string | null>(null);
+  const [aberto, setAberto] = useState<string | null>(null);
+  const [itens, setItens] = useState<Record<string, ItemCorte[] | 'carregando'>>({});
+
+  async function alternar(l: LoteCortes) {
+    if (aberto === l.id) { setAberto(null); return; }
+    setAberto(l.id);
+    if (itens[l.id] && itens[l.id] !== 'carregando') return;
+    setItens((m) => ({ ...m, [l.id]: 'carregando' }));
+    const { data, error } = await supabase.from('pedido_cortes_itens')
+      .select('codigo_interno,produto,qtd_corte').eq('lote_id', l.id).order('produto').limit(2000);
+    if (error) { Alert.alert('Não consegui abrir os produtos', error.message); setItens((m) => { const n = { ...m }; delete n[l.id]; return n; }); return; }
+    setItens((m) => ({ ...m, [l.id]: (data ?? []).map((i: any) => ({ codigo: i.codigo_interno, produto: i.produto ?? '', qtd: Number(i.qtd_corte) || 0 })) }));
+  }
 
   const carregar = useCallback(async () => {
     setCarregando(true);
@@ -100,6 +115,27 @@ export default function CortesPedidoCDScreen({ quem, onVoltar }: { quem: string;
             {ex.pedido_14_dias ?? 0} já pedidos nos últimos 14 dias · {ex.descontinuados ?? 0} descontinuados ficaram de fora
           </Text>
         ) : null}
+        <TouchableOpacity style={styles.btnVer} onPress={() => alternar(l)}>
+          <Feather name={aberto === l.id ? 'chevron-up' : 'chevron-down'} size={16} color={AZUL} />
+          <Text style={styles.btnVerTexto}>{aberto === l.id ? 'Esconder produtos' : `Ver os ${l.totalItens} produtos`}</Text>
+        </TouchableOpacity>
+        {aberto === l.id && (
+          itens[l.id] === 'carregando' || !itens[l.id] ? (
+            <ActivityIndicator color={AZUL} style={{ marginVertical: spacing.sm }} />
+          ) : (
+            <View style={styles.lista}>
+              {(itens[l.id] as ItemCorte[]).map((i) => (
+                <View key={i.codigo} style={styles.linha}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.prod} numberOfLines={2}>{i.produto || '—'}</Text>
+                    <Text style={styles.cod}>{i.codigo}</Text>
+                  </View>
+                  <Text style={styles.qtd}>{i.qtd.toLocaleString('pt-BR')}</Text>
+                </View>
+              ))}
+            </View>
+          )
+        )}
         {!l.enviadoEm && (
           <TouchableOpacity
             style={[styles.btnDisparar, disparando === l.id && { opacity: 0.6 }]}
@@ -144,4 +180,11 @@ const styles = StyleSheet.create({
   det: { fontSize: 12, color: colors.gray600, marginTop: 6 },
   btnDisparar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, marginTop: spacing.sm, paddingVertical: 10, borderRadius: radius.md, backgroundColor: AZUL },
   btnDispararTexto: { fontWeight: '700', color: colors.white },
+  btnVer: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: spacing.sm, paddingVertical: 6 },
+  btnVerTexto: { fontWeight: '700', color: AZUL, fontSize: 13 },
+  lista: { marginTop: 4, borderTopWidth: 1, borderTopColor: colors.gray100 },
+  linha: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 7, borderBottomWidth: 1, borderBottomColor: colors.gray100 },
+  prod: { fontSize: 13, color: colors.navy900, fontWeight: '600' },
+  cod: { fontSize: 11, color: colors.gray600, marginTop: 1 },
+  qtd: { fontSize: 14, fontWeight: '800', color: colors.navy900, minWidth: 40, textAlign: 'right' },
 });
