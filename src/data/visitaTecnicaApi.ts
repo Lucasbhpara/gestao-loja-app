@@ -413,3 +413,9 @@ export async function enviarFotoVisita(uriLocal: string): Promise<string> {
   const { data } = supabase.storage.from('visita-tecnica-fotos').getPublicUrl(nomeArquivo);
   return data.publicUrl;
 }
+
+// Posição do veterinário para o mapa do portal (ulva.com.br/vt). Enviada a
+// cada 5 minutos enquanto a Visita Técnica está aberta no celular dele.
+export async function registrarPosicaoVeterinario(d: { matricula: string; nome: string; lat: number; lng: number; unidade: string | null }): Promise<void> {
+  await supabase.from('localizacao_veterinario').insert({ matricula: d.matricula, nome: d.nome, lat: d.lat, lng: d.lng, unidade: d.unidade });
+}
