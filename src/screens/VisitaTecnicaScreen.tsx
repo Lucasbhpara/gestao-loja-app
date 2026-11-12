@@ -31,6 +31,7 @@ import {
   buscarUltimasVisitasPorSetor,
   buscarVisitasFinalizadas,
   nomeDoSetorVisita,
+  registrarPosicaoVeterinario,
 } from '../data/visitaTecnicaApi';
 import {
   RespostaLocal,
@@ -152,6 +153,19 @@ export default function VisitaTecnicaScreen({
   onSair?: () => void;
 }) {
   const [unidade, setUnidade] = useState<string | null>(null);
+  // Modo veterinário (sem "Voltar"): manda a posição a cada 5 min para o
+  // mapa do responsável no portal ulva.com.br/vt. Sem permissão/GPS, ignora.
+  useEffect(() => {
+    if (onVoltar || !usuarioMatricula) return;
+    let ativo = true;
+    const enviar = async () => {
+      const p = await pegarLocalizacaoSegura({ endereco: false });
+      if (p && ativo) registrarPosicaoVeterinario({ matricula: String(usuarioMatricula), nome: usuarioNome, lat: p.lat, lng: p.lng, unidade }).catch(() => {});
+    };
+    enviar();
+    const t = setInterval(enviar, 5 * 60 * 1000);
+    return () => { ativo = false; clearInterval(t); };
+  }, [onVoltar, usuarioMatricula, usuarioNome, unidade]);
   const [localizacao, setLocalizacao] = useState<Localizacao | null>(null);
 
   // Carrega o que está salvo no celular, atualiza as perguntas e tenta
