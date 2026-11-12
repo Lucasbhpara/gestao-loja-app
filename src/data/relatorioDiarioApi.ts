@@ -213,7 +213,7 @@ export function htmlRelatorioDiario(r: RelatorioDiario): string {
   const tituloHoje = t0.charAt(0).toUpperCase() + t0.slice(1);
 
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório diário ${diaMesCurto(r.diaFolgas)}</title><link rel="preconnect" href="https://fonts.gstatic.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=block" rel="stylesheet"><style>
-@page{margin:0}*{box-sizing:border-box}html,body{margin:0}body{font-family:Inter,Roboto,'Helvetica Neue',Arial,sans-serif;color:#0B1220;font-size:11px;width:794px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+@page{margin:0}*{box-sizing:border-box}html,body{margin:0}body{min-height:100vh;display:flex;flex-direction:column;font-family:Inter,Roboto,'Helvetica Neue',Arial,sans-serif;color:#0B1220;font-size:11px;width:794px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .hdr{background:#0E1B2C;color:#fff;padding:18px 26px 16px;display:flex;align-items:center;justify-content:space-between}
 .hdr .t{font-size:10.5px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#8FA3C4}.hdr h1{font-size:21px;margin:3px 0 0;font-weight:700}
 .hdr .d{text-align:right;font-size:11px;color:#C9D3E5;line-height:1.5}
@@ -231,17 +231,17 @@ td{padding:6px;border-top:1px solid #EEF1F5}.n{text-align:right;white-space:nowr
 .mini{display:inline-block;width:46px;height:4px;background:#EEF1F5;border-radius:2px;vertical-align:middle;margin-left:6px}.mini i{display:block;height:4px;background:${AZUL};border-radius:2px}
 .hoje{border:1px solid #CFE0FF;background:#F5F9FF;border-radius:8px;padding:12px 14px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center}
 .hn{font-size:9.5px;color:#3A4A66;font-weight:700}.hv{font-size:20px;font-weight:700;margin-top:2px}.hoje .s{font-size:10px;color:#3A4A66;text-align:right;line-height:1.5}.hoje .s b{font-size:12px;color:#0B1220}
-.p{display:flex;gap:8px;padding:6px 0;border-top:1px solid #EEF1F5;page-break-inside:avoid}.p b{width:96px;flex:none}.p span{color:#334155;line-height:1.45}
-.tag{font-size:8.5px;font-weight:700;border-radius:3px;padding:1px 5px}.tr{background:#FEECEB;color:${VERMELHO}}.tg{background:#EEF1F5;color:#475569}
+.p{display:flex;gap:10px;padding:8px 0;border-top:1px solid #EEF1F5;page-break-inside:avoid;font-size:13px}.p b{width:112px;flex:none}.p span{color:#1F2937;line-height:1.5}
+.tag{font-size:9.5px;font-weight:700;border-radius:3px;padding:1px 5px}.tr{background:#FEECEB;color:${VERMELHO}}.tg{background:#EEF1F5;color:#475569}
 .vazio{color:#6B7486;font-size:10px;padding:6px 0}tr{page-break-inside:avoid}
-.ft{margin:14px 26px 0;border-top:1px solid #E3E7EE;padding:8px 0 14px;font-size:9px;color:#8A93A5;display:flex;justify-content:space-between}
+.ft{margin-top:auto;background:#0E1B2C;padding:11px 26px;font-size:10px;color:#C9D3E5;display:flex;justify-content:space-between;align-items:center}.ft b{color:#fff;font-weight:600;letter-spacing:.04em}
 </style></head><body>
 <div class="hdr"><div style="display:flex;align-items:center;gap:14px">${logo}<div><div class="t">ULVA · Relatório diário</div><h1>${esc(tituloHoje)}</h1></div></div>
 <div class="d">Loja 327 · Itatiaiuçu<br>Vendas de ${diaV}, ${diaMesCurto(r.diaVenda)}</div></div>
 <div class="wrap">
 <div class="lbl">Ontem · ${diaV}, ${diaMesCurto(r.diaVenda)}</div>
 <div class="kpis">${kVenda}${kMetaDia}${kMes}${kQuebra}</div>
-<div class="cols"><div class="esq">
+<div class="cols" style="margin-bottom:16px"><div class="esq">
 <div class="lbl">Venda por setor</div>
 <table><thead><tr><th>Setor</th><th class="n">Venda</th><th class="n">Part.</th><th class="n">vs ${diaMesCurto(v.ant)}</th></tr></thead><tbody>${linhasVenda}</tbody></table>
 <div class="lbl" style="margin-top:18px">Quebra por setor${q ? ` · ${diaMesCurto(q.ini)} a ${diaMesCurto(q.fim)}` : ''}</div>
@@ -252,7 +252,7 @@ ${caixaHoje}
 <div class="lbl">Fora hoje · ${r.totalFora} ${r.totalFora === 1 ? 'colaborador' : 'colaboradores'}</div>
 ${fora}
 </div></div></div>
-<div class="ft"><span>${ASSINATURA_ULVA}</span><span>Gerado em ${new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div>
+<div class="ft"><b>${ASSINATURA_ULVA}</b><span>Gerado em ${new Date().toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}</span></div>
 </body></html>`;
 }
 
@@ -261,8 +261,8 @@ ${fora}
 export function alturaRelatorioDiario(r: RelatorioDiario): number {
   const linha = 25;
   const esq = 30 + linha * (r.venda.setores.length + 2) + 40 + linha * ((r.quebras?.setores.length ?? 0) + 2);
-  const nomes = r.folgas.reduce((t, s) => t + Math.max(1, Math.ceil(s.pessoas.map((p) => p.nome).join(', ').length / 28)), 0);
-  const dir = 30 + 95 + 30 + Math.max(1, nomes) * 21 + r.folgas.length * 8;
+  const nomes = r.folgas.reduce((t, s) => t + Math.max(1, Math.ceil(s.pessoas.map((p) => p.nome).join(', ').length / 22)), 0);
+  const dir = 30 + 95 + 30 + Math.max(1, nomes) * 26 + r.folgas.length * 12;
   const px = 82 + 30 + 100 + 18 + Math.max(esq, dir) + 60;
   return Math.ceil(px * 0.75) + 12;
 }
