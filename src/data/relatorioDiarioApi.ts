@@ -212,10 +212,10 @@ export function htmlRelatorioDiario(r: RelatorioDiario): string {
   const t0 = nomeDia(r.diaFolgas).replace('-feira', '');
   const tituloHoje = t0.charAt(0).toUpperCase() + t0.slice(1);
 
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório diário ${diaMesCurto(r.diaFolgas)}</title><style>
-@page{margin:0}*{box-sizing:border-box}html,body{margin:0}body{font-family:Arial,Helvetica,sans-serif;color:#0B1220;font-size:11px;width:794px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>Relatório diário ${diaMesCurto(r.diaFolgas)}</title><link rel="preconnect" href="https://fonts.gstatic.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=block" rel="stylesheet"><style>
+@page{margin:0}*{box-sizing:border-box}html,body{margin:0}body{font-family:Inter,Roboto,'Helvetica Neue',Arial,sans-serif;color:#0B1220;font-size:11px;width:794px;-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .hdr{background:#0E1B2C;color:#fff;padding:18px 26px 16px;display:flex;align-items:center;justify-content:space-between}
-.hdr .t{font-size:10.5px;letter-spacing:.14em;text-transform:uppercase;color:#8FA3C4}.hdr h1{font-size:21px;margin:3px 0 0;font-weight:700}
+.hdr .t{font-size:10.5px;font-weight:500;letter-spacing:.14em;text-transform:uppercase;color:#8FA3C4}.hdr h1{font-size:21px;margin:3px 0 0;font-weight:700}
 .hdr .d{text-align:right;font-size:11px;color:#C9D3E5;line-height:1.5}
 .wrap{padding:18px 26px 6px}
 .lbl{font-size:9.5px;letter-spacing:.12em;text-transform:uppercase;color:#6B7486;font-weight:700;margin:0 0 8px;display:flex;align-items:center;gap:8px}
