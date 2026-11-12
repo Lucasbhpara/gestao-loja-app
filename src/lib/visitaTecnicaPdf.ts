@@ -1,3 +1,4 @@
+import { ContextoRelatorio, classificacao, contextoVisitaTecnica, htmlPlanoAcao, textoComparacao } from './contextoRelatorio';
 import { documentoUlva, kpi, rotulo, PDF_VERDE, PDF_VERMELHO, corAproveitamento } from './layoutPdf';
 import * as Print from 'expo-print';
 import {
@@ -27,8 +28,9 @@ export function montarHtmlVisita(dados: {
   visita: VisitaTecnica;
   perguntas: VisitaPergunta[];
   respostas: VisitaResposta[];
+  contexto?: ContextoRelatorio | null;
 }): string {
-  const { visita, perguntas, respostas } = dados;
+  const { visita, perguntas, respostas, contexto } = dados;
   const porPergunta = new Map(respostas.filter((r) => r.perguntaId).map((r) => [r.perguntaId!, r]));
   const pct = visita.aproveitamento ?? 0;
 
@@ -82,7 +84,7 @@ export function montarHtmlVisita(dados: {
   const nc = visita.naoConformidades ?? 0;
   const crit = visita.criticosNaoConformes ?? 0;
   const kpis =
-    kpi('Aproveitamento', `${pct}%`, corAproveitamento(pct)) +
+    kpi('Aproveitamento', `${pct}%<span class="classif" style="color:${classificacao(pct).cor};background:${classificacao(pct).fundo}">${classificacao(pct).texto}</span>`, corAproveitamento(pct), textoComparacao(pct, contexto)) +
     kpi('Pontos', `${visita.pontosRealizados ?? 0} / ${visita.pontosPossiveis ?? 0}`) +
     kpi('Não conformidades', String(nc), nc > 0 ? PDF_VERMELHO : PDF_VERDE) +
     (visita.perguntasNaoAvaliadas ? kpi('Não avaliadas', String(visita.perguntasNaoAvaliadas), '#8A93A5') : '') +
@@ -90,6 +92,7 @@ export function montarHtmlVisita(dados: {
 
   return documentoUlva({
     tipo: 'Visita técnica',
+    numero: contexto?.numero,
     titulo: nomeDoSetorVisita(visita.setor),
     direita: [`Loja ${esc(visita.unidade ?? '—')}`, `Téc. veterinário: ${esc(visita.veterinarioNome)}`, visita.finalizadaEm ? `Finalizada em ${dataHora(visita.finalizadaEm)}` : 'Em andamento'],
     corpo: `
@@ -97,6 +100,7 @@ export function montarHtmlVisita(dados: {
       <div class="kpis">${kpis}</div>
       ${itens}
       ${orfas ? `${rotulo('Outras perguntas')}${orfas}` : ''}
+      ${htmlPlanoAcao(contexto)}
       ${visita.consideracoesFinais ? `${rotulo('Considerações finais')}<div class="caixa">${esc(visita.consideracoesFinais)}</div>` : ''}
       <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
   });
@@ -114,7 +118,12 @@ export async function compartilharVisita(visita: VisitaTecnica): Promise<void> {
     buscarPerguntasDoSetor(visita.setor, true),
     buscarRespostasDaVisita(visita.id),
   ]);
-  const html = montarHtmlVisita({ visita, perguntas, respostas });
+  const contexto = await contextoVisitaTecnica(
+    { id: visita.id, setor: visita.setor, unidade: visita.unidade, finalizadaEm: visita.finalizadaEm, tarefaId: visita.tarefaId },
+    nomeDoSetorVisita(visita.setor),
+    respostas.filter((r) => r.resposta === 'nao').map((r) => ({ texto: r.perguntaTexto, critico: !!r.critico })),
+  );
+  const html = montarHtmlVisita({ visita, perguntas, respostas, contexto });
   await compartilharPdf(
     html,
     `visita-tecnica-loja-${visita.unidade ?? ''}-${nomeDoSetorVisita(visita.setor)}-${dataParaNomeArquivo(visita.finalizadaEm)}`

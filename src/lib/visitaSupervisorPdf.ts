@@ -1,3 +1,4 @@
+import { numeroVisitaSupervisor } from './contextoRelatorio';
 import { documentoUlva, kpi, rotulo, PDF_VERMELHO } from './layoutPdf';
 import { VisitaSupervisor, ItemVisitaSup, SETORES_VISITA_SUP, listarItensSup } from '../data/visitaSupervisorApi';
 import { compartilharPdf, dataParaNomeArquivo } from './compartilharPdf';
@@ -13,7 +14,7 @@ const dataHora = (iso: string) => {
 };
 const dataBr = (iso: string | null) => (iso ? iso.slice(0, 10).split('-').reverse().join('/') : '');
 
-export function montarHtmlVisitaSup(visita: VisitaSupervisor, itens: ItemVisitaSup[]): string {
+export function montarHtmlVisitaSup(visita: VisitaSupervisor, itens: ItemVisitaSup[], numero?: string | null): string {
   const comTarefa = itens.filter((i) => i.virarTarefa).length;
   const setoresComItem = SETORES_VISITA_SUP.filter((s) => itens.some((i) => i.setor === s.key));
   const blocos = setoresComItem
@@ -42,6 +43,7 @@ export function montarHtmlVisitaSup(visita: VisitaSupervisor, itens: ItemVisitaS
 
   return documentoUlva({
     tipo: 'Visita do supervisor',
+    numero,
     titulo: 'Loja 327',
     direita: [`Supervisor: ${esc(visita.supervisorNome)}`, `Registrada por ${esc(visita.registradaPorNome)}`, visita.finalizadaEm ? `Finalizada em ${dataHora(visita.finalizadaEm)}` : `Iniciada em ${dataHora(visita.iniciadaEm)} · em andamento`],
     corpo: `
@@ -54,5 +56,6 @@ export function montarHtmlVisitaSup(visita: VisitaSupervisor, itens: ItemVisitaS
 
 export async function compartilharVisitaSup(visita: VisitaSupervisor, itens?: ItemVisitaSup[]): Promise<void> {
   const lista = itens ?? (await listarItensSup(visita.id));
-  await compartilharPdf(montarHtmlVisitaSup(visita, lista), `visita-supervisor-${dataParaNomeArquivo(visita.iniciadaEm)}`, 'Compartilhar visita do supervisor');
+  const numero = await numeroVisitaSupervisor(visita.id);
+  await compartilharPdf(montarHtmlVisitaSup(visita, lista, numero), `visita-supervisor-${dataParaNomeArquivo(visita.iniciadaEm)}`, 'Compartilhar visita do supervisor');
 }

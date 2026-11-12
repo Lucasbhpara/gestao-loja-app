@@ -44,6 +44,12 @@ body{font-family:Inter,Roboto,'Helvetica Neue',Arial,sans-serif;color:#0B1220;fo
 .foto{width:170px;height:128px;object-fit:cover;border-radius:6px;display:block;border:1px solid #E3E7EE}
 .caixa{border:1px solid #CFE0FF;background:#F5F9FF;border-radius:8px;padding:12px 14px;font-size:12px;white-space:pre-wrap;line-height:1.5;page-break-inside:avoid}
 .vazio{font-size:11px;color:#6B7486;margin-top:8px}
+table.plano{width:100%;border-collapse:collapse;font-size:11px;page-break-inside:auto}
+table.plano th{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#6B7486;text-align:left;padding:0 6px 6px;font-weight:700}
+table.plano td{padding:7px 6px;border-top:1px solid #EEF1F5;vertical-align:top}table.plano tr{page-break-inside:avoid}
+.pn{width:22px;color:#8A93A5}.pc{white-space:nowrap;text-align:center}
+.classif{display:inline-block;font-size:10px;font-weight:700;border-radius:4px;padding:2px 8px;margin-left:8px;vertical-align:4px}
+.ndoc{display:inline-block;margin-bottom:3px;padding:2px 8px;border:1px solid #2C4468;border-radius:4px;color:#fff;font-weight:600;letter-spacing:.06em;font-size:10.5px}
 .ft{margin-top:18px;background:#0E1B2C;padding:11px 26px;font-size:10px;color:#C9D3E5;display:flex;justify-content:space-between;align-items:center;page-break-inside:avoid}
 .ft b{color:#fff;font-weight:600;letter-spacing:.04em}
 `;
@@ -58,14 +64,14 @@ export function rotulo(texto: string, qtd?: string): string {
 
 export const corAproveitamento = (pct: number) => (pct >= 90 ? PDF_VERDE : pct >= 75 ? '#3E9B6E' : pct >= 60 ? '#B45309' : PDF_VERMELHO);
 
-export function documentoUlva(o: { tipo: string; titulo: string; direita?: string[]; corpo: string; css?: string; tituloAba?: string }): string {
+export function documentoUlva(o: { tipo: string; titulo: string; direita?: string[]; corpo: string; css?: string; tituloAba?: string; numero?: string | null }): string {
   const agora = new Date();
   const gerado = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
   return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(o.tituloAba ?? `${o.tipo} — ${o.titulo}`)}</title>
 <link rel="preconnect" href="https://fonts.gstatic.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=block" rel="stylesheet">
 <style>${CSS_BASE}${o.css ?? ''}</style></head><body>
 <div class="hdr"><div style="display:flex;align-items:center;gap:14px">${LOGO}<div><div class="t">ULVA · ${esc(o.tipo)}</div><h1>${esc(o.titulo)}</h1></div></div>
-${o.direita?.length ? `<div class="d">${o.direita.join('<br>')}</div>` : ''}</div>
+${o.direita?.length || o.numero ? `<div class="d">${o.numero ? `<span class="ndoc">Nº ${esc(o.numero)}</span><br>` : ''}${(o.direita ?? []).join('<br>')}</div>` : ''}</div>
 <div class="wrap">${o.corpo}</div>
 <div class="ft"><b>${ASSINATURA_ULVA}</b><span>Gerado em ${gerado}</span></div>
 </body></html>`;
