@@ -1,3 +1,4 @@
+import { ASSINATURA_ULVA } from './assinatura';
 import { Perda } from '../data/perdasApi';
 import { SetorKey } from '../data/employees';
 import { compartilharPdf, dataParaNomeArquivo } from './compartilharPdf';
@@ -116,10 +117,10 @@ function tabelaTop(lista: Perda[], destaque: 'qtd' | 'valor', totalRef: number):
 
 function rodape(): string {
   const agora = new Date();
-  return `<div class="rodape">Gerado pelo ULVA em ${agora.toLocaleDateString('pt-BR')} às ${agora.toLocaleTimeString('pt-BR', {
+  return `<div class="rodape">Gerado em ${agora.toLocaleDateString('pt-BR')} às ${agora.toLocaleTimeString('pt-BR', {
     hour: '2-digit',
     minute: '2-digit',
-  })} · Criado por Lucas Alberto</div>`;
+  })} · ${ASSINATURA_ULVA}</div>`;
 }
 
 export function montarHtmlPerdas(dados: {

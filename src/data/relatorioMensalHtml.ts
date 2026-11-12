@@ -1,3 +1,4 @@
+import { ASSINATURA_ULVA } from '../lib/assinatura';
 // Relatório mensal — cálculo e HTML (tela do app + PDF para o WhatsApp).
 //
 // Este arquivo não importa nada: é o MESMO código usado no portal
@@ -352,6 +353,6 @@ td{padding:6px 5px;border-bottom:1px solid #EEF1F5;font-size:12px;vertical-align
     '<title>Relatório mensal — ' + rmxMesTitulo(d.mes) + '</title><style>' + css + '</style></head><body><div class="pg">' +
     '<div class="tp">' + RMX_LOGO + '<div><h1>Relatório mensal — ' + rmxMesTitulo(d.mes) + '</h1><div class="s">' + rmxEsc(loja) + ' · gerado em ' + new Date().toLocaleString('pt-BR') + '</div></div></div>' +
     kpis + blocoMetas + '<div class="duas">' + blocoHora + blocoPag + '</div><div class="duas">' + blocoPdv + blocoProd + '</div>' + blocoQuebra + blocoEquipe +
-    '<div class="rd">Venda, meta e % por setor: PDF “Meta Venda Loja”. Clientes e ticket: venda por hora (1 cupom = 1 cliente). Produtos, margem e comparação com o mês anterior: vendas do Falcon no ULVA. Quebra % = perda do setor ÷ venda do setor. Custos de equipe estimados com salário médio de ' + rmxBRL(d.salario) + '.</div>' +
+    '<div class="rd">Venda, meta e % por setor: PDF “Meta Venda Loja”. Clientes e ticket: venda por hora (1 cupom = 1 cliente). Produtos, margem e comparação com o mês anterior: vendas do Falcon no ULVA. Quebra % = perda do setor ÷ venda do setor. Custos de equipe estimados com salário médio de ' + rmxBRL(d.salario) + '.<br><b>' + ASSINATURA_ULVA + '</b></div>' +
     '</div></body></html>';
 }

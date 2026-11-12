@@ -1,3 +1,4 @@
+import { ASSINATURA_ULVA } from './assinatura';
 import * as Print from 'expo-print';
 import { AvaliacaoPergunta, AvaliacaoResposta, AvaliacaoSetor, buscarRespostasOrdenadas } from '../data/avaliacaoSetorApi';
 import { setores } from '../data/employees';
@@ -153,7 +154,7 @@ export function montarHtmlChecklist(dados: {
       ${avaliacao.consideracoesFinais ? `<h2 class="secao-titulo">Considerações finais</h2><div class="consideracoes">${escapeHtml(avaliacao.consideracoesFinais)}</div>` : ''}
       ${resolucaoHtml}
 
-      <div class="rodape">Gerado pelo app ULVA em ${formatarDataHoraPdf(new Date().toISOString())}</div>
+      <div class="rodape">Gerado em ${formatarDataHoraPdf(new Date().toISOString())} · ${ASSINATURA_ULVA}</div>
     </body>
   </html>`;
 }

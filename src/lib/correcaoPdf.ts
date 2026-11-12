@@ -1,3 +1,4 @@
+import { ASSINATURA_ULVA } from './assinatura';
 import { Correcao } from '../data/correcaoApi';
 import { compartilharPdf, dataParaNomeArquivo } from './compartilharPdf';
 
@@ -50,7 +51,7 @@ export function montarHtmlCorrecao(c: Correcao): string {
     ${t.correcaoEnviadaPor ? `<div class="sub">Corrigido por ${esc(t.correcaoEnviadaPor)}</div>` : ''}
     ${t.correcaoAvaliadaPor ? `<div class="sub">Avaliado por ${esc(t.correcaoAvaliadaPor)} · ${t.correcaoStatus === 'aprovada' ? 'APROVADA' : 'em andamento'}</div>` : ''}
     ${itens}
-    <div class="rodape">Gerado pelo app ULVA em ${dataHora(new Date().toISOString())} · by Lucas Alberto</div>
+    <div class="rodape">Gerado em ${dataHora(new Date().toISOString())} · ${ASSINATURA_ULVA}</div>
   </body></html>`;
 }
 

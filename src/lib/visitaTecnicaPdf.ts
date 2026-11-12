@@ -1,3 +1,4 @@
+import { ASSINATURA_ULVA } from './assinatura';
 import * as Print from 'expo-print';
 import {
   VisitaPergunta,
@@ -147,7 +148,7 @@ export function montarHtmlVisita(dados: {
     ${itens}
     ${orfas ? `<h3 class="grupo">Outras perguntas</h3>${orfas}` : ''}
     ${visita.consideracoesFinais ? `<h3 class="grupo">Considerações finais</h3><div class="consideracoes">${esc(visita.consideracoesFinais)}</div>` : ''}
-    <div class="rodape">Base: Manual de Boas Práticas e POPs (rev. 12.26) · Gerado pelo app ULVA em ${dataHora(new Date().toISOString())} · by Lucas Alberto</div>
+    <div class="rodape">Base: Manual de Boas Práticas e POPs (rev. 12.26) · Gerado em ${dataHora(new Date().toISOString())} · ${ASSINATURA_ULVA}</div>
   </body></html>`;
 }
 

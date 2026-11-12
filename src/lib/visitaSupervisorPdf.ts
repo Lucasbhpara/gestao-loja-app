@@ -1,3 +1,4 @@
+import { ASSINATURA_ULVA } from './assinatura';
 import { VisitaSupervisor, ItemVisitaSup, SETORES_VISITA_SUP, listarItensSup } from '../data/visitaSupervisorApi';
 import { compartilharPdf, dataParaNomeArquivo } from './compartilharPdf';
 
@@ -78,7 +79,7 @@ export function montarHtmlVisitaSup(visita: VisitaSupervisor, itens: ItemVisitaS
     ${blocos || '<div class="nada">Nenhuma orientação registrada nesta visita.</div>'}
     ${semNada.length && itens.length ? `<div class="nada">Sem orientações: ${semNada.map(esc).join(', ')}.</div>` : ''}
     ${visita.observacoes ? `<h3 class="grupo">Observações gerais</h3><div class="obs">${esc(visita.observacoes)}</div>` : ''}
-    <div class="rodape">Gerado pelo app ULVA em ${dataHora(new Date().toISOString())} · by Lucas Alberto</div>
+    <div class="rodape">Gerado em ${dataHora(new Date().toISOString())} · ${ASSINATURA_ULVA}</div>
   </body></html>`;
 }
 

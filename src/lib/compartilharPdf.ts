@@ -1,5 +1,6 @@
 import * as Print from 'expo-print';
 import { rodandoNaWeb } from './plataforma';
+import { comAssinatura } from './assinatura';
 
 // Gera um PDF a partir de um HTML e abre a tela nativa de compartilhar do
 // celular (WhatsApp, e-mail, Drive, salvar no aparelho…). Usado pelos
@@ -8,7 +9,8 @@ import { rodandoNaWeb } from './plataforma';
 //
 // Na versão web não existe tela de compartilhar de arquivo — cai pro
 // diálogo de impressão do navegador, onde dá pra "Salvar como PDF".
-export async function compartilharPdf(html: string, nomeBase: string, titulo = 'Compartilhar checklist', pagina?: { width: number; height: number }): Promise<void> {
+export async function compartilharPdf(htmlOriginal: string, nomeBase: string, titulo = 'Compartilhar checklist', pagina?: { width: number; height: number }): Promise<void> {
+  const html = comAssinatura(htmlOriginal); // rodapé "ULVA · Unified Live View App · by Lucas Alberto"
   if (rodandoNaWeb) {
     await Print.printAsync({ html });
     return;
