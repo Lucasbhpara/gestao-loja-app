@@ -1,4 +1,4 @@
-import { ASSINATURA_ULVA } from './assinatura';
+import { documentoUlva, kpi, rotulo, PDF_VERDE, PDF_VERMELHO, corAproveitamento } from './layoutPdf';
 import * as Print from 'expo-print';
 import { AvaliacaoPergunta, AvaliacaoResposta, AvaliacaoSetor, buscarRespostasOrdenadas } from '../data/avaliacaoSetorApi';
 import { setores } from '../data/employees';
@@ -33,15 +33,10 @@ function localizacaoHtml(avaliacao: AvaliacaoSetor): string {
   const textoLocal = avaliacao.localizacaoEndereco
     ? escapeHtml(avaliacao.localizacaoEndereco)
     : `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
-  return `<div class="localizacao">📍 ${textoLocal} — <a href="${linkMaps}">ver no mapa</a></div>`;
+  return `<div class="info">📍 ${textoLocal} — <a href="${linkMaps}">ver no mapa</a></div>`;
 }
 
-function corFaixa(pct: number): string {
-  if (pct >= 90) return '#2C8F5E';
-  if (pct >= 75) return '#3E9B6E';
-  if (pct >= 60) return '#B4650E';
-  return '#C5392F';
-}
+const corFaixa = corAproveitamento;
 
 export interface ResolucaoTarefa {
   concluidaPorNome: string;
@@ -63,100 +58,47 @@ export function montarHtmlChecklist(dados: {
     .map((r, i) => {
       const badge =
         r.resposta === 'sim'
-          ? '<span class="badge badge-sim">Sim</span>'
+          ? '<span class="badge b-sim">Sim</span>'
           : r.resposta === 'nao'
-          ? '<span class="badge badge-nao">Não</span>'
-          : '<span class="badge badge-na">N/A</span>';
-      const destaque = r.resposta === 'nao';
+          ? '<span class="badge b-nao">Não</span>'
+          : '<span class="badge b-na">N/A</span>';
       return `
-        <div class="item ${destaque ? 'item-nao' : ''}">
-          <div class="item-topo">
-            <div class="item-texto">${i + 1}. ${escapeHtml(r.perguntaTexto)}</div>
-            ${badge}
-          </div>
-          ${r.justificativa ? `<div class="item-justificativa"><b>Justificativa:</b> ${escapeHtml(r.justificativa)}</div>` : ''}
-          ${r.fotosUrls.length ? `<div class="fotos">${r.fotosUrls.map((u) => `<img class="item-foto" src="${u}" />`).join('')}</div>` : ''}
+        <div class="item ${r.resposta === 'nao' ? 'ruim' : ''}">
+          <div class="topo"><div class="texto">${i + 1}. ${escapeHtml(r.perguntaTexto)}</div>${badge}</div>
+          ${r.justificativa ? `<div class="det"><b>Justificativa:</b> ${escapeHtml(r.justificativa)}</div>` : ''}
+          ${r.fotosUrls.length ? `<div class="fotos">${r.fotosUrls.map((u) => `<img class="foto" src="${u}" />`).join('')}</div>` : ''}
         </div>`;
     })
     .join('');
 
   const resolucaoHtml = resolucao
-    ? `
-      <h2 class="secao-titulo">Resolução das não conformidades</h2>
-      <div class="item" style="border-color:#2C8F5E;">
-        <div><b>Resolvida por:</b> ${escapeHtml(resolucao.concluidaPorNome)}</div>
-        <div style="margin-top:4px;"><b>Em:</b> ${formatarDataHoraPdf(resolucao.concluidaEm)}</div>
-        ${resolucao.fotoUrl ? `<img class="item-foto" src="${resolucao.fotoUrl}" />` : ''}
+    ? `${rotulo('Resolução das não conformidades')}
+      <div class="item" style="border-color:#A7D8B8">
+        <div class="det" style="margin-top:0"><b>Resolvida por:</b> ${escapeHtml(resolucao.concluidaPorNome)} · ${formatarDataHoraPdf(resolucao.concluidaEm)}</div>
+        ${resolucao.fotoUrl ? `<div class="fotos"><img class="foto" src="${resolucao.fotoUrl}" /></div>` : ''}
       </div>`
     : '';
 
-  return `
-  <html>
-    <head>
-      <meta charset="utf-8" />
-      <style>
-        * { box-sizing: border-box; }
-        body { font-family: -apple-system, Helvetica, Arial, sans-serif; color: #1A2340; padding: 24px 28px; }
-        h1 { font-size: 20px; margin: 0 0 4px; }
-        .subtitulo { font-size: 12px; color: #666; margin-bottom: 4px; }
-        .localizacao { font-size: 11.5px; color: #666; margin-bottom: 18px; }
-        .localizacao a { color: #1A2340; }
-        .resumo { display: flex; gap: 10px; margin-bottom: 22px; flex-wrap: wrap; }
-        .resumo-box { flex: 1; min-width: 110px; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; }
-        .resumo-rotulo { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.4px; }
-        .resumo-valor { font-size: 18px; font-weight: 700; margin-top: 2px; }
-        .secao-titulo { font-size: 15px; margin: 24px 0 12px; }
-        .item { border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; page-break-inside: avoid; }
-        .item-nao { border-color: #E86A5F; }
-        .item-topo { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-        .item-texto { font-size: 12.5px; font-weight: 600; flex: 1; }
-        .badge { font-size: 10.5px; font-weight: 700; padding: 3px 8px; border-radius: 20px; white-space: nowrap; }
-        .badge-sim { background: #DCF2E7; color: #2C8F5E; }
-        .badge-nao { background: #FBDEDC; color: #C5392F; }
-        .badge-na { background: #eee; color: #777; }
-        .item-justificativa { font-size: 11.5px; color: #555; margin-top: 6px; }
-        .item-foto { width: 160px; height: 120px; object-fit: cover; border-radius: 6px; margin-top: 8px; display: block; border: 1px solid #ddd; }
-        .fotos { display: flex; flex-wrap: wrap; gap: 8px; }
-        .consideracoes { border: 1px solid #1A2340; border-radius: 8px; padding: 12px 14px; font-size: 12.5px; white-space: pre-wrap; page-break-inside: avoid; }
-        .rodape { margin-top: 28px; font-size: 9.5px; color: #999; text-align: center; }
-      </style>
-    </head>
-    <body>
-      <h1>Checklist de Setor — ${escapeHtml(nomeSetor)}</h1>
-      <div class="subtitulo">ULVA · Avaliado por ${escapeHtml(avaliacao.gerenteNome)} · finalizado em ${avaliacao.finalizadaEm ? formatarDataHoraPdf(avaliacao.finalizadaEm) : '—'}</div>
+  const nc = avaliacao.naoConformidades ?? 0;
+  const kpis =
+    kpi('Aproveitamento', `${pct}%`, cor) +
+    kpi('Pontos', `${avaliacao.pontosRealizados ?? 0} / ${avaliacao.pontosPossiveis ?? 0}`) +
+    kpi('Não conformidades', String(nc), nc > 0 ? PDF_VERMELHO : PDF_VERDE) +
+    (avaliacao.perguntasNaoAvaliadas ? kpi('Não avaliadas', String(avaliacao.perguntasNaoAvaliadas), '#8A93A5') : '') +
+    (avaliacao.passosContados !== null && avaliacao.passosContados !== undefined ? kpi('Passos dados', String(avaliacao.passosContados)) : '');
+
+  return documentoUlva({
+    tipo: 'Checklist de setor',
+    titulo: nomeSetor,
+    direita: ['Loja 327', `Avaliado por ${escapeHtml(avaliacao.gerenteNome)}`, avaliacao.finalizadaEm ? `Finalizado em ${formatarDataHoraPdf(avaliacao.finalizadaEm)}` : 'Em andamento'],
+    corpo: `
       ${localizacaoHtml(avaliacao)}
-
-      <div class="resumo">
-        <div class="resumo-box">
-          <div class="resumo-rotulo">Aproveitamento</div>
-          <div class="resumo-valor" style="color:${cor};">${pct}%</div>
-        </div>
-        <div class="resumo-box">
-          <div class="resumo-rotulo">Pontos</div>
-          <div class="resumo-valor">${avaliacao.pontosRealizados ?? 0} / ${avaliacao.pontosPossiveis ?? 0}</div>
-        </div>
-        <div class="resumo-box">
-          <div class="resumo-rotulo">Não conformidades</div>
-          <div class="resumo-valor" style="color:${(avaliacao.naoConformidades ?? 0) > 0 ? '#C5392F' : '#2C8F5E'};">${avaliacao.naoConformidades ?? 0}</div>
-        </div>
-        ${avaliacao.perguntasNaoAvaliadas
-          ? `<div class="resumo-box"><div class="resumo-rotulo">Não avaliadas</div><div class="resumo-valor" style="color:#888;">${avaliacao.perguntasNaoAvaliadas}</div></div>`
-          : ''}
-        ${avaliacao.passosContados !== null && avaliacao.passosContados !== undefined
-          ? `<div class="resumo-box">
-              <div class="resumo-rotulo">Passos dados</div>
-              <div class="resumo-valor">🚶 ${avaliacao.passosContados}</div>
-            </div>`
-          : ''}
-      </div>
-
+      <div class="kpis">${kpis}</div>
+      ${rotulo('Itens avaliados', `${respostas.length}`)}
       ${itensHtml}
-      ${avaliacao.consideracoesFinais ? `<h2 class="secao-titulo">Considerações finais</h2><div class="consideracoes">${escapeHtml(avaliacao.consideracoesFinais)}</div>` : ''}
-      ${resolucaoHtml}
-
-      <div class="rodape">Gerado em ${formatarDataHoraPdf(new Date().toISOString())} · ${ASSINATURA_ULVA}</div>
-    </body>
-  </html>`;
+      ${avaliacao.consideracoesFinais ? `${rotulo('Considerações finais')}<div class="caixa">${escapeHtml(avaliacao.consideracoesFinais)}</div>` : ''}
+      ${resolucaoHtml}`,
+  });
 }
 
 // Abre o diálogo nativo de impressão/"Salvar como PDF" com o HTML montado.
