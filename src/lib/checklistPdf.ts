@@ -1,3 +1,4 @@
+import { ContextoRelatorio, classificacao, contextoChecklist, htmlPlanoAcao, textoComparacao } from './contextoRelatorio';
 import { documentoUlva, kpi, rotulo, PDF_VERDE, PDF_VERMELHO, corAproveitamento } from './layoutPdf';
 import * as Print from 'expo-print';
 import { AvaliacaoPergunta, AvaliacaoResposta, AvaliacaoSetor, buscarRespostasOrdenadas } from '../data/avaliacaoSetorApi';
@@ -49,8 +50,10 @@ export function montarHtmlChecklist(dados: {
   nomeSetor: string;
   respostas: AvaliacaoResposta[];
   resolucao?: ResolucaoTarefa | null;
+  contexto?: ContextoRelatorio | null;
 }): string {
-  const { avaliacao, nomeSetor, respostas, resolucao } = dados;
+  const { avaliacao, nomeSetor, respostas, resolucao, contexto } = dados;
+  const cl = classificacao(avaliacao.aproveitamento ?? 0);
   const pct = avaliacao.aproveitamento ?? 0;
   const cor = corFaixa(pct);
 
@@ -81,7 +84,7 @@ export function montarHtmlChecklist(dados: {
 
   const nc = avaliacao.naoConformidades ?? 0;
   const kpis =
-    kpi('Aproveitamento', `${pct}%`, cor) +
+    kpi('Aproveitamento', `${pct}%<span class="classif" style="color:${cl.cor};background:${cl.fundo}">${cl.texto}</span>`, cor, textoComparacao(pct, contexto)) +
     kpi('Pontos', `${avaliacao.pontosRealizados ?? 0} / ${avaliacao.pontosPossiveis ?? 0}`) +
     kpi('Não conformidades', String(nc), nc > 0 ? PDF_VERMELHO : PDF_VERDE) +
     (avaliacao.perguntasNaoAvaliadas ? kpi('Não avaliadas', String(avaliacao.perguntasNaoAvaliadas), '#8A93A5') : '') +
@@ -89,6 +92,7 @@ export function montarHtmlChecklist(dados: {
 
   return documentoUlva({
     tipo: 'Checklist de setor',
+    numero: contexto?.numero,
     titulo: nomeSetor,
     direita: ['Loja 327', `Avaliado por ${escapeHtml(avaliacao.gerenteNome)}`, avaliacao.finalizadaEm ? `Finalizado em ${formatarDataHoraPdf(avaliacao.finalizadaEm)}` : 'Em andamento'],
     corpo: `
@@ -96,6 +100,7 @@ export function montarHtmlChecklist(dados: {
       <div class="kpis">${kpis}</div>
       ${rotulo('Itens avaliados', `${respostas.length}`)}
       ${itensHtml}
+      ${htmlPlanoAcao(contexto)}
       ${avaliacao.consideracoesFinais ? `${rotulo('Considerações finais')}<div class="caixa">${escapeHtml(avaliacao.consideracoesFinais)}</div>` : ''}
       ${resolucaoHtml}`,
   });
@@ -117,6 +122,11 @@ export function nomeDoSetorAvaliacao(setor: string): string {
 export async function compartilharAvaliacao(avaliacao: AvaliacaoSetor, resolucao?: ResolucaoTarefa | null): Promise<void> {
   const respostas = await buscarRespostasOrdenadas(avaliacao.id);
   const nomeSetor = nomeDoSetorAvaliacao(avaliacao.setor);
-  const html = montarHtmlChecklist({ avaliacao, nomeSetor, respostas, resolucao });
+  const contexto = await contextoChecklist(
+    { id: avaliacao.id, setor: avaliacao.setor, finalizadaEm: avaliacao.finalizadaEm, tarefaId: avaliacao.tarefaId },
+    nomeSetor,
+    respostas.filter((r) => r.resposta === 'nao').map((r) => ({ texto: r.perguntaTexto, critico: false })),
+  );
+  const html = montarHtmlChecklist({ avaliacao, nomeSetor, respostas, resolucao, contexto });
   await compartilharPdf(html, `checklist-${nomeSetor}-${dataParaNomeArquivo(avaliacao.finalizadaEm)}`);
 }
