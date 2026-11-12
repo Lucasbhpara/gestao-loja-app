@@ -6,7 +6,8 @@ import CabecalhoTela from '../components/CabecalhoTela';
 import { compartilharPdf } from '../lib/compartilharPdf';
 import { somarDiasIso, nomeDia, diaMesCurto, reais } from '../data/vendaDiaApi';
 import { pctTexto } from '../data/metaVendaApi';
-import { RelatorioDiario, carregarRelatorioDiario, htmlRelatorioDiario, nomeSetor, nomeTipo } from '../data/relatorioDiarioApi';
+import { RelatorioDiario, carregarRelatorioDiario, htmlRelatorioDiario,
+  alturaRelatorioDiario, nomeSetor, nomeTipo } from '../data/relatorioDiarioApi';
 
 // Relatório diário (só do Lucas). Abre pela notificação "Relatório pronto"
 // e, nesse caso, já abre a tela de compartilhar para mandar o PDF no WhatsApp.
@@ -55,7 +56,7 @@ export default function RelatorioDiarioScreen({
   async function enviar(rel: RelatorioDiario) {
     setGerando(true);
     try {
-      await compartilharPdf(htmlRelatorioDiario(rel), `relatorio-diario-${rel.diaVenda.split('-').reverse().join('-')}`, 'Enviar relatório diário');
+      await compartilharPdf(htmlRelatorioDiario(rel), `relatorio-diario-${rel.diaVenda.split('-').reverse().join('-')}`, 'Enviar relatório diário', { width: 595, height: alturaRelatorioDiario(rel) });
     } catch (e: any) {
       Alert.alert('Não deu certo', e?.message ?? 'Não consegui gerar o PDF.');
     } finally {

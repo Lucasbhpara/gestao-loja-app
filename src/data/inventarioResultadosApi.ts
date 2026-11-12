@@ -1,3 +1,4 @@
+import { ASSINATURA_ULVA } from '../lib/assinatura';
 import { supabase } from '../lib/supabase';
 
 // =============================================================================
@@ -160,7 +161,7 @@ export function htmlResultado(r: ResultadoInventario, todos: ResultadoInventario
         sem.map((p, i) => `<tr><td class="pos">${i + 1}</td><td>${esc(p.produto)}</td><td class="n">vendeu ${Number(p.vendas).toLocaleString('pt-BR')} · saldo <b>${Number(p.saldo).toLocaleString('pt-BR')}</b></td></tr>`).join('') +
         '</table>'
       : '') +
-    `<div class="rod">${r.n_produtos ?? '—'} produtos com divergência · quebra lançada em ${r.n_com_quebra_lancada ?? '—'} · fonte: relatório "Resultado de Inventário" · ULVA · A loja inteira na palma da mão.</div>` +
+    `<div class="rod">${r.n_produtos ?? '—'} produtos com divergência · quebra lançada em ${r.n_com_quebra_lancada ?? '—'} · fonte: relatório "Resultado de Inventário" · ${ASSINATURA_ULVA}</div>` +
     '</body></html>'
   );
 }

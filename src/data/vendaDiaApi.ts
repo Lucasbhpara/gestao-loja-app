@@ -1,3 +1,4 @@
+import { ASSINATURA_ULVA } from '../lib/assinatura';
 import { supabase } from '../lib/supabase';
 import { rpcTudo } from '../lib/rpcTudo';
 import type { ResumoMeta } from './metaVendaApi';
@@ -230,6 +231,6 @@ ${blocoMeta}
 <h2>Venda por setor</h2><table><thead><tr><th>Setor</th><th class="n">Venda</th><th class="n">% do dia</th><th class="n">vs ${diaMesCurto(d.ant)}</th></tr></thead><tbody>${linhasSetor}</tbody></table>
 <div class="duas"><div><h2>Top 10 em valor</h2><table><thead><tr><th></th><th>Produto</th><th class="n">Venda</th><th class="n">Volume*</th></tr></thead><tbody>${top(d.topValor, 'valor')}</tbody></table></div>
 <div><h2>Top 10 em volume*</h2><table><thead><tr><th></th><th>Produto</th><th class="n">Volume*</th><th class="n">Venda</th></tr></thead><tbody>${top(d.topVolume, 'volume')}</tbody></table></div></div>
-<div class="rod">* Volume aproximado: valor vendido ÷ preço de venda atual (a planilha do Falcon traz só o valor). Variação comparada com o mesmo dia da semana anterior. ULVA · A loja inteira na palma da mão.</div>
+<div class="rod">* Volume aproximado: valor vendido ÷ preço de venda atual (a planilha do Falcon traz só o valor). Variação comparada com o mesmo dia da semana anterior. ${ASSINATURA_ULVA}</div>
 </body></html>`;
 }

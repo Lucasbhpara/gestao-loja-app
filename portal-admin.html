@@ -2769,7 +2769,7 @@ function ovPdf(lista) {
       '<div class="card"><div class="r">Restante retirado</div><div class="v">' + ovPct(retirado, itens.length) + '</div><div class="l">meta 100%</div></div>' +
     '</div>') +
     blocos +
-    '<div class="rod">ULVA · A loja inteira na palma da mão.</div>' +
+    '<div class="rod">ULVA · Unified Live View App · by Lucas Alberto</div>' +
     '<script>window.onload=function(){setTimeout(function(){window.print()},400)}<\/script></body></html>';
   const w = window.open('', '_blank');
   if (!w) { mostrarToast('O navegador bloqueou a janela do PDF. Libere pop-ups para este site e tente de novo.', 'erro'); return; }
@@ -7459,7 +7459,7 @@ function vdExportarPdf() {
     '<h2>Venda por setor</h2><table><thead><tr><th>Setor</th><th class="n">Venda</th><th class="n">% do dia</th><th class="n">vs ' + vlFmtDia(d.ant) + '</th></tr></thead><tbody>' + linhasSetor + '</tbody></table>' +
     '<div class="duas"><div><h2>Top 10 em valor</h2><table><thead><tr><th></th><th>Produto</th><th class="n">Venda</th><th class="n">Volume*</th></tr></thead><tbody>' + top(d.topValor, 'valor') + '</tbody></table></div>' +
       '<div><h2>Top 10 em volume*</h2><table><thead><tr><th></th><th>Produto</th><th class="n">Volume*</th><th class="n">Venda</th></tr></thead><tbody>' + top(d.topVolume, 'volume') + '</tbody></table></div></div>' +
-    '<div class="rod">* Volume aproximado: valor vendido ÷ preço de venda atual (a planilha do Falcon traz só o valor). Variação comparada com o mesmo dia da semana anterior. ULVA · A loja inteira na palma da mão.</div>' +
+    '<div class="rod">* Volume aproximado: valor vendido ÷ preço de venda atual (a planilha do Falcon traz só o valor). Variação comparada com o mesmo dia da semana anterior. ULVA · Unified Live View App · by Lucas Alberto</div>' +
     '<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>';
   const w = window.open('', '_blank');
   if (!w) { mostrarToast('O navegador bloqueou a janela do PDF. Libere pop-ups para este site e tente de novo.', 'erro'); return; }
@@ -8789,7 +8789,7 @@ function riPdf(id) {
     (riCompensacao(r) ? '<div class="alerta"><b>Atenção:</b> a quebra está sendo compensada pela sobra — o resultado final esconde troca de código entre produtos. Confira os pares entre as maiores quebras e as maiores sobras.</div>' : '') +
     '<div class="duas"><div><h2>Maiores quebras</h2>' + tab(r.destaques.maiores_quebras, '#C0392B') + '</div><div><h2>Maiores sobras</h2>' + tab(r.destaques.maiores_sobras, '#B7791F') + '</div></div>' +
     (sem.length ? '<h2>Saldo negativo (vendeu mais do que tinha)</h2><table>' + sem.map((p, i) => '<tr><td class="pos">' + (i + 1) + '</td><td>' + e(p.produto) + '</td><td class="n">vendeu ' + Number(p.vendas).toLocaleString('pt-BR') + ' · saldo <b>' + Number(p.saldo).toLocaleString('pt-BR') + '</b></td></tr>').join('') + '</table>' : '') +
-    '<div class="rod">' + r.n_produtos + ' produtos com divergência · quebra lançada em ' + (r.n_com_quebra_lancada ?? '—') + ' · fonte: relatório "Resultado de Inventário" · ULVA · A loja inteira na palma da mão.</div>' +
+    '<div class="rod">' + r.n_produtos + ' produtos com divergência · quebra lançada em ' + (r.n_com_quebra_lancada ?? '—') + ' · fonte: relatório "Resultado de Inventário" · ULVA · Unified Live View App · by Lucas Alberto</div>' +
     '<script>window.onload=function(){setTimeout(function(){window.print()},300)}<\/script></body></html>';
   const w = window.open('', '_blank');
   if (!w) { mostrarToast('O navegador bloqueou a janela do PDF. Libere pop-ups para este site e tente de novo.', 'erro'); return; }
@@ -11883,5 +11883,7 @@ function fecharModal() {
 document.getElementById('login-matricula').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') fazerLogin(); });
 document.getElementById('login-nome').addEventListener('keydown', (ev) => { if (ev.key === 'Enter') document.getElementById('login-matricula').focus(); });
 </script>
+<div id="assinatura-impressao">ULVA · Unified Live View App · by Lucas Alberto</div>
+<style>#assinatura-impressao{display:none}@media print{#assinatura-impressao{display:block;margin-top:16px;padding-top:6px;border-top:1px solid #ccc;font-size:10px;color:#666;text-align:center}}</style>
 </body>
 </html>
