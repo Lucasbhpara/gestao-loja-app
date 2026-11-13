@@ -60,7 +60,7 @@ import {
   visitaEmAndamentoLocal,
   visitaLocal,
 } from '../lib/visitaOffline';
-import { compartilharVisita, compartilharVisitaCompleta, visitasDoDiaPorSetor } from '../lib/visitaTecnicaPdf';
+import { compartilharVisitaCompleta, visitasDoDiaPorSetor } from '../lib/visitaTecnicaPdf';
 import CorrecaoScreen from './CorrecaoScreen';
 import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
 import { Tarefa } from '../data/tarefasApi';
@@ -366,7 +366,6 @@ function PainelUnidade({
   const [finalizadas, setFinalizadas] = useState<VisitaTecnica[]>([]);
   const [visitaAberta, setVisitaAberta] = useState<string | null>(null);
   const [abrindo, setAbrindo] = useState<SetorVisita | null>(null);
-  const [compartilhandoId, setCompartilhandoId] = useState<string | null>(null);
   const [compartilhandoDia, setCompartilhandoDia] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [mostrarComoFunciona, setMostrarComoFunciona] = useState(false);
@@ -483,17 +482,6 @@ function PainelUnidade({
     else Alert.alert('Ainda sem conexão', 'Não consegui enviar agora. O app tenta de novo sozinho quando a internet voltar.');
   }
 
-  async function compartilhar(v: VisitaTecnica) {
-    setCompartilhandoId(v.id);
-    try {
-      await compartilharVisita(v);
-    } catch (e: any) {
-      Alert.alert('Não consegui gerar o PDF', e?.message ?? 'Verifique a internet e tente novamente.');
-    } finally {
-      setCompartilhandoId(null);
-    }
-  }
-
   // PDF da visita completa do dia: resumo + cada setor numa folha.
   async function compartilharDia(chave: string, visitas: VisitaTecnica[]) {
     setCompartilhandoDia(chave);
@@ -504,6 +492,54 @@ function PainelUnidade({
     } finally {
       setCompartilhandoDia(null);
     }
+  }
+
+  // Fim da avaliação da loja: junta os setores concluídos hoje num PDF só,
+  // cada setor na sua folha (para imprimir e entregar a cada encarregado).
+  const hojeChave = (() => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`; })();
+  const ehHoje = (iso: string | null | undefined) => {
+    if (!iso) return false;
+    const d = new Date(iso);
+    return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` === hojeChave;
+  };
+  const setoresHoje = SETORES_VISITA.filter(({ key }) => finalizadas.some((v) => v.setor === key && ehHoje(v.finalizadaEm)) || pendentesUnidade.some((v) => v.setor === key && ehHoje(v.finalizadaEm)));
+  const setoresEmAndamento = SETORES_VISITA.filter(({ key }) => !!visitaEmAndamentoLocal(key, unidade));
+
+  async function finalizarVisitaLoja() {
+    const gerar = async () => {
+      setCompartilhandoDia(hojeChave);
+      try {
+        if (contarPendentes() > 0) await sincronizar().catch(() => {});
+        if (finalizadasPendentes(unidade).some((v) => ehHoje(v.finalizadaEm))) {
+          Alert.alert('Precisa de internet', 'Alguns setores de hoje ainda estão só no celular. Conecte à internet e toque de novo para gerar o PDF com todos.');
+          return;
+        }
+        const lista = await buscarVisitasFinalizadas(unidade, 60);
+        setFinalizadas(lista);
+        const doDia = lista.filter((v) => ehHoje(v.finalizadaEm));
+        if (!doDia.length) {
+          Alert.alert('Nenhum setor concluído hoje', 'Finalize pelo menos um setor para gerar o PDF da visita.');
+          return;
+        }
+        await compartilharVisitaCompleta(doDia);
+      } catch (e: any) {
+        Alert.alert('Não consegui gerar o PDF', e?.message ?? 'Verifique a internet e tente novamente.');
+      } finally {
+        setCompartilhandoDia(null);
+      }
+    };
+    if (setoresEmAndamento.length) {
+      Alert.alert(
+        'Setores em andamento',
+        `${setoresEmAndamento.map((s) => s.nome).join(', ')} ainda não ${setoresEmAndamento.length > 1 ? 'foram finalizados e ficam' : 'foi finalizado e fica'} fora do PDF.`,
+        [
+          { text: 'Voltar', style: 'cancel' },
+          { text: 'Gerar assim mesmo', onPress: gerar },
+        ]
+      );
+      return;
+    }
+    gerar();
   }
 
   // Visitas finalizadas (já enviadas) agrupadas por dia, mais recente primeiro.
@@ -691,7 +727,7 @@ function PainelUnidade({
                 { icone: 'grid' as const, texto: 'Escolha o setor; as perguntas ficam em gavetas por assunto (Temperatura, Câmara fria…).' },
                 { icone: 'alert-triangle' as const, texto: 'Responda Sim (conforme), Não ou N/A. Itens CRÍTICO e com 📷 pedem atenção e foto.' },
                 { icone: 'wifi-off' as const, texto: 'Sem sinal na câmara? Pode continuar: tudo fica salvo e é enviado depois.' },
-                { icone: 'send' as const, texto: 'Ao finalizar, o PDF abre pra compartilhar e cada "Não" vira tarefa do encarregado.' },
+                { icone: 'send' as const, texto: 'Finalize cada setor e, no fim, toque em "Finalizar visita e gerar PDF": sai um arquivo só, um setor por folha. Cada "Não" vira tarefa do encarregado.' },
               ].map((p, i) => (
                 <View key={i} style={styles.passo}>
                   <View style={styles.passoIcone}>
@@ -779,6 +815,33 @@ function PainelUnidade({
             </View>
           )}
 
+          {!carregando && (setoresHoje.length > 0 || setoresEmAndamento.length > 0) && (
+            <View style={styles.cardFinal}>
+              <Text style={styles.cardFinalTitulo}>Visita de hoje · Loja {unidade}</Text>
+              <Text style={styles.cardFinalTexto}>
+                {setoresHoje.length
+                  ? `Concluídos: ${setoresHoje.map((s) => s.nome).join(', ')}.`
+                  : 'Nenhum setor concluído ainda.'}
+                {setoresEmAndamento.length ? `\nEm andamento: ${setoresEmAndamento.map((s) => s.nome).join(', ')}.` : ''}
+              </Text>
+              <TouchableOpacity
+                style={[styles.btnFinal, !setoresHoje.length && { opacity: 0.5 }]}
+                onPress={finalizarVisitaLoja}
+                disabled={!setoresHoje.length || compartilhandoDia === hojeChave}
+              >
+                {compartilhandoDia === hojeChave ? (
+                  <ActivityIndicator color={colors.white} />
+                ) : (
+                  <>
+                    <Feather name="printer" size={16} color={colors.white} />
+                    <Text style={styles.btnFinalTexto}>Finalizar visita e gerar PDF</Text>
+                  </>
+                )}
+              </TouchableOpacity>
+              <Text style={styles.cardFinalDica}>Um arquivo só, com cada setor numa folha, para imprimir e entregar a cada encarregado.</Text>
+            </View>
+          )}
+
           {!carregando && (pendentesUnidade.length > 0 || finalizadas.length > 0) && (
             <>
               <Text style={styles.secaoTitulo}>Visitas finalizadas</Text>
@@ -813,7 +876,7 @@ function PainelUnidade({
                           <Text style={styles.diaTitulo}>{g.rotulo}</Text>
                           <Text style={styles.linhaMeta}>{setoresDoDia} {setoresDoDia === 1 ? 'setor' : 'setores'}</Text>
                         </View>
-                        {setoresDoDia > 1 && (
+                        {setoresDoDia > 0 && (
                           <TouchableOpacity
                             style={styles.btnPdfDia}
                             onPress={() => compartilharDia(g.chave, g.visitas)}
@@ -824,7 +887,7 @@ function PainelUnidade({
                             ) : (
                               <>
                                 <Feather name="printer" size={14} color={colors.white} />
-                                <Text style={styles.btnPdfDiaTexto}>PDF completo</Text>
+                                <Text style={styles.btnPdfDiaTexto}>PDF da visita</Text>
                               </>
                             )}
                           </TouchableOpacity>
@@ -847,18 +910,7 @@ function PainelUnidade({
                             <View style={[styles.notaChip, { backgroundColor: banda.fundo, marginRight: spacing.sm }]}>
                               <Text style={[styles.notaChipTexto, { color: banda.cor }]}>{v.aproveitamento ?? 0}%</Text>
                             </View>
-                            <TouchableOpacity
-                              style={styles.btnShare}
-                              onPress={() => compartilhar(v)}
-                              disabled={compartilhandoId === v.id}
-                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                            >
-                              {compartilhandoId === v.id ? (
-                                <ActivityIndicator color={colors.white} size="small" />
-                              ) : (
-                                <Feather name="share-2" size={16} color={colors.white} />
-                              )}
-                            </TouchableOpacity>
+<View />
                           </View>
                         );
                       })}
@@ -1081,22 +1133,16 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
 
             await sincronizar().catch(() => {});
             const enviada = visitaLocal(visitaId)?.resultadoNuvem;
-            if (enviada) {
-              // Online: já abre a tela de compartilhar com o PDF.
-              try {
-                await compartilharVisita(enviada);
-              } catch (e: any) {
-                Alert.alert('Visita salva, mas o PDF falhou', `${e?.message ?? ''}\nCompartilhe depois em "Visitas finalizadas".`);
-              }
-              Alert.alert('Visita finalizada', resumo, [{ text: 'OK', onPress: onVoltar }]);
-            } else {
-              Alert.alert(
-                'Visita salva no celular',
-                resumo +
-                  '\n\nSem internet agora: ela será enviada sozinha quando o sinal voltar. O PDF fica disponível em "Visitas finalizadas" depois do envio.',
-                [{ text: 'OK', onPress: onVoltar }]
-              );
-            }
+            // O PDF não sai por setor: no fim da avaliação da loja, o botão
+            // "Finalizar visita e gerar PDF" do painel junta todos os setores
+            // num arquivo só, cada setor na sua folha.
+            Alert.alert(
+              `${nomeDoSetorVisita(setor)} concluído`,
+              resumo +
+                (enviada ? '' : '\n\nSem internet agora: fica salvo no celular e é enviado sozinho quando o sinal voltar.') +
+                '\n\nSiga para o próximo setor. Ao terminar a loja, toque em "Finalizar visita e gerar PDF" no painel.',
+              [{ text: 'OK', onPress: onVoltar }]
+            );
           },
         },
       ]
@@ -1381,6 +1427,12 @@ const styles = StyleSheet.create({
   linhaIcone: { width: 32, height: 32, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
   linhaNome: { fontSize: 13.5, fontWeight: '700', color: colors.gray900 },
   linhaMeta: { fontSize: 11, color: colors.gray600, marginTop: 2 },
+  cardFinal: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginTop: spacing.xl, borderWidth: 1, borderColor: '#CFE0FF' },
+  cardFinalTitulo: { fontSize: 14, fontWeight: '800', color: colors.navy900 },
+  cardFinalTexto: { fontSize: 12.5, color: colors.gray600, marginTop: 6, lineHeight: 18 },
+  cardFinalDica: { fontSize: 11, color: colors.gray600, marginTop: spacing.sm, textAlign: 'center' },
+  btnFinal: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: colors.navy700, borderRadius: radius.md, height: 46, marginTop: spacing.md },
+  btnFinalTexto: { color: colors.white, fontSize: 14.5, fontWeight: '800' },
   diaCabecalho: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md, gap: spacing.md },
   diaTitulo: { fontSize: 13, fontWeight: '800', color: colors.navy900, textTransform: 'capitalize' },
   btnPdfDia: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.navy700, borderRadius: 18, paddingHorizontal: 12, height: 34, minWidth: 120, justifyContent: 'center' },
