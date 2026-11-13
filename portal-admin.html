@@ -1835,6 +1835,7 @@ const CH_GRUPOS = {
 };
 const CH_ORDEM = ['falta', 'novo', 'baixo', 'negativo', 'normal'];
 
+function chRotulo(numero) { const n = String(numero || ''); return /^Planilha/i.test(n) ? n : 'NF ' + n; }
 function chPill(g) { const c = CH_GRUPOS[g]; return '<span class="pill" style="background:' + c.fundo + ';color:' + c.cor + ';border-color:transparent;">' + c.curto + '</span>'; }
 function chBRL(v) { return v == null ? '—' : 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }); }
 function chNum(v) { return v == null ? '—' : Number(v).toLocaleString('pt-BR', { maximumFractionDigits: 3 }); }
@@ -2260,7 +2261,7 @@ async function salvarDiasGrupoRuptura(id, valor) {
 
 async function paginaChegadas() {
   estado.chImport = null;
-  const { data: notas, error } = await sb.from('chegadas_nf').select('*').order('enviado_em', { ascending: false }).limit(40);
+  const { data: notas, error } = await sb.from('chegadas_nf').select('*').order('enviado_em', { ascending: false }).limit(120);
   if (error) {
     if (/chegadas_nf|relation|schema cache/i.test(error.message || '')) {
       document.getElementById('conteudo-principal').innerHTML = cabecalho('Mercadoria que chegou', 'Notas do CD cruzadas com o estoque da loja') +
@@ -2285,11 +2286,11 @@ async function paginaChegadas() {
 
 function renderizarChegadas() {
   const linhas = estado.chNotas.length === 0
-    ? '<tr><td colspan="8"><div class="celula-vazio">Nenhuma nota enviada ainda. Suba o PDF da nota aqui em cima.</div></td></tr>'
+    ? '<tr><td colspan="8"><div class="celula-vazio">Nada enviado ainda. Suba a planilha ou o PDF da nota aqui em cima.</div></td></tr>'
     : estado.chNotas.map((n) => {
         const r = estado.chResumo[n.id] || {};
         return '<tr style="cursor:pointer;" onclick="abrirChegada(\'' + n.id + '\')">' +
-          '<td class="nome-forte">NF ' + giroEsc(n.numero) + '</td>' +
+          '<td class="nome-forte">' + giroEsc(chRotulo(n.numero)) + '</td>' +
           '<td style="white-space:nowrap;">' + chDataHora(n.enviado_em) + '</td>' +
           '<td class="vl-num">' + n.total_itens + '</td>' +
           ['falta', 'novo', 'baixo', 'negativo'].map((g) => '<td class="vl-num">' + (r[g] ? '<span style="color:' + CH_GRUPOS[g].cor + ';font-weight:800;">' + r[g] + '</span>' : '0') + '</td>').join('') +
@@ -2297,14 +2298,19 @@ function renderizarChegadas() {
         '</tr>';
       }).join('');
   document.getElementById('conteudo-principal').innerHTML =
-    cabecalho('Mercadoria que chegou', 'Suba o PDF da nota — o ULVA cruza com o estoque e a equipe vê no app o que estava em falta, o que é novo e o que estava baixo') +
+    cabecalho('Mercadoria que chegou', 'Suba a planilha Excel dos itens que estão chegando (ou o PDF da nota) — o ULVA cruza com o estoque e a equipe vê no app o que estava em falta, o que é novo e o que estava baixo') +
     '<div class="pq-card"><div class="pq-topo"><h3>Subir notas</h3></div>' +
       '<div class="zona-arrastar" id="zona-ch-arquivo" onclick="document.getElementById(\'ch-arquivo\').click()">' +
-        '<div class="icone">📄</div><div class="principal">PDF da nota fiscal (DANFE)</div>' +
-        '<div class="secundario" id="zona-ch-arquivo-nome">Clique aqui ou arraste — pode escolher várias notas de uma vez</div></div>' +
-      '<input type="file" id="ch-arquivo" accept="application/pdf" multiple style="display:none" />' +
-      '<div style="font-size:12px;color:var(--text-muted);margin-top:10px;">Suba o estoque do dia <b>antes</b> das notas: o cruzamento usa o saldo da loja antes da mercadoria entrar.</div>' +
+        '<div class="icone">📄</div><div class="principal">Planilha Excel dos itens (dashboard NFs de entrada) ou PDF da nota</div>' +
+        '<div class="secundario" id="zona-ch-arquivo-nome">Clique aqui ou arraste — pode escolher vários arquivos de uma vez</div></div>' +
+      '<input type="file" id="ch-arquivo" accept="application/pdf,.xlsx,.xls" multiple style="display:none" />' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:10px;">Suba o estoque do dia <b>antes</b> da planilha/notas: o cruzamento usa o saldo da loja antes da mercadoria entrar.</div>' +
       '<div id="ch-revisao"></div></div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Procurar produto nas chegadas</h3></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;"><input class="input-busca" id="ch-busca" style="max-width:360px;flex:1;" placeholder="Nome ou código do produto (ex.: vinagre, 186240)" onkeydown="if(event.key===\'Enter\')buscarNasChegadas()">' +
+      '<button class="btn-acao" onclick="buscarNasChegadas()">Procurar</button></div>' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Mostra todas as vezes que o produto chegou (tendo ou não na loja): dia, quantidade e por qual planilha/nota.</div>' +
+      '<div id="ch-busca-res"></div></div>' +
     '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Notas enviadas</h3></div>' +
       '<div class="tabela-wrap"><table><thead><tr><th>Nota</th><th>Enviada em</th><th style="text-align:right;">Itens</th>' +
       '<th style="text-align:right;">Em falta</th><th style="text-align:right;">Novos</th><th style="text-align:right;">Baixo</th><th style="text-align:right;">Negativo</th><th style="text-align:right;">Na área de vendas</th></tr></thead><tbody>' + linhas + '</tbody></table></div></div>';
@@ -2334,6 +2340,43 @@ function chLerDanfe(paginas) {
   return { numero, emitente, data, valorTotal: acharValorTotalProdutos(paginas), itens };
 }
 
+// ---------- leitura da planilha Excel (dashboard NFs de entrada · TAB_PRODUTOS) ----------
+// Colunas: PRODUTO ("186240 - VINAGRE ..."), VALOR (total do item em R$), QUANT.
+// A linha de total (sem produto) é ignorada. A planilha não traz número de nota,
+// então vira uma entrada "Planilha DD/MM HH:MM".
+async function chLerPlanilha(file) {
+  const wb = XLSX.read(await file.arrayBuffer(), { type: 'array' });
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { header: 1, defval: null });
+  const norm = (v) => String(v == null ? '' : v).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toUpperCase().trim();
+  let h = -1, cP = -1, cV = -1, cQ = -1;
+  for (let i = 0; i < Math.min(rows.length, 15) && h < 0; i++) {
+    const r = (rows[i] || []).map(norm);
+    const p = r.findIndex((x) => x === 'PRODUTO'), q = r.findIndex((x) => /^QUANT|^QTD|^QTDE/.test(x));
+    if (p >= 0 && q >= 0) { h = i; cP = p; cQ = q; cV = r.findIndex((x) => /^VALOR/.test(x)); }
+  }
+  if (h < 0) throw new Error('Não achei as colunas PRODUTO e QUANT na planilha ' + file.name + '.');
+  const num = (v) => (typeof v === 'number' ? v : v == null || v === '' ? null : numeroBR(String(v)));
+  const itens = [];
+  for (let i = h + 1; i < rows.length; i++) {
+    const r = rows[i] || [];
+    const txt = String(r[cP] == null ? '' : r[cP]).trim();
+    if (!txt) continue; // linha de total
+    const m = txt.match(/^(\d+)\s*-\s*(.+)$/);
+    const qtd = num(r[cQ]), valor = cV >= 0 ? num(r[cV]) : null;
+    itens.push({
+      codigo_interno: m ? m[1].replace(/^0+(?=\d)/, '') : null, produto: (m ? m[2] : txt).trim(), codigo_barras: null, embalagem: null,
+      quantidade: qtd, valor_total: valor, valor_unitario: valor != null && qtd ? Math.round((valor / qtd) * 10000) / 10000 : null,
+    });
+  }
+  const agora = new Date();
+  const dd = (n) => String(n).padStart(2, '0');
+  return {
+    numero: 'Planilha ' + dd(agora.getDate()) + '/' + dd(agora.getMonth() + 1) + ' ' + dd(agora.getHours()) + ':' + dd(agora.getMinutes()),
+    emitente: 'Planilha de itens chegando', data: agora.getFullYear() + '-' + dd(agora.getMonth() + 1) + '-' + dd(agora.getDate()),
+    valorTotal: itens.reduce((s, i) => s + (i.valor_total || 0), 0) || null, itens, planilha: true,
+  };
+}
+
 async function chCarregarEstoque() {
   if (estado.chEstoque && Date.now() - estado.chEstoque.em < 5 * 60 * 1000) return estado.chEstoque;
   const linhas = [];
@@ -2343,9 +2386,11 @@ async function chCarregarEstoque() {
     linhas.push(...(data || []));
     if (!data || data.length < 1000) break;
   }
-  const porEan = new Map(), porCaixa = new Map();
+  const porEan = new Map(), porCaixa = new Map(), porCodigo = new Map();
   let dataMax = '';
   linhas.forEach((r) => {
+    const ci = String(r.codigo_interno || '').trim().replace(/^0+(?=\d)/, '');
+    if (ci && !porCodigo.has(ci)) porCodigo.set(ci, r);
     const cb = String(r.codigo_barras || '').replace(/\D/g, '');
     if (r.data_planilha && r.data_planilha > dataMax) dataMax = r.data_planilha;
     if (!cb) return;
@@ -2353,13 +2398,14 @@ async function chCarregarEstoque() {
     if (!porEan.has(k)) porEan.set(k, r);
     if (cb.length === 14) { const kc = cb.slice(1, 13).replace(/^0+/, ''); if (!porCaixa.has(kc)) porCaixa.set(kc, r); }
   });
-  estado.chEstoque = { em: Date.now(), porEan, porCaixa, dataMax };
+  estado.chEstoque = { em: Date.now(), porEan, porCaixa, porCodigo, dataMax };
   return estado.chEstoque;
 }
 
 async function lerNotasChegada(arquivos) {
-  arquivos = arquivos.filter((f) => f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
-  if (!arquivos.length) { mostrarToast('Escolha o PDF da nota.', 'erro'); return; }
+  const ehPlanilha = (f) => /\.xlsx?$/i.test(f.name);
+  arquivos = arquivos.filter((f) => ehPlanilha(f) || f.type === 'application/pdf' || f.name.toLowerCase().endsWith('.pdf'));
+  if (!arquivos.length) { mostrarToast('Escolha a planilha Excel ou o PDF da nota.', 'erro'); return; }
   const box = document.getElementById('ch-revisao');
   document.getElementById('zona-ch-arquivo-nome').textContent = arquivos.map((f) => f.name).join(', ');
   box.innerHTML = '<div class="celula-vazio">Lendo ' + arquivos.length + ' nota(s) e cruzando com o estoque…</div>';
@@ -2367,16 +2413,24 @@ async function lerNotasChegada(arquivos) {
     const est = await chCarregarEstoque();
     const notas = [];
     for (const f of arquivos) {
-      const nf = chLerDanfe(await extrairLinhasPDF(f));
+      let nf;
+      try { nf = ehPlanilha(f) ? await chLerPlanilha(f) : chLerDanfe(await extrairLinhasPDF(f)); }
+      catch (e) { notas.push({ arquivo: f.name, itens: [], erro: e.message || 'Não consegui ler o arquivo.' }); continue; }
       nf.arquivo = f.name;
-      if (!nf.numero || nf.itens.length === 0) { notas.push({ ...nf, erro: 'Não consegui ler os itens dessa nota.' }); continue; }
+      if (!nf.numero || nf.itens.length === 0) { notas.push({ ...nf, erro: 'Não consegui ler os itens desse arquivo.' }); continue; }
       nf.itens.forEach((it, k) => {
         it.ordem = k;
-        const ean = it.codigo_barras.replace(/^0+/, '');
-        let r = est.porEan.get(ean), outroCodigo = false;
-        if (!r && ean.length >= 12) { r = est.porCaixa.get(ean.slice(0, 12).replace(/^0+/, '')); outroCodigo = !!r; }
+        let r = null, outroCodigo = false;
+        if (nf.planilha) {
+          r = it.codigo_interno ? est.porCodigo.get(it.codigo_interno) : null;
+          if (r && r.codigo_barras) it.codigo_barras = String(r.codigo_barras);
+        } else {
+          const ean = it.codigo_barras.replace(/^0+/, '');
+          r = est.porEan.get(ean);
+          if (!r && ean.length >= 12) { r = est.porCaixa.get(ean.slice(0, 12).replace(/^0+/, '')); outroCodigo = !!r; }
+        }
         const obs = [];
-        if (!r) { it.grupo = 'novo'; obs.push('A loja ainda não vendia esse produto'); }
+        if (!r) { it.grupo = 'novo'; obs.push(nf.planilha ? 'Não está no estoque da loja (cód. ' + (it.codigo_interno || '?') + ')' : 'A loja ainda não vendia esse produto'); }
         else {
           it.codigo_interno = r.codigo_interno; it.produto_loja = r.produto;
           it.saldo_loja = r.quantidade == null ? null : Number(r.quantidade);
@@ -2419,7 +2473,7 @@ function renderizarRevisaoChegada() {
   const cont = {}; CH_ORDEM.forEach((g) => { cont[g] = todos.filter((i) => i.grupo === g).length; });
   const cabNotas = notas.map((n) => '<div style="font-size:13px;margin:4px 0;">' +
     (n.erro ? '❌ <b>' + giroEsc(n.arquivo) + '</b> — ' + n.erro
-      : (n.repetida ? '⚠️ ' : '✅ ') + '<b>NF ' + n.numero + '</b> · ' + n.itens.length + ' itens · ' + chBRL(n.valorTotal) +
+      : (n.repetida ? '⚠️ ' : '✅ ') + '<b>' + giroEsc(chRotulo(n.numero)) + '</b> · ' + n.itens.length + ' itens · ' + chBRL(n.valorTotal) +
         (n.valorTotal != null && Math.abs(n.itens.reduce((s, i) => s + (i.valor_total || 0), 0) - n.valorTotal) > 0.05 ? ' <span style="color:var(--red);">(a soma dos itens não bateu com o total — confira)</span>' : '') +
         (n.repetida ? ' <span style="color:var(--orange);font-weight:700;">— essa nota já foi enviada, vai ser ignorada</span>' : '')) + '</div>').join('');
   const caixas = CH_ORDEM.map((g) => '<div class="box"><div class="rotulo" style="color:' + CH_GRUPOS[g].cor + ';">' + CH_GRUPOS[g].nome + '</div><div class="valor">' + cont[g] + '</div></div>').join('');
@@ -2436,7 +2490,7 @@ function renderizarRevisaoChegada() {
       '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Os ' + cont.normal + ' itens com estoque normal também são salvos, só não aparecem nesta lista.</div>' +
       '<div style="display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap;">' +
         '<button class="btn-acao secundario" onclick="irPara(\'chegadas\')">Cancelar</button>' +
-        '<button class="btn-acao" id="ch-salvar" onclick="salvarChegadas()">Salvar e mandar para o app (' + validas.length + ' nota' + (validas.length > 1 ? 's' : '') + ')</button></div>');
+        '<button class="btn-acao" id="ch-salvar" onclick="salvarChegadas()">Salvar e mandar para o app (' + validas.length + ' arquivo' + (validas.length > 1 ? 's' : '') + ')</button></div>');
 }
 
 async function salvarChegadas() {
@@ -2470,6 +2524,40 @@ async function salvarChegadas() {
   }
 }
 
+// Histórico de um produto em todas as chegadas (planilhas e notas).
+async function buscarNasChegadas() {
+  const termo = (document.getElementById('ch-busca').value || '').trim();
+  const box = document.getElementById('ch-busca-res');
+  if (termo.length < 2) { box.innerHTML = '<div class="celula-vazio">Digite pelo menos 2 letras ou o código.</div>'; return; }
+  box.innerHTML = '<div class="celula-vazio">Procurando…</div>';
+  try {
+    let q = sb.from('chegadas_itens').select('produto,codigo_interno,codigo_barras,quantidade,embalagem,valor_unitario,saldo_loja,grupo,abastecido_em,abastecido_por,chegadas_nf(numero,enviado_em)').limit(300);
+    const soDig = termo.replace(/\D/g, '');
+    if (soDig && soDig === termo.replace(/\s/g, '')) {
+      const c = soDig.replace(/^0+(?=\d)/, '');
+      q = soDig.length >= 8 ? q.eq('codigo_barras', soDig) : q.eq('codigo_interno', c);
+    } else {
+      q = q.ilike('produto', '%' + termo.replace(/[%_,()]/g, ' ').trim().split(/\s+/).join('%') + '%');
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    const lista = (data || []).filter((i) => i.chegadas_nf).sort((a, b) => String(b.chegadas_nf.enviado_em).localeCompare(String(a.chegadas_nf.enviado_em)));
+    if (!lista.length) { box.innerHTML = '<div class="celula-vazio">Nenhuma chegada encontrada para "' + giroEsc(termo) + '".</div>'; return; }
+    const total = lista.reduce((t, i) => t + (Number(i.quantidade) || 0), 0);
+    box.innerHTML = '<div style="font-size:13px;margin:12px 0 6px;"><b>' + lista.length + '</b> chegada(s) · <b>' + chNum(total) + '</b> no total</div>' +
+      '<div class="tabela-wrap" style="max-height:420px;overflow:auto;"><table><thead><tr><th>Chegou em</th><th>Produto</th><th style="text-align:right;">Quantidade</th><th style="text-align:right;">Custo un.</th><th style="text-align:right;">Saldo antes</th><th></th><th>Na área de vendas</th><th>Planilha / nota</th></tr></thead><tbody>' +
+      lista.map((i) => '<tr><td style="white-space:nowrap;">' + chDataHora(i.chegadas_nf.enviado_em) + '</td>' +
+        '<td class="nome-forte">' + giroEsc(i.produto) + '<div style="font-size:11px;color:var(--text-muted);font-weight:500;">' + (i.codigo_interno ? 'cód. ' + giroEsc(i.codigo_interno) : '') + (i.codigo_barras ? ' · ' + giroEsc(i.codigo_barras) : '') + '</div></td>' +
+        '<td class="vl-num">' + chNum(i.quantidade) + ' ' + giroEsc(i.embalagem || '') + '</td><td class="vl-num">' + chBRL(i.valor_unitario) + '</td>' +
+        '<td class="vl-num">' + chNum(i.saldo_loja) + '</td><td>' + chPill(i.grupo) + '</td>' +
+        '<td style="font-size:12px;">' + (i.abastecido_em ? '<span style="color:var(--green);font-weight:700;">✓ ' + chDataHora(i.abastecido_em) + '</span>' : '<span style="color:var(--text-muted);">Pendente</span>') + '</td>' +
+        '<td style="font-size:12px;">' + giroEsc(chRotulo(i.chegadas_nf.numero)) + '</td></tr>').join('') +
+      '</tbody></table></div>';
+  } catch (e) {
+    box.innerHTML = '<div class="celula-vazio">Não consegui procurar: ' + giroEsc(e.message || '') + '</div>';
+  }
+}
+
 async function abrirChegada(id) {
   try {
     const n = estado.chNotas.find((x) => x.id === id);
@@ -2494,7 +2582,7 @@ function renderizarChegadaAberta() {
     '</td>' +
     '<td style="font-size:12px;color:var(--text-muted);">' + giroEsc(i.observacao || '') + '</td></tr>').join('') || '<tr><td colspan="8"><div class="celula-vazio">Nenhum item nesse filtro.</div></td></tr>';
   document.getElementById('conteudo-principal').innerHTML =
-    cabecalho('NF ' + giroEsc(n.numero), (n.emitente ? giroEsc(n.emitente) + ' · ' : '') + 'enviada em ' + chDataHora(n.enviado_em) + (n.enviado_por ? ' por ' + giroEsc(n.enviado_por) : '') + ' · ' + chBRL(n.valor_total)) +
+    cabecalho(giroEsc(chRotulo(n.numero)), (n.emitente ? giroEsc(n.emitente) + ' · ' : '') + 'enviada em ' + chDataHora(n.enviado_em) + (n.enviado_por ? ' por ' + giroEsc(n.enviado_por) : '') + ' · ' + chBRL(n.valor_total)) +
     '<div class="toolbar" style="justify-content:space-between;flex-wrap:wrap;gap:8px;"><button class="btn-acao secundario" onclick="irPara(\'chegadas\')">← Todas as notas</button>' +
       '<button class="btn-acao secundario" style="color:var(--red);" onclick="excluirChegada(\'' + n.id + '\')">Excluir nota</button></div>' +
     '<div class="chips-wrap">' + chip('atencao', 'Precisa de atenção ' + cont('atencao')) + CH_ORDEM.map((g) => chip(g, CH_GRUPOS[g].nome + ' ' + cont(g))).join('') + chip('todos', 'Todos ' + itens.length) + '</div>' +
