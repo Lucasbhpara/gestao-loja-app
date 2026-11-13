@@ -49,6 +49,7 @@ import {
   finalizadasPendentes,
   finalizarLocal,
   MAX_FOTOS,
+  acompanhanteLocal,
   adicionarFotoApontamento,
   adicionarFotoLocal,
   apontamentosDaVisita,
@@ -76,6 +77,7 @@ import { Tarefa } from '../data/tarefasApi';
 import { useTeclado } from '../lib/useTeclado';
 import { pegarLocalizacaoSegura } from '../lib/localizacao';
 import AreaTeclado from '../components/AreaTeclado';
+import { PadAssinatura, VisualAssinatura } from '../components/AssinaturaDedo';
 
 // =============================================================================
 // Visita Técnica — checklist do Técnico Veterinário (ver visitaTecnicaApi.ts
@@ -1155,6 +1157,7 @@ function FormularioPerguntas({ visitaId, onVoltar }: { visitaId: string; onVolta
 
   function finalizar() {
     if (!podeFinalizar || !visita) return;
+    if (!acompanhanteOk(visitaId)) return;
     if (!completa) {
       const linhas: string[] = [];
       if (semResposta) linhas.push(`• ${semResposta} pergunta(s) sem resposta — ficam como "Não avaliada" e não contam na nota.`);
@@ -1394,6 +1397,7 @@ function FormularioPerguntas({ visitaId, onVoltar }: { visitaId: string; onVolta
             multiline
           />
         </View>
+        <CardAcompanhante visitaId={visitaId} setor={setor} />
       </ScrollView>
 
       <View style={[styles.rodape, teclado.aberto && { display: 'none' }]}>
@@ -1543,6 +1547,7 @@ function FormularioLivre({ visitaId, onVoltar }: { visitaId: string; onVoltar: (
 
   function finalizar() {
     if (!visita) return;
+    if (!acompanhanteOk(visitaId)) return;
     const n = preenchidos.length;
     Alert.alert(
       `Finalizar ${nomeDoSetorVisita(setor)}`,
@@ -1701,6 +1706,7 @@ function FormularioLivre({ visitaId, onVoltar }: { visitaId: string; onVoltar: (
             multiline
           />
         </View>
+        <CardAcompanhante visitaId={visitaId} setor={setor} />
       </ScrollView>
 
       <View style={[styles.rodape, teclado.aberto && { display: 'none' }]}>
@@ -1712,6 +1718,109 @@ function FormularioLivre({ visitaId, onVoltar }: { visitaId: string; onVoltar: (
         </TouchableOpacity>
       </View>
     </AreaTeclado>
+  );
+}
+
+// Responsável da loja que acompanhou a visita do setor: nome, função e
+// assinatura com o dedo. Obrigatório para finalizar (ou marcar "não tinha
+// responsável"). Fica salvo no celular e vai junto com a visita.
+const FUNCOES_ACOMP = ['Encarregado', 'Gerente', 'Subgerente'];
+
+function acompanhanteOk(visitaId: string): boolean {
+  const a = visitaLocal(visitaId)?.acompanhante;
+  if (a?.ausente) return true;
+  const falta: string[] = [];
+  if (!a?.nome?.trim()) falta.push('o nome do responsável');
+  if (!a?.funcao) falta.push('a função (encarregado ou gerente)');
+  if (!a?.assinatura) falta.push('a assinatura');
+  if (!falta.length) return true;
+  Alert.alert('Falta a assinatura do responsável', `Antes de finalizar, preencha ${falta.join(', ')} no card "Responsável que acompanhou", no fim da tela.`);
+  return false;
+}
+
+function CardAcompanhante({ visitaId, setor }: { visitaId: string; setor: SetorVisita }) {
+  useOffline();
+  const atual = visitaLocal(visitaId)?.acompanhante ?? null;
+  const [nome, setNome] = useState(atual?.nome ?? '');
+  const [assinando, setAssinando] = useState(false);
+  const a = atual ?? { nome: '', funcao: '', assinatura: null, ausente: false };
+  const salvar = (mud: Partial<typeof a>) => {
+    acompanhanteLocal(visitaId, { ...a, nome: nome.trim(), ...mud });
+    sincronizarEmBreve();
+  };
+  const ok = a.ausente || (!!a.nome && !!a.funcao && !!a.assinatura);
+  return (
+    <View style={[styles.consideracoesCard, ok && { borderWidth: 1.5, borderColor: '#BFE5CF' }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
+        <Feather name="user-check" size={16} color={colors.navy700} />
+        <Text style={[styles.consideracoesTitulo, { flex: 1 }]}>Responsável que acompanhou</Text>
+        {ok ? <Feather name="check-circle" size={18} color="#1F9D55" /> : <Text style={styles.opcional}>obrigatório</Text>}
+      </View>
+      {a.ausente ? (
+        <Text style={styles.livreExplica}>Visita sem responsável da loja acompanhando — sai assim no PDF.</Text>
+      ) : (
+        <>
+          <TextInput
+            style={styles.input}
+            placeholder={`Nome do ${setor === 'geral' ? 'gerente' : 'encarregado'} que acompanhou`}
+            value={nome}
+            onChangeText={setNome}
+            onBlur={() => salvar({ nome: nome.trim() })}
+            autoCapitalize="words"
+          />
+          <View style={{ flexDirection: 'row', gap: spacing.sm, marginTop: spacing.sm, flexWrap: 'wrap' }}>
+            {FUNCOES_ACOMP.map((f) => (
+              <TouchableOpacity key={f} style={[styles.chipFuncao, a.funcao === f && styles.chipFuncaoAtivo]} onPress={() => salvar({ funcao: f })}>
+                <Text style={[styles.chipFuncaoTexto, a.funcao === f && { color: colors.white }]}>{f}</Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+          {a.assinatura ? (
+            <TouchableOpacity onPress={() => setAssinando(true)} style={{ marginTop: spacing.md }}>
+              <VisualAssinatura desenho={a.assinatura} />
+              <Text style={[styles.opcional, { marginTop: 4, color: colors.navy700 }]}>Toque para refazer a assinatura</Text>
+            </TouchableOpacity>
+          ) : (
+            <TouchableOpacity
+              style={[styles.btnNovoApont, { borderStyle: 'solid' }]}
+              onPress={() => {
+                if (!nome.trim()) return Alert.alert('Nome do responsável', 'Escreva primeiro o nome de quem vai assinar.');
+                salvar({ nome: nome.trim() });
+                setAssinando(true);
+              }}
+            >
+              <Feather name="edit-2" size={16} color={colors.navy700} />
+              <Text style={styles.btnNovoApontTexto}>Colher assinatura</Text>
+            </TouchableOpacity>
+          )}
+        </>
+      )}
+      <TouchableOpacity
+        onPress={() =>
+          a.ausente
+            ? salvar({ ausente: false })
+            : Alert.alert('Sem responsável acompanhando?', 'A visita vai sair no PDF como "sem responsável da loja acompanhando".', [
+                { text: 'Voltar', style: 'cancel' },
+                { text: 'Confirmar', onPress: () => salvar({ ausente: true }) },
+              ])
+        }
+        style={{ marginTop: spacing.sm, alignSelf: 'center' }}
+      >
+        <Text style={[styles.opcional, { color: colors.navy700, textDecorationLine: 'underline' }]}>
+          {a.ausente ? 'Voltar a colher a assinatura' : 'Não tinha responsável da loja acompanhando'}
+        </Text>
+      </TouchableOpacity>
+      <PadAssinatura
+        visivel={assinando}
+        titulo="Assinatura do responsável"
+        subtitulo={`${nome.trim()}${a.funcao ? ' · ' + a.funcao : ''} — ${nomeDoSetorVisita(setor)}`}
+        onCancelar={() => setAssinando(false)}
+        onSalvar={(d) => {
+          salvar({ assinatura: d, ausente: false });
+          setAssinando(false);
+        }}
+      />
+    </View>
   );
 }
 
@@ -1794,6 +1903,9 @@ const styles = StyleSheet.create({
   linhaNome: { fontSize: 13.5, fontWeight: '700', color: colors.gray900 },
   linhaMeta: { fontSize: 11, color: colors.gray600, marginTop: 2 },
   modeloLinha: { gap: spacing.sm },
+  chipFuncao: { borderWidth: 1.5, borderColor: colors.navy700, borderRadius: 18, paddingHorizontal: 14, height: 34, justifyContent: 'center' },
+  chipFuncaoAtivo: { backgroundColor: colors.navy700 },
+  chipFuncaoTexto: { color: colors.navy700, fontWeight: '700', fontSize: 13 },
   modeloOpcao: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.md, borderWidth: 1.5, borderColor: '#E3E7EF' },
   modeloOpcaoAtiva: { borderColor: colors.navy700, backgroundColor: '#F2F6FF' },
   modeloTitulo: { fontSize: 13.5, fontWeight: '800', color: colors.gray600 },
