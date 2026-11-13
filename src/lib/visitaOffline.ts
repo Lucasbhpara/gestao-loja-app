@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { rodandoNaWeb } from './plataforma';
 import {
+  AcompanhanteVisita,
   ModeloVisita,
   RespostaVisita,
   SetorVisita,
@@ -80,6 +81,7 @@ export interface VisitaLocal {
   modelo: ModeloVisita;
   apontamentos: Record<string, ApontamentoLocal>;
   removidos: string[]; // apontamentos já enviados que foram apagados no celular
+  acompanhante: AcompanhanteVisita | null; // responsável da loja que acompanhou (assina no fim)
   setor: SetorVisita;
   unidade: string;
   veterinarioNome: string;
@@ -167,6 +169,7 @@ function limparEstado(e: Estado): Estado {
     visitas[id] = {
       ...v,
       modelo: (v as any).modelo === 'livre' ? 'livre' : 'perguntas',
+      acompanhante: (v as any).acompanhante ?? null,
       respostas,
       apontamentos,
       removidos: Array.isArray((v as any).removidos) ? (v as any).removidos : [],
@@ -281,6 +284,7 @@ export function criarVisitaLocal(dados: {
     modelo: dados.modelo,
     apontamentos: {},
     removidos: [],
+    acompanhante: null,
     setor: dados.setor,
     unidade: dados.unidade,
     veterinarioNome: dados.veterinarioNome,
@@ -325,6 +329,7 @@ export async function importarVisitaRemota(setor: SetorVisita, unidade: string, 
     modelo,
     apontamentos: {},
     removidos: [],
+    acompanhante: remota.acompanhante,
     setor: remota.setor,
     unidade,
     veterinarioNome: remota.veterinarioNome,
@@ -496,6 +501,13 @@ export function removerApontamento(visitaId: string, id: string) {
   persistir();
 }
 
+export function acompanhanteLocal(visitaId: string, a: AcompanhanteVisita | null) {
+  const v = estado.visitas[visitaId];
+  if (!v) return;
+  estado.visitas[visitaId] = { ...v, acompanhante: a, cabecalhoPendente: true };
+  persistir();
+}
+
 export function consideracoesLocal(visitaId: string, texto: string) {
   const v = estado.visitas[visitaId];
   if (!v || v.consideracoes === texto) return;
@@ -642,6 +654,7 @@ async function sincronizarVisita(id: string) {
       localizacaoLng: v.localizacaoLng,
       localizacaoEndereco: v.localizacaoEndereco,
       consideracoesFinais: v.consideracoes || null,
+      acompanhante: v.acompanhante ?? null,
     });
     v = estado.visitas[id];
     if (!v) return; // descartada enquanto enviava — não recria

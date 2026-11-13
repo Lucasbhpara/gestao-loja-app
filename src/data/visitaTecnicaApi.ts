@@ -50,6 +50,15 @@ export const SETORES_VISITA: { key: SetorVisita; nome: string }[] = [
 // reconhecido depois).
 export type ModeloVisita = 'perguntas' | 'livre';
 
+// Responsável da loja que acompanhou a visita do setor (encarregado ou
+// gerente), com a assinatura feita com o dedo (traços em caminho SVG).
+export interface AcompanhanteVisita {
+  nome: string;
+  funcao: string;
+  assinatura: { tracos: string; largura: number; altura: number } | null;
+  ausente: boolean;
+}
+
 export const TEMAS_LIVRE: { nome: string; dica: string }[] = [
   { nome: 'Limpeza', dica: 'Piso, paredes, equipamentos, câmaras, ralos…' },
   { nome: 'Organização', dica: 'Armazenamento, produtos no chão, equipamentos em desuso…' },
@@ -131,6 +140,7 @@ export interface VisitaTecnica {
   // de terminar ("Não avaliada" — fora da nota).
   perguntasNaoAvaliadas: number | null;
   modelo: ModeloVisita;
+  acompanhante: AcompanhanteVisita | null;
 }
 
 function linhaParaPergunta(l: any): VisitaPergunta {
@@ -186,6 +196,10 @@ function linhaParaVisita(l: any): VisitaTecnica {
     consideracoesFinais: l.consideracoes_finais ?? null,
     perguntasNaoAvaliadas: l.perguntas_nao_avaliadas ?? null,
     modelo: l.modelo ?? (l.status === 'finalizada' && l.aproveitamento === null ? 'livre' : 'perguntas'),
+    acompanhante:
+      l.acompanhante_nome || l.acompanhante_ausente
+        ? { nome: l.acompanhante_nome ?? '', funcao: l.acompanhante_funcao ?? '', assinatura: l.acompanhante_assinatura ?? null, ausente: !!l.acompanhante_ausente }
+        : null,
   };
 }
 
@@ -287,7 +301,9 @@ export async function gravarCabecalhoVisita(v: {
   localizacaoLng: number | null;
   localizacaoEndereco: string | null;
   consideracoesFinais: string | null;
+  acompanhante?: AcompanhanteVisita | null;
 }): Promise<void> {
+  const a = v.acompanhante;
   const { error } = await supabase.from('visitas_tecnicas').upsert(
     {
       id: v.id,
@@ -301,6 +317,9 @@ export async function gravarCabecalhoVisita(v: {
       localizacao_lng: v.localizacaoLng,
       localizacao_endereco: v.localizacaoEndereco,
       consideracoes_finais: v.consideracoesFinais,
+      ...(a
+        ? { acompanhante_nome: a.nome || null, acompanhante_funcao: a.funcao || null, acompanhante_assinatura: a.assinatura, acompanhante_ausente: a.ausente }
+        : {}),
     },
     { onConflict: 'id' }
   );

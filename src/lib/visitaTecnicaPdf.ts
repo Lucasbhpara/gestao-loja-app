@@ -35,7 +35,7 @@ type DadosVisita = {
 };
 
 export function montarHtmlVisita(dados: DadosVisita): string {
-  return documentoUlva(montarPaginaVisita(dados));
+  return documentoUlva({ ...montarPaginaVisita(dados), css: CSS_ASSIN });
 }
 
 // A folha de um setor (cabeçalho + corpo), usada no PDF de um setor e no PDF
@@ -43,6 +43,19 @@ export function montarHtmlVisita(dados: DadosVisita): string {
 function cabecalhoDireita(visita: VisitaTecnica): string[] {
   return [`Loja ${esc(visita.unidade ?? '—')}`, `Téc. veterinário: ${esc(visita.veterinarioNome)}`, visita.finalizadaEm ? `Finalizada em ${dataHora(visita.finalizadaEm)}` : 'Em andamento'];
 }
+
+// Bloco "Acompanhado por": nome, função e assinatura do responsável da loja.
+function acompanhanteHtml(visita: VisitaTecnica): string {
+  const a = visita.acompanhante;
+  if (!a) return '';
+  if (a.ausente)
+    return `<div class="assin"><div class="assin-tit">Acompanhado por</div><div class="assin-sem">Sem responsável da loja acompanhando a visita.</div></div>`;
+  const svg = a.assinatura
+    ? `<svg viewBox="0 0 ${a.assinatura.largura} ${a.assinatura.altura}" width="220" height="74" preserveAspectRatio="xMidYMid meet"><path d="${esc(a.assinatura.tracos)}" fill="none" stroke="#121B4A" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/></svg>`
+    : '';
+  return `<div class="assin"><div class="assin-tit">Acompanhado por</div><div class="assin-linha">${svg}</div><div class="assin-nome">${esc(a.nome)}${a.funcao ? ` · ${esc(a.funcao)}` : ''}</div></div>`;
+}
+const CSS_ASSIN = `.assin{margin-top:16px;border:1px solid #E3E7EE;border-radius:10px;padding:10px 14px;page-break-inside:avoid;break-inside:avoid}.assin-tit{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#8A93A5;font-weight:700}.assin-linha{border-bottom:1px solid #8A93A5;min-height:60px;display:flex;align-items:flex-end;justify-content:center}.assin-nome{text-align:center;font-size:11.5px;font-weight:700;color:#0E1B2C;margin-top:4px}.assin-sem{font-size:11.5px;color:#5B6280;margin-top:4px}`;
 
 function localHtml(visita: VisitaTecnica): string {
   return visita.localizacaoLat != null && visita.localizacaoLng != null
@@ -94,6 +107,7 @@ function montarPaginaLivre(dados: DadosVisita): PaginaUlva {
       <div class="kpis">${kpis}</div>
       ${secoes}
       ${visita.consideracoesFinais ? `${rotulo('Considerações finais')}<div class="caixa">${esc(visita.consideracoesFinais)}</div>` : ''}
+      ${acompanhanteHtml(visita)}
       <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
   };
 }
@@ -172,6 +186,7 @@ function montarPaginaVisita(dados: DadosVisita): PaginaUlva {
       ${orfas ? `${rotulo('Outras perguntas')}${orfas}` : ''}
       ${htmlPlanoAcao(contexto)}
       ${visita.consideracoesFinais ? `${rotulo('Considerações finais')}<div class="caixa">${esc(visita.consideracoesFinais)}</div>` : ''}
+      ${acompanhanteHtml(visita)}
       <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
   };
 }
@@ -256,8 +271,9 @@ export async function compartilharVisitaCompleta(visitasDoDia: VisitaTecnica[]):
       }</div>
       ${rotulo('Setores', 'cada um numa folha, para entregar ao responsável')}
       <table class="plano"><thead><tr><th class="pn">#</th><th>Setor</th><th class="pc">Aproveitamento</th><th class="pc">NC / Apont.</th><th class="pc">Críticos</th><th>Entregar para</th></tr></thead><tbody>${linhas}</tbody></table>
+      
       <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
   };
-  const html = documentoUlvaPaginas([resumo, ...dados.map(montarPaginaVisita)], `Visita técnica — Loja ${unidade} — ${dia}`);
+  const html = documentoUlvaPaginas([resumo, ...dados.map(montarPaginaVisita)], `Visita técnica — Loja ${unidade} — ${dia}`, CSS_ASSIN);
   await compartilharPdf(html, `visita-tecnica-completa-loja-${visitas[0].unidade ?? ''}-${dataParaNomeArquivo(visitas[0].finalizadaEm)}`, 'Compartilhar visita completa');
 }
