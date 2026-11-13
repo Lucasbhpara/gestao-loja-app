@@ -60,7 +60,7 @@ import {
   visitaEmAndamentoLocal,
   visitaLocal,
 } from '../lib/visitaOffline';
-import { compartilharVisita } from '../lib/visitaTecnicaPdf';
+import { compartilharVisita, compartilharVisitaCompleta, visitasDoDiaPorSetor } from '../lib/visitaTecnicaPdf';
 import CorrecaoScreen from './CorrecaoScreen';
 import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
 import { Tarefa } from '../data/tarefasApi';
@@ -367,6 +367,7 @@ function PainelUnidade({
   const [visitaAberta, setVisitaAberta] = useState<string | null>(null);
   const [abrindo, setAbrindo] = useState<SetorVisita | null>(null);
   const [compartilhandoId, setCompartilhandoId] = useState<string | null>(null);
+  const [compartilhandoDia, setCompartilhandoDia] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [mostrarComoFunciona, setMostrarComoFunciona] = useState(false);
   const [paraAprovar, setParaAprovar] = useState<Tarefa[]>([]);
@@ -492,6 +493,35 @@ function PainelUnidade({
       setCompartilhandoId(null);
     }
   }
+
+  // PDF da visita completa do dia: resumo + cada setor numa folha.
+  async function compartilharDia(chave: string, visitas: VisitaTecnica[]) {
+    setCompartilhandoDia(chave);
+    try {
+      await compartilharVisitaCompleta(visitas);
+    } catch (e: any) {
+      Alert.alert('Não consegui gerar o PDF', e?.message ?? 'Verifique a internet e tente novamente.');
+    } finally {
+      setCompartilhandoDia(null);
+    }
+  }
+
+  // Visitas finalizadas (já enviadas) agrupadas por dia, mais recente primeiro.
+  const finalizadasPorDia = useMemo(() => {
+    const enviadas = finalizadas.filter((v) => !pendentesUnidade.some((p) => p.id === v.id));
+    const grupos: { chave: string; rotulo: string; visitas: VisitaTecnica[] }[] = [];
+    enviadas.forEach((v) => {
+      const d = v.finalizadaEm ? new Date(v.finalizadaEm) : null;
+      const chave = d ? `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}` : 'sem-data';
+      let g = grupos.find((x) => x.chave === chave);
+      if (!g) {
+        g = { chave, rotulo: d ? d.toLocaleDateString('pt-BR', { weekday: 'short', day: '2-digit', month: '2-digit' }) : 'Sem data', visitas: [] };
+        grupos.push(g);
+      }
+      g.visitas.push(v);
+    });
+    return grupos;
+  }, [finalizadas, pendentesUnidade.length]);
 
   if (aprovando) {
     return (
@@ -774,40 +804,67 @@ function PainelUnidade({
                     </View>
                   );
                 })}
-                {finalizadas
-                  .filter((v) => !pendentesUnidade.some((p) => p.id === v.id))
-                  .map((v, i) => {
-                    const banda = faixa(v.aproveitamento ?? 0);
-                    const visual = VISUAL_SETOR[v.setor];
-                    return (
-                      <View key={v.id} style={[styles.linhaFinalizada, (i > 0 || pendentesUnidade.length > 0) && styles.linhaDivisor]}>
-                        <View style={[styles.linhaIcone, { backgroundColor: visual.fundo }]}>
-                          <Feather name={visual.icone} size={15} color={visual.cor} />
-                        </View>
+                {finalizadasPorDia.map((g, gi) => {
+                  const setoresDoDia = visitasDoDiaPorSetor(g.visitas).length;
+                  return (
+                    <View key={g.chave}>
+                      <View style={[styles.diaCabecalho, (gi > 0 || pendentesUnidade.length > 0) && styles.linhaDivisor]}>
                         <View style={{ flex: 1 }}>
-                          <Text style={styles.linhaNome}>{nomeDoSetorVisita(v.setor)}</Text>
-                          <Text style={styles.linhaMeta} numberOfLines={1}>
-                            {v.finalizadaEm ? dataHora(v.finalizadaEm) : '—'} · {v.veterinarioNome}
-                          </Text>
+                          <Text style={styles.diaTitulo}>{g.rotulo}</Text>
+                          <Text style={styles.linhaMeta}>{setoresDoDia} {setoresDoDia === 1 ? 'setor' : 'setores'}</Text>
                         </View>
-                        <View style={[styles.notaChip, { backgroundColor: banda.fundo, marginRight: spacing.sm }]}>
-                          <Text style={[styles.notaChipTexto, { color: banda.cor }]}>{v.aproveitamento ?? 0}%</Text>
-                        </View>
-                        <TouchableOpacity
-                          style={styles.btnShare}
-                          onPress={() => compartilhar(v)}
-                          disabled={compartilhandoId === v.id}
-                          hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
-                        >
-                          {compartilhandoId === v.id ? (
-                            <ActivityIndicator color={colors.white} size="small" />
-                          ) : (
-                            <Feather name="share-2" size={16} color={colors.white} />
-                          )}
-                        </TouchableOpacity>
+                        {setoresDoDia > 1 && (
+                          <TouchableOpacity
+                            style={styles.btnPdfDia}
+                            onPress={() => compartilharDia(g.chave, g.visitas)}
+                            disabled={compartilhandoDia === g.chave}
+                          >
+                            {compartilhandoDia === g.chave ? (
+                              <ActivityIndicator color={colors.white} size="small" />
+                            ) : (
+                              <>
+                                <Feather name="printer" size={14} color={colors.white} />
+                                <Text style={styles.btnPdfDiaTexto}>PDF completo</Text>
+                              </>
+                            )}
+                          </TouchableOpacity>
+                        )}
                       </View>
-                    );
-                  })}
+                      {g.visitas.map((v) => {
+                        const banda = faixa(v.aproveitamento ?? 0);
+                        const visual = VISUAL_SETOR[v.setor];
+                        return (
+                          <View key={v.id} style={[styles.linhaFinalizada, styles.linhaDivisor]}>
+                            <View style={[styles.linhaIcone, { backgroundColor: visual.fundo }]}>
+                              <Feather name={visual.icone} size={15} color={visual.cor} />
+                            </View>
+                            <View style={{ flex: 1 }}>
+                              <Text style={styles.linhaNome}>{nomeDoSetorVisita(v.setor)}</Text>
+                              <Text style={styles.linhaMeta} numberOfLines={1}>
+                                {v.finalizadaEm ? dataHora(v.finalizadaEm) : '—'} · {v.veterinarioNome}
+                              </Text>
+                            </View>
+                            <View style={[styles.notaChip, { backgroundColor: banda.fundo, marginRight: spacing.sm }]}>
+                              <Text style={[styles.notaChipTexto, { color: banda.cor }]}>{v.aproveitamento ?? 0}%</Text>
+                            </View>
+                            <TouchableOpacity
+                              style={styles.btnShare}
+                              onPress={() => compartilhar(v)}
+                              disabled={compartilhandoId === v.id}
+                              hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                            >
+                              {compartilhandoId === v.id ? (
+                                <ActivityIndicator color={colors.white} size="small" />
+                              ) : (
+                                <Feather name="share-2" size={16} color={colors.white} />
+                              )}
+                            </TouchableOpacity>
+                          </View>
+                        );
+                      })}
+                    </View>
+                  );
+                })}
               </View>
             </>
           )}
@@ -1324,6 +1381,10 @@ const styles = StyleSheet.create({
   linhaIcone: { width: 32, height: 32, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
   linhaNome: { fontSize: 13.5, fontWeight: '700', color: colors.gray900 },
   linhaMeta: { fontSize: 11, color: colors.gray600, marginTop: 2 },
+  diaCabecalho: { flexDirection: 'row', alignItems: 'center', paddingVertical: spacing.md, gap: spacing.md },
+  diaTitulo: { fontSize: 13, fontWeight: '800', color: colors.navy900, textTransform: 'capitalize' },
+  btnPdfDia: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.navy700, borderRadius: 18, paddingHorizontal: 12, height: 34, minWidth: 120, justifyContent: 'center' },
+  btnPdfDiaTexto: { color: colors.white, fontSize: 12.5, fontWeight: '700' },
   btnShare: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.navy700, alignItems: 'center', justifyContent: 'center' },
 
   // Formulário
