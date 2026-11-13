@@ -2261,7 +2261,7 @@ async function salvarDiasGrupoRuptura(id, valor) {
 
 async function paginaChegadas() {
   estado.chImport = null;
-  const { data: notas, error } = await sb.from('chegadas_nf').select('*').order('enviado_em', { ascending: false }).limit(40);
+  const { data: notas, error } = await sb.from('chegadas_nf').select('*').order('enviado_em', { ascending: false }).limit(120);
   if (error) {
     if (/chegadas_nf|relation|schema cache/i.test(error.message || '')) {
       document.getElementById('conteudo-principal').innerHTML = cabecalho('Mercadoria que chegou', 'Notas do CD cruzadas com o estoque da loja') +
@@ -2306,6 +2306,11 @@ function renderizarChegadas() {
       '<input type="file" id="ch-arquivo" accept="application/pdf,.xlsx,.xls" multiple style="display:none" />' +
       '<div style="font-size:12px;color:var(--text-muted);margin-top:10px;">Suba o estoque do dia <b>antes</b> da planilha/notas: o cruzamento usa o saldo da loja antes da mercadoria entrar.</div>' +
       '<div id="ch-revisao"></div></div>' +
+    '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Procurar produto nas chegadas</h3></div>' +
+      '<div style="display:flex;gap:8px;flex-wrap:wrap;"><input class="input-busca" id="ch-busca" style="max-width:360px;flex:1;" placeholder="Nome ou código do produto (ex.: vinagre, 186240)" onkeydown="if(event.key===\'Enter\')buscarNasChegadas()">' +
+      '<button class="btn-acao" onclick="buscarNasChegadas()">Procurar</button></div>' +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">Mostra todas as vezes que o produto chegou (tendo ou não na loja): dia, quantidade e por qual planilha/nota.</div>' +
+      '<div id="ch-busca-res"></div></div>' +
     '<div class="pq-card" style="margin-top:18px;"><div class="pq-topo"><h3>Notas enviadas</h3></div>' +
       '<div class="tabela-wrap"><table><thead><tr><th>Nota</th><th>Enviada em</th><th style="text-align:right;">Itens</th>' +
       '<th style="text-align:right;">Em falta</th><th style="text-align:right;">Novos</th><th style="text-align:right;">Baixo</th><th style="text-align:right;">Negativo</th><th style="text-align:right;">Na área de vendas</th></tr></thead><tbody>' + linhas + '</tbody></table></div></div>';
@@ -2516,6 +2521,40 @@ async function salvarChegadas() {
   } catch (e) {
     mostrarToast('Não consegui salvar: ' + (e.message || ''), 'erro');
     btn.disabled = false; btn.textContent = 'Tentar de novo';
+  }
+}
+
+// Histórico de um produto em todas as chegadas (planilhas e notas).
+async function buscarNasChegadas() {
+  const termo = (document.getElementById('ch-busca').value || '').trim();
+  const box = document.getElementById('ch-busca-res');
+  if (termo.length < 2) { box.innerHTML = '<div class="celula-vazio">Digite pelo menos 2 letras ou o código.</div>'; return; }
+  box.innerHTML = '<div class="celula-vazio">Procurando…</div>';
+  try {
+    let q = sb.from('chegadas_itens').select('produto,codigo_interno,codigo_barras,quantidade,embalagem,valor_unitario,saldo_loja,grupo,abastecido_em,abastecido_por,chegadas_nf(numero,enviado_em)').limit(300);
+    const soDig = termo.replace(/\D/g, '');
+    if (soDig && soDig === termo.replace(/\s/g, '')) {
+      const c = soDig.replace(/^0+(?=\d)/, '');
+      q = soDig.length >= 8 ? q.eq('codigo_barras', soDig) : q.eq('codigo_interno', c);
+    } else {
+      q = q.ilike('produto', '%' + termo.replace(/[%_,()]/g, ' ').trim().split(/\s+/).join('%') + '%');
+    }
+    const { data, error } = await q;
+    if (error) throw error;
+    const lista = (data || []).filter((i) => i.chegadas_nf).sort((a, b) => String(b.chegadas_nf.enviado_em).localeCompare(String(a.chegadas_nf.enviado_em)));
+    if (!lista.length) { box.innerHTML = '<div class="celula-vazio">Nenhuma chegada encontrada para "' + giroEsc(termo) + '".</div>'; return; }
+    const total = lista.reduce((t, i) => t + (Number(i.quantidade) || 0), 0);
+    box.innerHTML = '<div style="font-size:13px;margin:12px 0 6px;"><b>' + lista.length + '</b> chegada(s) · <b>' + chNum(total) + '</b> no total</div>' +
+      '<div class="tabela-wrap" style="max-height:420px;overflow:auto;"><table><thead><tr><th>Chegou em</th><th>Produto</th><th style="text-align:right;">Quantidade</th><th style="text-align:right;">Custo un.</th><th style="text-align:right;">Saldo antes</th><th></th><th>Na área de vendas</th><th>Planilha / nota</th></tr></thead><tbody>' +
+      lista.map((i) => '<tr><td style="white-space:nowrap;">' + chDataHora(i.chegadas_nf.enviado_em) + '</td>' +
+        '<td class="nome-forte">' + giroEsc(i.produto) + '<div style="font-size:11px;color:var(--text-muted);font-weight:500;">' + (i.codigo_interno ? 'cód. ' + giroEsc(i.codigo_interno) : '') + (i.codigo_barras ? ' · ' + giroEsc(i.codigo_barras) : '') + '</div></td>' +
+        '<td class="vl-num">' + chNum(i.quantidade) + ' ' + giroEsc(i.embalagem || '') + '</td><td class="vl-num">' + chBRL(i.valor_unitario) + '</td>' +
+        '<td class="vl-num">' + chNum(i.saldo_loja) + '</td><td>' + chPill(i.grupo) + '</td>' +
+        '<td style="font-size:12px;">' + (i.abastecido_em ? '<span style="color:var(--green);font-weight:700;">✓ ' + chDataHora(i.abastecido_em) + '</span>' : '<span style="color:var(--text-muted);">Pendente</span>') + '</td>' +
+        '<td style="font-size:12px;">' + giroEsc(chRotulo(i.chegadas_nf.numero)) + '</td></tr>').join('') +
+      '</tbody></table></div>';
+  } catch (e) {
+    box.innerHTML = '<div class="celula-vazio">Não consegui procurar: ' + giroEsc(e.message || '') + '</div>';
   }
 }
 
