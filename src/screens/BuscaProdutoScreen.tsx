@@ -153,10 +153,21 @@ export default function BuscaProdutoScreen({ onVoltar, abrirLeitor = true }: { o
               <Text style={[styles.cardV, { color: corSemVenda }]}>{ficha.ultimaVenda ? numero(ficha.diasSemVenda) : '—'}</Text>
               <Text style={styles.cardL}>{ficha.ultimaVenda ? `última venda ${dataBR(ficha.ultimaVenda)}` : 'nunca vendeu'}</Text>
             </View>
+            <View style={[styles.card, { flexBasis: '100%' }]}>
+              <Text style={styles.cardR}>Venda últimos 30 dias</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', alignItems: 'baseline', columnGap: spacing.lg }}>
+                <Text style={styles.cardV}>{reais(ficha.venda30d)}</Text>
+                <Text style={[styles.cardV, { color: colors.gray600 }]}>
+                  {ficha.precoVenda && ficha.precoVenda > 0 ? `≈ ${numero(ficha.venda30d / ficha.precoVenda)} un` : '— un'}
+                </Text>
+              </View>
+              <Text style={styles.cardL}>
+                {ficha.diasComVenda30d} dias com venda · quantidade estimada pelo preço atual
+              </Text>
+            </View>
           </View>
           <Text style={styles.nota}>
-            Vendeu {reais(ficha.venda30d)} nos últimos 30 dias ({ficha.diasComVenda30d} dias com venda){ficha.estoqueCd != null ? ` · CD: ${numero(ficha.estoqueCd)}` : ''}.
-            {' '}Vendas até {dataBR(ficha.dataRefVendas)}. Dias de estoque = estoque ÷ média de venda por dia (aproximado pelo preço atual).
+            {ficha.estoqueCd != null ? `CD: ${numero(ficha.estoqueCd)} · ` : ''}Vendas até {dataBR(ficha.dataRefVendas)}. Dias de estoque = estoque ÷ média de venda por dia (aproximado pelo preço atual).
           </Text>
 
           <View style={styles.blocoMapa}>
