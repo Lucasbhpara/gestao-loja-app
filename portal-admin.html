@@ -2455,6 +2455,19 @@ async function lerNotasChegada(arquivos) {
     }
     notas.forEach((n) => (n.itens || []).forEach((it) => { it.setor = it.codigo_interno ? ofSetorDoGiro(classe[it.codigo_interno]) : null; }));
     // já enviadas?
+    // Várias planilhas de uma vez: cada uma ganha um nome único ("Planilha 13/11 14:45 (2)"…),
+    // inclusive se já houver outra com o mesmo minuto no banco.
+    const planilhas = notas.filter((n) => n.planilha && n.numero);
+    if (planilhas.length) {
+      const base = planilhas[0].numero;
+      const { data: mesmas } = await sb.from('chegadas_nf').select('numero').like('numero', base + '%');
+      const usados = new Set((mesmas || []).map((x) => x.numero));
+      planilhas.forEach((n) => {
+        let nome = n.numero, k = 2;
+        while (usados.has(nome)) nome = n.numero + ' (' + k++ + ')';
+        n.numero = nome; usados.add(nome);
+      });
+    }
     const nums = notas.filter((n) => n.numero).map((n) => n.numero);
     const { data: jaTem } = await sb.from('chegadas_nf').select('numero').in('numero', nums);
     const repetidas = new Set((jaTem || []).map((x) => x.numero));
