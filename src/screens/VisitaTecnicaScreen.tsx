@@ -22,8 +22,11 @@ import * as ImagePicker from 'expo-image-picker';
 import { Pedometer } from 'expo-sensors';
 import { colors, radius, spacing } from '../theme/colors';
 import {
+  ModeloVisita,
   RespostaVisita,
   SETORES_VISITA,
+  TEMAS_LIVRE,
+  modeloDoSetor,
   SetorVisita,
   UNIDADE_DA_LOJA,
   VisitaPergunta,
@@ -46,7 +49,13 @@ import {
   finalizadasPendentes,
   finalizarLocal,
   MAX_FOTOS,
+  adicionarFotoApontamento,
   adicionarFotoLocal,
+  apontamentosDaVisita,
+  novoApontamento,
+  removerApontamento,
+  removerFotoApontamento,
+  textoApontamento,
   removerFotoLocal,
   importarVisitaRemota,
   justificarLocal,
@@ -85,6 +94,7 @@ import AreaTeclado from '../components/AreaTeclado';
 // =============================================================================
 
 const CHAVE_ULTIMA_UNIDADE = '@ulva/visita-ultima-unidade';
+const CHAVE_MODELO = '@ulva/visita-modelo-checklist';
 
 type IconeFeather = React.ComponentProps<typeof Feather>['name'];
 
@@ -110,6 +120,13 @@ function faixa(pct: number): { cor: string; fundo: string; texto: string } {
   if (pct >= 75) return { cor: '#3E9B6E', fundo: '#E3F3EA', texto: 'Bom' };
   if (pct >= 60) return { cor: '#B4650E', fundo: '#FBEBD4', texto: 'Atenção' };
   return { cor: '#C5392F', fundo: '#FBDEDC', texto: 'Crítico' };
+}
+
+// Chip do modelo livre (sem nota): mostra quantos apontamentos.
+const CHIP_LIVRE = { cor: '#3B4A6B', fundo: '#E7EBF3', texto: '' };
+function textoChip(pct: number | null, apontamentos: number): string {
+  if (pct != null) return `${pct}%`;
+  return apontamentos ? `${apontamentos} apont.` : 'OK';
 }
 
 function dataHora(iso: string): string {
@@ -371,6 +388,20 @@ function PainelUnidade({
   const [mostrarComoFunciona, setMostrarComoFunciona] = useState(false);
   const [paraAprovar, setParaAprovar] = useState<Tarefa[]>([]);
   const [aprovando, setAprovando] = useState<Tarefa | null>(null);
+  // Modelo do checklist (em teste): guardado no celular. Visita já começada
+  // continua no modelo em que foi aberta.
+  const [modelo, setModelo] = useState<ModeloVisita>('livre');
+  useEffect(() => {
+    AsyncStorage.getItem(CHAVE_MODELO)
+      .then((m) => {
+        if (m === 'perguntas' || m === 'livre') setModelo(m);
+      })
+      .catch(() => {});
+  }, []);
+  function escolherModelo(m: ModeloVisita) {
+    setModelo(m);
+    AsyncStorage.setItem(CHAVE_MODELO, m).catch(() => {});
+  }
 
   async function carregar() {
     try {
@@ -431,20 +462,24 @@ function PainelUnidade({
       const d = new Date(iso);
       return d.getMonth() === agora.getMonth() && d.getFullYear() === agora.getFullYear();
     };
-    const notas: { pct: number; crit: number }[] = [];
-    finalizadas.filter((v) => doMesmoMes(v.finalizadaEm)).forEach((v) => notas.push({ pct: v.aproveitamento ?? 0, crit: v.criticosNaoConformes ?? 0 }));
+    // pct nulo = modelo livre (sem nota): conta como visita, fica fora da média.
+    const notas: { pct: number | null; crit: number }[] = [];
+    finalizadas.filter((v) => doMesmoMes(v.finalizadaEm)).forEach((v) => notas.push({ pct: v.aproveitamento, crit: v.criticosNaoConformes ?? 0 }));
     pendentesUnidade
       .filter((v) => doMesmoMes(v.finalizadaEm) && !finalizadas.some((f) => f.id === v.id))
-      .forEach((v) => notas.push({ pct: v.resultadoLocal?.aproveitamento ?? 0, crit: v.resultadoLocal?.criticos ?? 0 }));
-    const media = notas.length ? Math.round((notas.reduce((s, n) => s + n.pct, 0) / notas.length) * 10) / 10 : null;
+      .forEach((v) => notas.push({ pct: v.resultadoLocal?.aproveitamento ?? null, crit: v.resultadoLocal?.criticos ?? 0 }));
+    const comNota = notas.filter((n) => n.pct != null) as { pct: number; crit: number }[];
+    const media = comNota.length ? Math.round((comNota.reduce((s, n) => s + n.pct, 0) / comNota.length) * 10) / 10 : null;
     return { visitas: notas.length, media, criticos: notas.reduce((s, n) => s + n.crit, 0) };
   }, [finalizadas, pendentesUnidade.length]);
 
   async function abrirSetor(setor: SetorVisita) {
     setAbrindo(setor);
+    const modeloNovo = modeloDoSetor(setor, modelo);
     try {
       await carregarOffline();
-      if (!temPerguntasGuardadas()) {
+      const andamento = visitaEmAndamentoLocal(setor, unidade);
+      if ((andamento ? andamento.modelo : modeloNovo) === 'perguntas' && !temPerguntasGuardadas()) {
         const ok = await atualizarPerguntas();
         if (!ok || !temPerguntasGuardadas()) {
           Alert.alert('Precisa de internet uma vez', 'Na primeira vez o app precisa de internet para baixar as perguntas. Depois funciona sem sinal.');
@@ -454,7 +489,7 @@ function PainelUnidade({
       let v: VisitaLocal | null = visitaEmAndamentoLocal(setor, unidade);
       if (!v) {
         try {
-          v = await importarVisitaRemota(setor, unidade);
+          v = await importarVisitaRemota(setor, unidade, modeloNovo);
         } catch {
           v = null; // sem internet — começa uma nova no celular
         }
@@ -466,6 +501,7 @@ function PainelUnidade({
           veterinarioNome: usuarioNome,
           veterinarioMatricula: usuarioMatricula,
           localizacao,
+          modelo: modeloNovo,
         });
       }
       setVisitaAberta(v.id);
@@ -739,6 +775,23 @@ function PainelUnidade({
             </View>
           )}
 
+          <Text style={styles.secaoTitulo}>Modelo do checklist</Text>
+          <View style={styles.modeloLinha}>
+            {([
+              { m: 'livre' as ModeloVisita, titulo: 'Apontamentos livres', sub: '5 temas · texto e fotos · sem nota' },
+              { m: 'perguntas' as ModeloVisita, titulo: 'Perguntas com nota', sub: 'Sim / Não / N/A · aproveitamento %' },
+            ]).map((o) => (
+              <TouchableOpacity key={o.m} style={[styles.modeloOpcao, modelo === o.m && styles.modeloOpcaoAtiva]} onPress={() => escolherModelo(o.m)} activeOpacity={0.85}>
+                <Feather name={modelo === o.m ? 'check-circle' : 'circle'} size={15} color={modelo === o.m ? colors.navy700 : colors.gray600} />
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.modeloTitulo, modelo === o.m && { color: colors.navy900 }]}>{o.titulo}</Text>
+                  <Text style={styles.modeloSub}>{o.sub}</Text>
+                </View>
+              </TouchableOpacity>
+            ))}
+          </View>
+          <Text style={styles.modeloNota}>Geral e Documentos continua sempre com as perguntas.</Text>
+
           <Text style={styles.secaoTitulo}>Setores</Text>
 
           {carregando ? (
@@ -751,18 +804,21 @@ function PainelUnidade({
                 const total = perguntas.length;
                 const criticas = perguntas.filter((p) => p.critico).length;
                 const andamento = visitaEmAndamentoLocal(key, unidade);
+                const livre = andamento ? andamento.modelo === 'livre' : modeloDoSetor(key, modelo) === 'livre';
+                const nApont = andamento && andamento.modelo === 'livre' ? Object.values(andamento.apontamentos).filter((a) => a.texto.trim() || a.fotos.length).length : 0;
                 const respondidas = andamento ? perguntas.filter((p) => andamento.respostas[p.id]).length : 0;
                 const pct = andamento && total > 0 ? Math.min(1, respondidas / total) : 0;
 
                 // Última finalizada: a mais recente entre nuvem e celular.
                 const nuvem = ultimas.get(key);
                 const local = pendentesUnidade.find((v) => v.setor === key);
-                const ultimaPct = local && (!nuvem || (local.finalizadaEm ?? '') > (nuvem.finalizadaEm ?? ''))
-                  ? { pct: local.resultadoLocal?.aproveitamento ?? 0, em: local.finalizadaEm!, crit: local.resultadoLocal?.criticos ?? 0 }
-                  : nuvem
-                  ? { pct: nuvem.aproveitamento ?? 0, em: nuvem.finalizadaEm!, crit: nuvem.criticosNaoConformes ?? 0 }
-                  : null;
-                const banda = ultimaPct ? faixa(ultimaPct.pct) : null;
+                const ultimaPct: { pct: number | null; em: string; crit: number; apont: number } | null =
+                  local && (!nuvem || (local.finalizadaEm ?? '') > (nuvem.finalizadaEm ?? ''))
+                    ? { pct: local.resultadoLocal?.aproveitamento ?? null, em: local.finalizadaEm!, crit: local.resultadoLocal?.criticos ?? 0, apont: local.resultadoLocal?.naoConformidades ?? 0 }
+                    : nuvem
+                    ? { pct: nuvem.aproveitamento, em: nuvem.finalizadaEm!, crit: nuvem.criticosNaoConformes ?? 0, apont: nuvem.naoConformidades ?? 0 }
+                    : null;
+                const banda = ultimaPct ? (ultimaPct.pct != null ? faixa(ultimaPct.pct) : CHIP_LIVRE) : null;
 
                 return (
                   <TouchableOpacity
@@ -780,15 +836,19 @@ function PainelUnidade({
                         <ActivityIndicator size="small" color={colors.navy700} />
                       ) : banda && !andamento ? (
                         <View style={[styles.notaChip, { backgroundColor: banda.fundo }]}>
-                          <Text style={[styles.notaChipTexto, { color: banda.cor }]}>{ultimaPct!.pct}%</Text>
+                          <Text style={[styles.notaChipTexto, { color: banda.cor }]}>{textoChip(ultimaPct!.pct, ultimaPct!.apont)}</Text>
                         </View>
                       ) : null}
                     </View>
                     <Text style={styles.tileNome} numberOfLines={1}>{nome}</Text>
                     <Text style={styles.tileMeta}>
-                      {total ? `${total} perguntas${criticas ? ` · ${criticas} críticas` : ''}` : 'Perguntas ao abrir'}
+                      {livre ? '5 temas · apontamentos livres' : total ? `${total} perguntas${criticas ? ` · ${criticas} críticas` : ''}` : 'Perguntas ao abrir'}
                     </Text>
-                    {andamento ? (
+                    {andamento && andamento.modelo === 'livre' ? (
+                      <Text style={[styles.tileStatusAndamento, { marginTop: spacing.sm }]}>
+                        Em andamento · {nApont} {nApont === 1 ? 'apontamento' : 'apontamentos'}
+                      </Text>
+                    ) : andamento ? (
                       <View style={{ marginTop: spacing.sm }}>
                         <View style={styles.barraFundo}>
                           <View style={[styles.barraCheia, { width: `${Math.round(pct * 100)}%` }]} />
@@ -894,7 +954,7 @@ function PainelUnidade({
                         )}
                       </View>
                       {g.visitas.map((v) => {
-                        const banda = faixa(v.aproveitamento ?? 0);
+                        const banda = v.aproveitamento != null ? faixa(v.aproveitamento) : CHIP_LIVRE;
                         const visual = VISUAL_SETOR[v.setor];
                         return (
                           <View key={v.id} style={[styles.linhaFinalizada, styles.linhaDivisor]}>
@@ -908,7 +968,7 @@ function PainelUnidade({
                               </Text>
                             </View>
                             <View style={[styles.notaChip, { backgroundColor: banda.fundo, marginRight: spacing.sm }]}>
-                              <Text style={[styles.notaChipTexto, { color: banda.cor }]}>{v.aproveitamento ?? 0}%</Text>
+                              <Text style={[styles.notaChipTexto, { color: banda.cor }]}>{textoChip(v.aproveitamento, v.naoConformidades ?? 0)}</Text>
                             </View>
 <View />
                           </View>
@@ -930,6 +990,12 @@ function PainelUnidade({
 // 3. Preenchimento da visita de um setor (perguntas em gavetas).
 // =============================================================================
 function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: () => void }) {
+  const modeloVisita = visitaLocal(visitaId)?.modelo;
+  if (modeloVisita === 'livre') return <FormularioLivre visitaId={visitaId} onVoltar={onVoltar} />;
+  return <FormularioPerguntas visitaId={visitaId} onVoltar={onVoltar} />;
+}
+
+function FormularioPerguntas({ visitaId, onVoltar }: { visitaId: string; onVoltar: () => void }) {
   useOffline();
   const teclado = useTeclado();
   const visita = visitaLocal(visitaId);
@@ -1349,6 +1415,306 @@ function FormularioVisita({ visitaId, onVoltar }: { visitaId: string; onVoltar: 
   );
 }
 
+// Modelo livre: 5 temas iguais pra todos os setores; em cada tema o
+// veterinário registra quantos apontamentos quiser (texto + fotos). Sem
+// nota. Tudo salvo no celular primeiro, como no modelo de perguntas.
+function FormularioLivre({ visitaId, onVoltar }: { visitaId: string; onVoltar: () => void }) {
+  useOffline();
+  const teclado = useTeclado();
+  const visita = visitaLocal(visitaId);
+  const setor = visita?.setor ?? 'acougue';
+  const [textos, setTextos] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    Object.values(visita?.apontamentos ?? {}).forEach((a) => (m[a.id] = a.texto));
+    return m;
+  });
+  const [consideracoes, setConsideracoes] = useState(visita?.consideracoes ?? '');
+  const [ocupadoId, setOcupadoId] = useState<string | null>(null);
+  const [finalizando, setFinalizando] = useState(false);
+  const [passos, setPassos] = useState<number | null>(visita?.passos ?? null);
+  const [abertos, setAbertos] = useState<Set<string>>(() => new Set([TEMAS_LIVRE[0].nome]));
+  const [focar, setFocar] = useState<string | null>(null);
+
+  useEffect(() => {
+    let inscricao: { remove: () => void } | null = null;
+    const base = visita?.passos ?? 0;
+    (async () => {
+      try {
+        if (!(await Pedometer.isAvailableAsync())) return;
+        if (Platform.OS === 'ios') {
+          const permissao = await Pedometer.requestPermissionsAsync();
+          if (!permissao.granted) return;
+        }
+        setPassos(base);
+        inscricao = Pedometer.watchStepCount((r) => {
+          setPassos(base + r.steps);
+          passosLocal(visitaId, base + r.steps);
+        });
+      } catch {
+        // sem sensor/permissão — segue sem contar passos
+      }
+    })();
+    return () => inscricao?.remove();
+  }, [visitaId]);
+
+  if (!visita) {
+    return (
+      <View style={[styles.flex, { alignItems: 'center', justifyContent: 'center' }]}>
+        <Text style={styles.explicacao}>Visita não encontrada.</Text>
+        <TouchableOpacity onPress={onVoltar}>
+          <Text style={styles.voltar}>‹ Voltar</Text>
+        </TouchableOpacity>
+      </View>
+    );
+  }
+  const visual = VISUAL_SETOR[setor];
+  const todos = apontamentosDaVisita(visitaId);
+  const preenchidos = todos.filter((a) => (textos[a.id] ?? a.texto).trim() || a.fotos.length);
+  const semTexto = todos.filter((a) => a.fotos.length && !(textos[a.id] ?? a.texto).trim()).length;
+
+  function alternar(tema: string) {
+    setAbertos((prev) => {
+      const n = new Set(prev);
+      if (n.has(tema)) n.delete(tema);
+      else n.add(tema);
+      return n;
+    });
+  }
+
+  function adicionar(tema: string) {
+    const id = novoApontamento(visitaId, tema);
+    if (!id) return;
+    setTextos((prev) => ({ ...prev, [id]: '' }));
+    setAbertos((prev) => new Set(prev).add(tema));
+    setFocar(id);
+  }
+
+  function salvarTexto(id: string) {
+    textoApontamento(visitaId, id, (textos[id] ?? '').trim());
+    sincronizarEmBreve();
+  }
+
+  function remover(id: string) {
+    Alert.alert('Apagar apontamento?', 'O texto e as fotos deste apontamento serão apagados.', [
+      { text: 'Cancelar', style: 'cancel' },
+      {
+        text: 'Apagar',
+        style: 'destructive',
+        onPress: () => {
+          removerApontamento(visitaId, id);
+          sincronizarEmBreve();
+        },
+      },
+    ]);
+  }
+
+  function escolherFoto(id: string) {
+    Alert.alert('Foto', 'Como você quer anexar a foto?', [
+      { text: 'Cancelar', style: 'cancel' },
+      { text: 'Tirar foto agora', onPress: () => capturarFoto(id, 'camera') },
+      { text: 'Escolher da galeria', onPress: () => capturarFoto(id, 'galeria') },
+    ]);
+  }
+
+  async function capturarFoto(id: string, origem: 'camera' | 'galeria') {
+    let uri: string | null = null;
+    if (origem === 'camera') {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) return Alert.alert('Sem permissão', 'Libere o acesso à câmera nas configurações do celular.');
+      const r = await ImagePicker.launchCameraAsync({ quality: 0.6 });
+      if (!r.canceled && r.assets?.[0]) uri = r.assets[0].uri;
+    } else {
+      const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!perm.granted) return Alert.alert('Sem permissão', 'Libere o acesso às fotos nas configurações do celular.');
+      const r = await ImagePicker.launchImageLibraryAsync({ quality: 0.6, mediaTypes: ImagePicker.MediaTypeOptions.Images });
+      if (!r.canceled && r.assets?.[0]) uri = r.assets[0].uri;
+    }
+    if (!uri) return;
+    // Garante o texto digitado antes de mudar o apontamento.
+    textoApontamento(visitaId, id, (textos[id] ?? '').trim());
+    setOcupadoId(id);
+    try {
+      await adicionarFotoApontamento(visitaId, id, uri);
+      sincronizarEmBreve();
+    } finally {
+      setOcupadoId(null);
+    }
+  }
+
+  function finalizar() {
+    if (!visita) return;
+    const n = preenchidos.length;
+    Alert.alert(
+      `Finalizar ${nomeDoSetorVisita(setor)}`,
+      (n
+        ? `${n} apontamento(s) registrado(s).`
+        : 'Nenhum apontamento registrado — o setor fica como "sem apontamentos".') +
+        (semTexto ? `\n${semTexto} apontamento(s) só com foto, sem texto.` : '') +
+        (n && visita.unidade === UNIDADE_DA_LOJA ? `\n\nOs apontamentos vão virar uma tarefa para ${setor === 'geral' ? 'a Gerência' : 'o encarregado do setor'}.` : ''),
+      [
+        { text: 'Continuar', style: 'cancel' },
+        {
+          text: 'Finalizar',
+          onPress: async () => {
+            setFinalizando(true);
+            todos.forEach((a) => textoApontamento(visitaId, a.id, (textos[a.id] ?? a.texto).trim()));
+            consideracoesLocal(visitaId, consideracoes.trim());
+            await finalizarLocal(visitaId, []);
+            await sincronizar().catch(() => {});
+            const enviada = visitaLocal(visitaId)?.resultadoNuvem;
+            Alert.alert(
+              `${nomeDoSetorVisita(setor)} concluído`,
+              (n ? `${n} apontamento(s).` : 'Sem apontamentos. 🎉') +
+                (enviada ? '' : '\n\nSem internet agora: fica salvo no celular e é enviado sozinho quando o sinal voltar.') +
+                '\n\nSiga para o próximo setor. Ao terminar a loja, toque em "Finalizar visita e gerar PDF" no painel.',
+              [{ text: 'OK', onPress: onVoltar }]
+            );
+          },
+        },
+      ]
+    );
+  }
+
+  return (
+    <AreaTeclado style={styles.flex}>
+      <View style={styles.formHeader}>
+        <TouchableOpacity onPress={onVoltar} hitSlop={{ top: 12, bottom: 12, left: 12, right: 12 }} style={styles.formVoltar}>
+          <Feather name="chevron-left" size={20} color={colors.navy700} />
+        </TouchableOpacity>
+        <View style={[styles.tileIcone, { backgroundColor: visual.fundo, width: 36, height: 36 }]}>
+          <Feather name={visual.icone} size={17} color={visual.cor} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.formTitulo}>{nomeDoSetorVisita(setor)}</Text>
+          <Text style={styles.formSub}>
+            Loja {visita.unidade} · {preenchidos.length} {preenchidos.length === 1 ? 'apontamento' : 'apontamentos'}
+            {passos !== null ? ` · 🚶 ${passos}` : ''}
+          </Text>
+        </View>
+      </View>
+
+      <ScrollView
+        ref={teclado.scrollRef}
+        style={styles.flex}
+        contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 + teclado.espacoExtra }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.livreExplica}>
+          Registre o que encontrou em cada tema: escreva o ponto e anexe fotos. Tema sem apontamento fica como OK.
+        </Text>
+        {TEMAS_LIVRE.map((t) => {
+          const lista = todos.filter((a) => a.tema === t.nome);
+          const qtd = lista.filter((a) => (textos[a.id] ?? a.texto).trim() || a.fotos.length).length;
+          const aberto = abertos.has(t.nome);
+          return (
+            <View key={t.nome} style={styles.gaveta}>
+              <TouchableOpacity style={styles.gavetaCabecalho} onPress={() => alternar(t.nome)} activeOpacity={0.8}>
+                <View style={[styles.gavetaStatus, qtd ? styles.gavetaStatusAlerta : null]}>
+                  <Text style={[styles.gavetaStatusTexto, qtd ? { color: colors.white } : null]}>{qtd}</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.gavetaTitulo}>{t.nome}</Text>
+                  <Text style={styles.gavetaSub}>{qtd ? `${qtd} ${qtd === 1 ? 'apontamento' : 'apontamentos'}` : t.dica}</Text>
+                </View>
+                <Feather name={aberto ? 'chevron-up' : 'chevron-down'} size={18} color={colors.gray600} />
+              </TouchableOpacity>
+
+              {aberto && (
+                <View style={{ paddingHorizontal: spacing.md, paddingBottom: spacing.md }}>
+                  {lista.map((a, i) => (
+                    <View key={a.id} style={styles.perguntaCard}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: spacing.sm }}>
+                        <Text style={[styles.label, { flex: 1, marginBottom: 0 }]}>Apontamento {i + 1}</Text>
+                        <TouchableOpacity onPress={() => remover(a.id)} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
+                          <Feather name="trash-2" size={16} color={colors.red500} />
+                        </TouchableOpacity>
+                      </View>
+                      <TextInput
+                        style={styles.input}
+                        placeholder="Descreva o ponto identificado"
+                        value={textos[a.id] ?? a.texto}
+                        onChangeText={(v) => setTextos((prev) => ({ ...prev, [a.id]: v }))}
+                        onBlur={() => salvarTexto(a.id)}
+                        autoFocus={focar === a.id}
+                        multiline
+                      />
+                      <View style={[styles.fotosGrade, { marginTop: spacing.sm }]}>
+                        {a.fotos.map((f) => (
+                          <View key={f.id} style={styles.fotoItem}>
+                            <Image source={{ uri: (f.local ?? f.url) as string }} style={styles.foto} />
+                            <TouchableOpacity
+                              style={styles.fotoRemover}
+                              onPress={() =>
+                                Alert.alert('Remover foto?', '', [
+                                  { text: 'Cancelar', style: 'cancel' },
+                                  { text: 'Remover', style: 'destructive', onPress: () => removerFotoApontamento(visitaId, a.id, f.id) },
+                                ])
+                              }
+                              hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+                            >
+                              <Feather name="x" size={12} color={colors.white} />
+                            </TouchableOpacity>
+                            {f.local ? <View style={styles.fotoNuvem}><Feather name="upload-cloud" size={10} color={colors.white} /></View> : null}
+                          </View>
+                        ))}
+                        {a.fotos.length < MAX_FOTOS &&
+                          (ocupadoId === a.id ? (
+                            <View style={[styles.fotoAdd, { borderStyle: 'solid' }]}>
+                              <ActivityIndicator color={colors.navy700} />
+                            </View>
+                          ) : (
+                            <TouchableOpacity style={styles.fotoAdd} onPress={() => escolherFoto(a.id)}>
+                              <Feather name="camera" size={18} color={colors.navy700} />
+                              <Text style={styles.fotoAddTexto}>{a.fotos.length ? '+ foto' : 'Foto'}</Text>
+                            </TouchableOpacity>
+                          ))}
+                      </View>
+                      {a.fotos.some((f) => f.local) ? <Text style={styles.fotoPendente}>☁ salvas no celular · enviam quando tiver internet</Text> : null}
+                    </View>
+                  ))}
+                  <TouchableOpacity style={styles.btnNovoApont} onPress={() => adicionar(t.nome)}>
+                    <Feather name="plus" size={16} color={colors.navy700} />
+                    <Text style={styles.btnNovoApontTexto}>Apontamento em {t.nome}</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          );
+        })}
+
+        <View style={styles.consideracoesCard}>
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
+            <Feather name="edit-3" size={16} color={colors.navy700} />
+            <Text style={styles.consideracoesTitulo}>Considerações finais</Text>
+            <Text style={styles.opcional}>opcional</Text>
+          </View>
+          <TextInput
+            style={[styles.input, { minHeight: 96 }]}
+            placeholder="Observações gerais do setor, orientações passadas à equipe, prazos combinados…"
+            value={consideracoes}
+            onChangeText={setConsideracoes}
+            onFocus={teclado.focarNoFim}
+            onBlur={() => {
+              consideracoesLocal(visitaId, consideracoes.trim());
+              sincronizarEmBreve();
+            }}
+            multiline
+          />
+        </View>
+      </ScrollView>
+
+      <View style={[styles.rodape, teclado.aberto && { display: 'none' }]}>
+        <TouchableOpacity style={[styles.btnFinalizar, finalizando && styles.btnFinalizarDesabilitado]} onPress={finalizar} disabled={finalizando}>
+          {finalizando ? <ActivityIndicator color={colors.white} size="small" style={{ marginRight: 8 }} /> : null}
+          <Text style={styles.btnFinalizarTexto} numberOfLines={1}>
+            {finalizando ? 'Finalizando…' : `Finalizar setor · ${preenchidos.length} ${preenchidos.length === 1 ? 'apontamento' : 'apontamentos'}`}
+          </Text>
+        </TouchableOpacity>
+      </View>
+    </AreaTeclado>
+  );
+}
+
 const styles = StyleSheet.create({
   flex: { flex: 1, backgroundColor: colors.gray50 },
   voltar: { color: colors.navy700, fontSize: 15, fontWeight: '600' },
@@ -1427,6 +1793,15 @@ const styles = StyleSheet.create({
   linhaIcone: { width: 32, height: 32, borderRadius: radius.sm, alignItems: 'center', justifyContent: 'center' },
   linhaNome: { fontSize: 13.5, fontWeight: '700', color: colors.gray900 },
   linhaMeta: { fontSize: 11, color: colors.gray600, marginTop: 2 },
+  modeloLinha: { gap: spacing.sm },
+  modeloOpcao: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, backgroundColor: colors.white, borderRadius: radius.md, padding: spacing.md, borderWidth: 1.5, borderColor: '#E3E7EF' },
+  modeloOpcaoAtiva: { borderColor: colors.navy700, backgroundColor: '#F2F6FF' },
+  modeloTitulo: { fontSize: 13.5, fontWeight: '800', color: colors.gray600 },
+  modeloSub: { fontSize: 11.5, color: colors.gray600, marginTop: 1 },
+  modeloNota: { fontSize: 11, color: colors.gray600, marginTop: spacing.xs },
+  livreExplica: { fontSize: 12.5, color: colors.gray600, marginBottom: spacing.md, lineHeight: 18 },
+  btnNovoApont: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, borderWidth: 1.5, borderStyle: 'dashed', borderColor: colors.navy700, borderRadius: radius.md, height: 44, marginTop: spacing.sm },
+  btnNovoApontTexto: { color: colors.navy700, fontWeight: '700', fontSize: 13 },
   cardFinal: { backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginTop: spacing.xl, borderWidth: 1, borderColor: '#CFE0FF' },
   cardFinalTitulo: { fontSize: 14, fontWeight: '800', color: colors.navy900 },
   cardFinalTexto: { fontSize: 12.5, color: colors.gray600, marginTop: 6, lineHeight: 18 },

@@ -84,7 +84,7 @@ export async function contextoVisitaTecnica(
   try {
     const { data: eu } = await supabase.from('visitas_tecnicas').select('numero, iniciada_em, finalizada_em, tarefa_id').eq('id', v.id).maybeSingle();
     const ref = (eu as any)?.finalizada_em ?? v.finalizadaEm ?? new Date().toISOString();
-    let q = supabase.from('visitas_tecnicas').select('aproveitamento, finalizada_em, numero').eq('setor', v.setor).eq('status', 'finalizada').lt('finalizada_em', ref);
+    let q = supabase.from('visitas_tecnicas').select('aproveitamento, finalizada_em, numero').eq('setor', v.setor).eq('status', 'finalizada').not('aproveitamento', 'is', null).lt('finalizada_em', ref);
     if (v.unidade) q = q.eq('unidade', v.unidade);
     const { data: ant } = await q.order('finalizada_em', { ascending: false }).limit(1);
     const a = (ant as any[])?.[0];
