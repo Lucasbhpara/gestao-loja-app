@@ -64,15 +64,38 @@ export function rotulo(texto: string, qtd?: string): string {
 
 export const corAproveitamento = (pct: number) => (pct >= 90 ? PDF_VERDE : pct >= 75 ? '#3E9B6E' : pct >= 60 ? '#B45309' : PDF_VERMELHO);
 
-export function documentoUlva(o: { tipo: string; titulo: string; direita?: string[]; corpo: string; css?: string; tituloAba?: string; numero?: string | null }): string {
+export type PaginaUlva = { tipo: string; titulo: string; direita?: string[]; corpo: string; numero?: string | null };
+
+function geradoAgora(): string {
   const agora = new Date();
-  const gerado = agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(o.tituloAba ?? `${o.tipo} — ${o.titulo}`)}</title>
-<link rel="preconnect" href="https://fonts.gstatic.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=block" rel="stylesheet">
-<style>${CSS_BASE}${o.css ?? ''}</style></head><body>
-<div class="hdr"><div style="display:flex;align-items:center;gap:14px">${LOGO}<div><div class="t">ULVA · ${esc(o.tipo)}</div><h1>${esc(o.titulo)}</h1></div></div>
+  return agora.toLocaleDateString('pt-BR') + ' ' + agora.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+}
+
+// Uma "página" do relatório: faixa navy com o título, corpo e rodapé navy.
+function blocoPagina(o: PaginaUlva, gerado: string): string {
+  return `<div class="hdr"><div style="display:flex;align-items:center;gap:14px">${LOGO}<div><div class="t">ULVA · ${esc(o.tipo)}</div><h1>${esc(o.titulo)}</h1></div></div>
 ${o.direita?.length || o.numero ? `<div class="d">${o.numero ? `<span class="ndoc">Nº ${esc(o.numero)}</span><br>` : ''}${(o.direita ?? []).join('<br>')}</div>` : ''}</div>
 <div class="wrap">${o.corpo}</div>
-<div class="ft"><b>${ASSINATURA_ULVA}</b><span>Gerado em ${gerado}</span></div>
+<div class="ft"><b>${ASSINATURA_ULVA}</b><span>Gerado em ${gerado}</span></div>`;
+}
+
+function htmlDocumento(tituloAba: string, css: string | undefined, corpo: string): string {
+  return `<!doctype html><html lang="pt-BR"><head><meta charset="utf-8"><title>${esc(tituloAba)}</title>
+<link rel="preconnect" href="https://fonts.gstatic.com"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=block" rel="stylesheet">
+<style>${CSS_BASE}${css ?? ''}</style></head><body>
+${corpo}
 </body></html>`;
+}
+
+export function documentoUlva(o: PaginaUlva & { css?: string; tituloAba?: string }): string {
+  return htmlDocumento(o.tituloAba ?? `${o.tipo} — ${o.titulo}`, o.css, blocoPagina(o, geradoAgora()));
+}
+
+// Vários relatórios num PDF só, cada um começando numa folha nova — pra
+// imprimir e entregar cada folha (ex.: cada setor da Visita Técnica) na mão
+// do responsável.
+export function documentoUlvaPaginas(paginas: PaginaUlva[], tituloAba: string, css?: string): string {
+  const gerado = geradoAgora();
+  const corpo = paginas.map((p, i) => `<section class="folha"${i > 0 ? ' style="page-break-before:always;break-before:page"' : ''}>${blocoPagina(p, gerado)}</section>`).join('\n');
+  return htmlDocumento(tituloAba, css, corpo);
 }
