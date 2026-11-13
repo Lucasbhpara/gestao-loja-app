@@ -11709,7 +11709,7 @@ function htmlListaVisitas() {
     return '<div class="item-card linha-clicavel" style="cursor:pointer;" onclick="abrirVisitaTecnica(\'' + ultima.id + '\')">' +
       '<div style="display:flex;justify-content:space-between;align-items:center;gap:8px;">' +
         '<div style="font-size:13.5px;font-weight:700;">' + s.nome + '</div>' +
-        '<span class="pill ' + banda.classe + '">' + ultima.aproveitamento + '%</span>' +
+        (ultima.aproveitamento == null ? '<span class="pill">Sem nota · ' + (ultima.nao_conformidades || 0) + ' apont.</span>' : '<span class="pill ' + banda.classe + '">' + ultima.aproveitamento + '%</span>') +
       '</div>' +
       '<div style="font-size:12px;color:var(--text-muted);margin-top:6px;">' + (ultima.unidade ? 'Loja ' + escVisita(ultima.unidade) + ' · ' : '') + formatarDataHora(ultima.finalizada_em) + ' · ' + escVisita(ultima.veterinario_nome) + '</div>' +
       '<div style="font-size:12px;margin-top:4px;">' + (ultima.nao_conformidades || 0) + ' não conformidade(s)' +
@@ -11729,7 +11729,7 @@ function htmlListaVisitas() {
       '<td><span class="pill">' + nomeSetorVisita(v.setor) + '</span></td>' +
       '<td>' + formatarDataHora(v.finalizada_em) + '</td>' +
       '<td>' + escVisita(v.veterinario_nome) + '</td>' +
-      '<td><span class="pill ' + banda.classe + '">' + v.aproveitamento + '%</span></td>' +
+      '<td>' + (v.aproveitamento == null ? '<span class="pill">Sem nota · ' + (v.nao_conformidades || 0) + ' apont.</span>' : '<span class="pill ' + banda.classe + '">' + v.aproveitamento + '%</span>') + '</td>' +
       '<td style="text-align:center;">' + (v.nao_conformidades || 0) + '</td>' +
       '<td style="text-align:center;' + ((v.criticos_nao_conformes || 0) > 0 ? 'color:var(--red);font-weight:800;' : '') + '">' + (v.criticos_nao_conformes || 0) + '</td>' +
     '</tr>';
@@ -11794,7 +11794,7 @@ function renderizarDetalheVisita(v, respostas, tarefa, itensCorrecao) {
   if (orfas.length) itens += '<h4 style="font-size:12.5px;margin:20px 0 10px;">Outras perguntas</h4>' + orfas.map((r) => card(r, null, null)).join('');
 
   const boxes =
-    '<div class="box"><div class="rotulo">Aproveitamento</div><div class="valor" style="color:var(--' + corBanda + ');">' + v.aproveitamento + '%</div></div>' +
+    (v.aproveitamento == null ? '<div class="box"><div class="rotulo">Apontamentos (sem nota)</div><div class="valor">' + (v.nao_conformidades || 0) + '</div></div>' : '<div class="box"><div class="rotulo">Aproveitamento</div><div class="valor" style="color:var(--' + corBanda + ');">' + v.aproveitamento + '%</div></div>') +
     '<div class="box"><div class="rotulo">Pontos</div><div class="valor">' + v.pontos_realizados + ' / ' + v.pontos_possiveis + '</div></div>' +
     '<div class="box"><div class="rotulo">Não conformidades</div><div class="valor" style="color:' + ((v.nao_conformidades || 0) > 0 ? 'var(--red)' : 'var(--green)') + ';">' + (v.nao_conformidades || 0) + '</div></div>' +
     (v.perguntas_nao_avaliadas ? '<div class="box"><div class="rotulo">Não avaliadas</div><div class="valor" style="color:var(--text-muted);">' + v.perguntas_nao_avaliadas + '</div></div>' : '') +

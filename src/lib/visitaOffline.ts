@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { rodandoNaWeb } from './plataforma';
 import {
+  ModeloVisita,
   RespostaVisita,
   SetorVisita,
   VisitaPergunta,
@@ -10,7 +11,9 @@ import {
   buscarVisitaEmAndamentoRemota,
   buscarVisitaPorId,
   enviarFotoVisita,
+  excluirApontamentoVisita,
   finalizarVisita,
+  gravarApontamentoVisita,
   gravarCabecalhoVisita,
   gravarRespostaVisita,
   statusRemotoDaVisita,
@@ -60,8 +63,23 @@ export interface RespostaLocal {
   pendente: boolean; // precisa ser (re)enviada
 }
 
+// Apontamento do modelo livre (texto + fotos dentro de um tema).
+export interface ApontamentoLocal {
+  id: string;
+  tema: string;
+  texto: string;
+  fotos: FotoLocal[];
+  criadoEm: string;
+  atualizadoEm: string;
+  pendente: boolean;
+  enviado: boolean; // já existe na nuvem (ao remover, precisa apagar lá)
+}
+
 export interface VisitaLocal {
   id: string;
+  modelo: ModeloVisita;
+  apontamentos: Record<string, ApontamentoLocal>;
+  removidos: string[]; // apontamentos já enviados que foram apagados no celular
   setor: SetorVisita;
   unidade: string;
   veterinarioNome: string;
@@ -78,7 +96,8 @@ export interface VisitaLocal {
   cabecalhoPendente: boolean;
   // Resultado calculado no celular ao finalizar (pra mostrar a nota mesmo
   // sem internet) e, depois de sincronizar, o resultado oficial da nuvem.
-  resultadoLocal: { aproveitamento: number; naoConformidades: number; criticos: number; naoAvaliadas: number } | null;
+  // aproveitamento nulo = modelo livre (sem nota).
+  resultadoLocal: { aproveitamento: number | null; naoConformidades: number; criticos: number; naoAvaliadas: number } | null;
   resultadoNuvem: VisitaTecnica | null;
   ultimoErro: string | null;
 }
@@ -141,7 +160,17 @@ function limparEstado(e: Estado): Estado {
     Object.entries(v.respostas && typeof v.respostas === 'object' ? v.respostas : {}).forEach(([pid, r]) => {
       if (r && typeof r === 'object') respostas[pid] = { ...r, fotos: Array.isArray(r.fotos) ? r.fotos : [] };
     });
-    visitas[id] = { ...v, respostas };
+    const apontamentos: Record<string, ApontamentoLocal> = {};
+    Object.entries((v as any).apontamentos && typeof (v as any).apontamentos === 'object' ? (v as any).apontamentos : {}).forEach(([aid, a]: [string, any]) => {
+      if (a && typeof a === 'object' && a.id) apontamentos[aid] = { ...a, fotos: Array.isArray(a.fotos) ? a.fotos : [] };
+    });
+    visitas[id] = {
+      ...v,
+      modelo: (v as any).modelo === 'livre' ? 'livre' : 'perguntas',
+      respostas,
+      apontamentos,
+      removidos: Array.isArray((v as any).removidos) ? (v as any).removidos : [],
+    };
   });
   return {
     visitas,
@@ -222,6 +251,8 @@ export function finalizadasPendentes(unidade?: string): VisitaLocal[] {
 function visitaTemPendencia(v: VisitaLocal): boolean {
   if (v.cabecalhoPendente) return true;
   if (Object.values(v.respostas ?? {}).some((r) => r?.pendente)) return true;
+  if (Object.values(v.apontamentos ?? {}).some((a) => a?.pendente)) return true;
+  if ((v.removidos ?? []).length) return true;
   return v.status === 'finalizada' && !v.resultadoNuvem;
 }
 
@@ -243,9 +274,13 @@ export function criarVisitaLocal(dados: {
   veterinarioNome: string;
   veterinarioMatricula: string | null;
   localizacao: { lat: number; lng: number; endereco: string | null } | null;
+  modelo: ModeloVisita;
 }): VisitaLocal {
   const v: VisitaLocal = {
     id: gerarId(),
+    modelo: dados.modelo,
+    apontamentos: {},
+    removidos: [],
     setor: dados.setor,
     unidade: dados.unidade,
     veterinarioNome: dados.veterinarioNome,
@@ -271,13 +306,25 @@ export function criarVisitaLocal(dados: {
 
 // Traz pro celular uma visita em andamento que só existe na nuvem (ex.:
 // começada em outro aparelho), com as respostas já dadas.
-export async function importarVisitaRemota(setor: SetorVisita, unidade: string): Promise<VisitaLocal | null> {
+export async function importarVisitaRemota(setor: SetorVisita, unidade: string, modeloPadrao: ModeloVisita = 'perguntas'): Promise<VisitaLocal | null> {
   const remota = await buscarVisitaEmAndamentoRemota(setor, unidade);
   if (!remota) return null;
   if (estado.visitas[remota.id]) return estado.visitas[remota.id];
   const respostas = await buscarRespostasDaVisita(remota.id);
+  // Modelo: respostas sem pergunta = apontamentos (livre); com pergunta =
+  // modelo de perguntas; sem nada ainda, vale o modelo escolhido no painel.
+  const modelo: ModeloVisita = respostas.length
+    ? respostas.some((r) => r.perguntaId)
+      ? 'perguntas'
+      : 'livre'
+    : setor === 'geral'
+    ? 'perguntas'
+    : modeloPadrao;
   const v: VisitaLocal = {
     id: remota.id,
+    modelo,
+    apontamentos: {},
+    removidos: [],
     setor: remota.setor,
     unidade,
     veterinarioNome: remota.veterinarioNome,
@@ -297,7 +344,20 @@ export async function importarVisitaRemota(setor: SetorVisita, unidade: string):
     ultimoErro: null,
   };
   respostas.forEach((r) => {
-    if (!r.perguntaId) return;
+    if (!r.perguntaId) {
+      if (modelo === 'livre')
+        v.apontamentos[r.id] = {
+          id: r.id,
+          tema: r.perguntaTexto,
+          texto: r.justificativa ?? '',
+          fotos: r.fotosUrls.map((url) => ({ id: gerarId(), local: null, url })),
+          criadoEm: r.respondidaEm,
+          atualizadoEm: r.respondidaEm,
+          pendente: false,
+          enviado: true,
+        };
+      return;
+    }
     v.respostas[r.perguntaId] = {
       perguntaId: r.perguntaId,
       perguntaTexto: r.perguntaTexto,
@@ -344,24 +404,26 @@ export function justificarLocal(visitaId: string, pergunta: VisitaPergunta, text
   mudarResposta(visitaId, pergunta, (r) => ({ ...(r as RespostaLocal), justificativa: texto || null }));
 }
 
+async function copiarFotoParaApp(uriTemporaria: string): Promise<string> {
+  if (rodandoNaWeb) return uriTemporaria;
+  try {
+    const FileSystem = await import('expo-file-system/legacy');
+    const pasta = `${FileSystem.documentDirectory}visita-fotos/`;
+    await FileSystem.makeDirectoryAsync(pasta, { intermediates: true }).catch(() => {});
+    const destino = `${pasta}${gerarId()}.jpg`;
+    await FileSystem.copyAsync({ from: uriTemporaria, to: destino });
+    return destino;
+  } catch {
+    return uriTemporaria; // se não der pra copiar, usa a original mesmo
+  }
+}
+
 // Adiciona uma foto à resposta (até MAX_FOTOS). Copia pra uma pasta do app
 // (o cache da câmera pode ser limpo pelo Android antes de dar tempo de enviar).
 export async function adicionarFotoLocal(visitaId: string, pergunta: VisitaPergunta, uriTemporaria: string) {
   const atual = estado.visitas[visitaId]?.respostas[pergunta.id];
   if (!atual || atual.resposta === 'na' || atual.fotos.length >= MAX_FOTOS) return;
-  let uri = uriTemporaria;
-  if (!rodandoNaWeb) {
-    try {
-      const FileSystem = await import('expo-file-system/legacy');
-      const pasta = `${FileSystem.documentDirectory}visita-fotos/`;
-      await FileSystem.makeDirectoryAsync(pasta, { intermediates: true }).catch(() => {});
-      const destino = `${pasta}${gerarId()}.jpg`;
-      await FileSystem.copyAsync({ from: uriTemporaria, to: destino });
-      uri = destino;
-    } catch {
-      // se não der pra copiar, usa a original mesmo
-    }
-  }
+  const uri = await copiarFotoParaApp(uriTemporaria);
   mudarResposta(visitaId, pergunta, (r) => ({
     ...(r as RespostaLocal),
     fotos: [...(r as RespostaLocal).fotos, { id: gerarId(), local: uri, url: null }],
@@ -374,6 +436,64 @@ export function removerFotoLocal(visitaId: string, pergunta: VisitaPergunta, fot
   if (!atual || !foto) return;
   mudarResposta(visitaId, pergunta, (r) => ({ ...(r as RespostaLocal), fotos: (r as RespostaLocal).fotos.filter((f) => f.id !== fotoId) }));
   if (foto.local) apagarArquivo(foto.local);
+}
+
+// --- apontamentos (modelo livre) ---------------------------------------------
+
+function mudarApontamento(visitaId: string, id: string, mudar: (a: ApontamentoLocal) => ApontamentoLocal) {
+  const v = estado.visitas[visitaId];
+  const atual = v?.apontamentos[id];
+  if (!v || !atual) return;
+  v.apontamentos = { ...v.apontamentos, [id]: { ...mudar(atual), pendente: true, atualizadoEm: new Date().toISOString() } };
+  estado.visitas[visitaId] = { ...v };
+  persistir();
+}
+
+export function apontamentosDaVisita(visitaId: string, tema?: string): ApontamentoLocal[] {
+  const lista = Object.values(estado.visitas[visitaId]?.apontamentos ?? {});
+  return lista.filter((a) => !tema || a.tema === tema).sort((a, b) => (a.criadoEm < b.criadoEm ? -1 : 1));
+}
+
+export function novoApontamento(visitaId: string, tema: string): string | null {
+  const v = estado.visitas[visitaId];
+  if (!v) return null;
+  const agora = new Date().toISOString();
+  const a: ApontamentoLocal = { id: gerarId(), tema, texto: '', fotos: [], criadoEm: agora, atualizadoEm: agora, pendente: false, enviado: false };
+  v.apontamentos = { ...v.apontamentos, [a.id]: a };
+  estado.visitas[visitaId] = { ...v };
+  persistir();
+  return a.id;
+}
+
+export function textoApontamento(visitaId: string, id: string, texto: string) {
+  const atual = estado.visitas[visitaId]?.apontamentos[id];
+  if (!atual || atual.texto === texto) return;
+  mudarApontamento(visitaId, id, (a) => ({ ...a, texto }));
+}
+
+export async function adicionarFotoApontamento(visitaId: string, id: string, uriTemporaria: string) {
+  const atual = estado.visitas[visitaId]?.apontamentos[id];
+  if (!atual || atual.fotos.length >= MAX_FOTOS) return;
+  const uri = await copiarFotoParaApp(uriTemporaria);
+  mudarApontamento(visitaId, id, (a) => ({ ...a, fotos: [...a.fotos, { id: gerarId(), local: uri, url: null }] }));
+}
+
+export function removerFotoApontamento(visitaId: string, id: string, fotoId: string) {
+  const foto = estado.visitas[visitaId]?.apontamentos[id]?.fotos.find((f) => f.id === fotoId);
+  if (!foto) return;
+  mudarApontamento(visitaId, id, (a) => ({ ...a, fotos: a.fotos.filter((f) => f.id !== fotoId) }));
+  if (foto.local) apagarArquivo(foto.local);
+}
+
+export function removerApontamento(visitaId: string, id: string) {
+  const v = estado.visitas[visitaId];
+  const a = v?.apontamentos[id];
+  if (!v || !a) return;
+  const apontamentos = { ...v.apontamentos };
+  delete apontamentos[id];
+  estado.visitas[visitaId] = { ...v, apontamentos, removidos: a.enviado ? [...(v.removidos ?? []), id] : v.removidos ?? [] };
+  a.fotos.forEach((f) => f.local && apagarArquivo(f.local));
+  persistir();
 }
 
 export function consideracoesLocal(visitaId: string, texto: string) {
@@ -394,6 +514,22 @@ export function passosLocal(visitaId: string, passos: number | null) {
 export async function finalizarLocal(visitaId: string, perguntas: VisitaPergunta[]) {
   const v = estado.visitas[visitaId];
   if (!v) return;
+  if (v.modelo === 'livre') {
+    // Apontamento sem texto e sem foto não conta (foi aberto sem querer).
+    const vazios = Object.values(v.apontamentos).filter((a) => !a.texto.trim() && !a.fotos.length);
+    vazios.forEach((a) => removerApontamento(visitaId, a.id));
+    const atual = estado.visitas[visitaId];
+    estado.visitas[visitaId] = {
+      ...atual,
+      status: 'finalizada',
+      finalizadaEm: new Date().toISOString(),
+      cabecalhoPendente: true,
+      resultadoLocal: { aproveitamento: null, naoConformidades: Object.keys(atual.apontamentos).length, criticos: 0, naoAvaliadas: 0 },
+    };
+    avisar();
+    await persistirAgora();
+    return;
+  }
   const respostas = perguntas.map((p) => v.respostas[p.id]).filter(Boolean) as RespostaLocal[];
   const validas = respostas.filter((r) => r.resposta !== 'na');
   const sim = validas.filter((r) => r.resposta === 'sim').length;
@@ -418,7 +554,14 @@ export async function finalizarLocal(visitaId: string, perguntas: VisitaPergunta
 // abriu o setor errado) — não precisa ir pra nuvem.
 export function descartarSeVazia(visitaId: string) {
   const v = estado.visitas[visitaId];
-  if (v && v.status === 'em_andamento' && Object.keys(v.respostas ?? {}).length === 0 && v.cabecalhoPendente && !v.consideracoes) {
+  if (
+    v &&
+    v.status === 'em_andamento' &&
+    Object.keys(v.respostas ?? {}).length === 0 &&
+    Object.values(v.apontamentos ?? {}).every((a) => !a.texto.trim() && !a.fotos.length) &&
+    v.cabecalhoPendente &&
+    !v.consideracoes
+  ) {
     delete estado.visitas[visitaId];
     persistir();
   }
@@ -480,7 +623,9 @@ async function sincronizarVisita(id: string) {
     if (!v) return;
     const respostas: Record<string, RespostaLocal> = {};
     Object.values(v.respostas).forEach((r) => (respostas[r.perguntaId] = { ...r, pendente: false }));
-    estado.visitas[id] = { ...v, respostas, cabecalhoPendente: false, resultadoNuvem: oficial };
+    const apontamentos: Record<string, ApontamentoLocal> = {};
+    Object.values(v.apontamentos ?? {}).forEach((a) => (apontamentos[a.id] = { ...a, pendente: false }));
+    estado.visitas[id] = { ...v, respostas, apontamentos, removidos: [], cabecalhoPendente: false, resultadoNuvem: oficial };
     return;
   }
 
@@ -541,11 +686,58 @@ async function sincronizarVisita(id: string) {
     }
   }
 
+  // 3b) Apontamentos (modelo livre): fotos, depois o apontamento. E apaga
+  //     na nuvem os que foram removidos no celular.
+  for (const aid of Object.keys(estado.visitas[id]?.apontamentos ?? {})) {
+    if (!estado.visitas[id]) return;
+    const a = estado.visitas[id].apontamentos[aid];
+    if (!a || !a.pendente) continue;
+    for (const f of a.fotos) {
+      if (!f.local || f.url) continue;
+      const url = await enviarFotoVisita(f.local);
+      const atual = estado.visitas[id]?.apontamentos[aid];
+      if (!atual) break;
+      atual.fotos = atual.fotos.map((x) => (x.id === f.id ? { ...x, url, local: null } : x));
+      estado.visitas[id] = { ...estado.visitas[id] };
+      persistir();
+      apagarArquivo(f.local);
+    }
+    const agora = estado.visitas[id]?.apontamentos[aid];
+    if (!agora || agora.fotos.some((f) => !f.url)) continue;
+    await gravarApontamentoVisita({
+      id: agora.id,
+      visitaId: id,
+      tema: agora.tema,
+      texto: agora.texto.trim(),
+      fotosUrls: agora.fotos.map((f) => f.url as string),
+      respondidaEm: agora.criadoEm,
+    });
+    const depois = estado.visitas[id]?.apontamentos[aid];
+    if (depois) {
+      estado.visitas[id].apontamentos = {
+        ...estado.visitas[id].apontamentos,
+        // Se mudou enquanto enviava, continua pendente (vai de novo).
+        [aid]: { ...depois, enviado: true, pendente: depois.atualizadoEm !== agora.atualizadoEm },
+      };
+      estado.visitas[id] = { ...estado.visitas[id] };
+      persistir();
+    } else {
+      // Removido enquanto enviava: apaga lá também.
+      estado.visitas[id] = { ...estado.visitas[id], removidos: [...(estado.visitas[id].removidos ?? []), aid] };
+    }
+  }
+  for (const rid of [...(estado.visitas[id]?.removidos ?? [])]) {
+    await excluirApontamentoVisita(rid);
+    if (estado.visitas[id]) estado.visitas[id] = { ...estado.visitas[id], removidos: estado.visitas[id].removidos.filter((x) => x !== rid) };
+    persistir();
+  }
+
   // 4) Finalização (uma vez só — o passo 1 garante isso nas próximas).
   v = estado.visitas[id];
   if (!v) return;
   if (v.status === 'finalizada' && !v.resultadoNuvem) {
     if (Object.values(v.respostas).some((r) => r.pendente)) return; // tenta de novo depois
+    if (Object.values(v.apontamentos ?? {}).some((a) => a.pendente) || (v.removidos ?? []).length) return;
     const ordem = perguntasDoSetor(v.setor).map((p) => p.id);
     const oficial = await finalizarVisita({
       visitaId: id,
@@ -557,6 +749,7 @@ async function sincronizarVisita(id: string) {
       consideracoesFinais: v.consideracoes || null,
       perguntasNaoAvaliadas: v.resultadoLocal?.naoAvaliadas ?? 0,
       ordemPerguntas: ordem,
+      modelo: v.modelo,
     });
     if (estado.visitas[id]) estado.visitas[id] = { ...estado.visitas[id], resultadoNuvem: oficial };
   }

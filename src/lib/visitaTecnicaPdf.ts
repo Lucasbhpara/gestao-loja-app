@@ -5,7 +5,9 @@ import {
   VisitaPergunta,
   VisitaResposta,
   SETORES_VISITA,
+  TEMAS_LIVRE,
   VisitaTecnica,
+  ordenarApontamentos,
   buscarPerguntasDoSetor,
   buscarRespostasDaVisita,
   nomeDoSetorVisita,
@@ -38,7 +40,66 @@ export function montarHtmlVisita(dados: DadosVisita): string {
 
 // A folha de um setor (cabeçalho + corpo), usada no PDF de um setor e no PDF
 // da visita completa (um setor por folha).
+function cabecalhoDireita(visita: VisitaTecnica): string[] {
+  return [`Loja ${esc(visita.unidade ?? '—')}`, `Téc. veterinário: ${esc(visita.veterinarioNome)}`, visita.finalizadaEm ? `Finalizada em ${dataHora(visita.finalizadaEm)}` : 'Em andamento'];
+}
+
+function localHtml(visita: VisitaTecnica): string {
+  return visita.localizacaoLat != null && visita.localizacaoLng != null
+    ? `<div class="info">📍 ${
+        visita.localizacaoEndereco ? esc(visita.localizacaoEndereco) : `${visita.localizacaoLat.toFixed(5)}, ${visita.localizacaoLng.toFixed(5)}`
+      } — <a href="https://www.google.com/maps?q=${visita.localizacaoLat},${visita.localizacaoLng}">ver no mapa</a></div>`
+    : '';
+}
+
+// Folha do modelo livre: apontamentos por tema (texto + fotos), sem nota.
+function montarPaginaLivre(dados: DadosVisita): PaginaUlva {
+  const { visita, respostas, contexto } = dados;
+  const apont = ordenarApontamentos(respostas.filter((r) => r.resposta === 'nao'));
+  const totalFotos = apont.reduce((s, r) => s + r.fotosUrls.length, 0);
+  const temasCom = new Set(apont.map((r) => r.perguntaTexto));
+  const nomesTemas = [...TEMAS_LIVRE.map((t) => t.nome), ...Array.from(temasCom).filter((t) => !TEMAS_LIVRE.some((x) => x.nome === t))];
+  let n = 0;
+  const secoes = nomesTemas
+    .map((tema) => {
+      const doTema = apont.filter((r) => r.perguntaTexto === tema);
+      if (!doTema.length) {
+        return `${rotulo(tema)}<div class="item"><div class="topo"><div class="texto" style="color:#8A93A5">Sem apontamentos</div><span class="badge b-sim">OK</span></div></div>`;
+      }
+      return (
+        rotulo(tema, `${doTema.length} ${doTema.length === 1 ? 'apontamento' : 'apontamentos'}`) +
+        doTema
+          .map(
+            (r) => `<div class="item ruim">
+          <div class="topo"><div class="texto">${++n}. ${esc(r.justificativa || '(sem texto)')}</div><span class="badge b-nao">Corrigir</span></div>
+          ${r.fotosUrls.length ? `<div class="fotos">${r.fotosUrls.map((u) => `<img class="foto" src="${u}" />`).join('')}</div>` : ''}
+          <div class="det" style="margin-top:6px">Corrigido em ____/____ por _______________________</div>
+        </div>`,
+          )
+          .join('')
+      );
+    })
+    .join('');
+  const kpis =
+    kpi('Apontamentos', String(apont.length), apont.length ? PDF_VERMELHO : PDF_VERDE) +
+    kpi('Temas com apontamento', `${temasCom.size} de ${TEMAS_LIVRE.length}`) +
+    kpi('Fotos', String(totalFotos));
+  return {
+    tipo: 'Visita técnica',
+    numero: contexto?.numero,
+    titulo: nomeDoSetorVisita(visita.setor),
+    direita: cabecalhoDireita(visita),
+    corpo: `
+      ${localHtml(visita)}
+      <div class="kpis">${kpis}</div>
+      ${secoes}
+      ${visita.consideracoesFinais ? `${rotulo('Considerações finais')}<div class="caixa">${esc(visita.consideracoesFinais)}</div>` : ''}
+      <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
+  };
+}
+
 function montarPaginaVisita(dados: DadosVisita): PaginaUlva {
+  if (dados.visita.modelo === 'livre') return montarPaginaLivre(dados);
   const { visita, perguntas, respostas, contexto } = dados;
   const porPergunta = new Map(respostas.filter((r) => r.perguntaId).map((r) => [r.perguntaId!, r]));
   const pct = visita.aproveitamento ?? 0;
@@ -164,17 +225,18 @@ export async function compartilharVisitaCompleta(visitasDoDia: VisitaTecnica[]):
   const dia = visitas[0].finalizadaEm ? new Date(visitas[0].finalizadaEm).toLocaleDateString('pt-BR') : '—';
   const vets = Array.from(new Set(visitas.map((v) => v.veterinarioNome).filter(Boolean)));
 
-  const media = Math.round((visitas.reduce((s, v) => s + (v.aproveitamento ?? 0), 0) / visitas.length) * 10) / 10;
+  const comNota = visitas.filter((v) => v.aproveitamento != null);
+  const media = comNota.length ? Math.round((comNota.reduce((s, v) => s + (v.aproveitamento ?? 0), 0) / comNota.length) * 10) / 10 : null;
   const totalNc = visitas.reduce((s, v) => s + (v.naoConformidades ?? 0), 0);
   const totalCrit = visitas.reduce((s, v) => s + (v.criticosNaoConformes ?? 0), 0);
   const linhas = dados
     .map((d, i) => {
       const v = d.visita;
-      const pct = v.aproveitamento ?? 0;
+      const pct = v.aproveitamento;
       const nc = v.naoConformidades ?? 0;
       const cr = v.criticosNaoConformes ?? 0;
       return `<tr><td class="pn">${i + 1}</td><td><b>${esc(nomeDoSetorVisita(v.setor))}</b>${d.contexto?.numero ? `<div class="base">Nº ${esc(d.contexto.numero)}</div>` : ''}</td>
-        <td class="pc" style="color:${corAproveitamento(pct)};font-weight:700">${pct}%</td>
+        <td class="pc" style="color:${pct != null ? corAproveitamento(pct) : '#5B6280'};font-weight:700">${pct != null ? `${pct}%` : 'Sem nota'}</td>
         <td class="pc" style="color:${nc ? PDF_VERMELHO : PDF_VERDE};font-weight:700">${nc}</td>
         <td class="pc" style="color:${cr ? PDF_VERMELHO : PDF_VERDE};font-weight:700">${cr}</td>
         <td>${v.setor === 'geral' ? 'Gerência' : 'Encarregado · ' + esc(nomeDoSetorVisita(v.setor))}</td></tr>`;
@@ -186,12 +248,14 @@ export async function compartilharVisitaCompleta(visitasDoDia: VisitaTecnica[]):
     direita: [dia, `Téc. veterinário: ${esc(vets.join(', ') || '—')}`, `${visitas.length} setor(es) avaliado(s)`],
     corpo: `
       <div class="kpis">${
-        kpi('Média dos setores', `${media}%<span class="classif" style="color:${classificacao(media).cor};background:${classificacao(media).fundo}">${classificacao(media).texto}</span>`, corAproveitamento(media)) +
-        kpi('Não conformidades', String(totalNc), totalNc > 0 ? PDF_VERMELHO : PDF_VERDE) +
-        kpi('Críticos reprovados', String(totalCrit), totalCrit > 0 ? PDF_VERMELHO : PDF_VERDE)
+        (media != null
+          ? kpi('Média dos setores', `${media}%<span class="classif" style="color:${classificacao(media).cor};background:${classificacao(media).fundo}">${classificacao(media).texto}</span>`, corAproveitamento(media))
+          : '') +
+        kpi(media != null ? 'Não conformidades' : 'Apontamentos', String(totalNc), totalNc > 0 ? PDF_VERMELHO : PDF_VERDE) +
+        (comNota.length ? kpi('Críticos reprovados', String(totalCrit), totalCrit > 0 ? PDF_VERMELHO : PDF_VERDE) : '')
       }</div>
       ${rotulo('Setores', 'cada um numa folha, para entregar ao responsável')}
-      <table class="plano"><thead><tr><th class="pn">#</th><th>Setor</th><th class="pc">Aproveitamento</th><th class="pc">NC</th><th class="pc">Críticos</th><th>Entregar para</th></tr></thead><tbody>${linhas}</tbody></table>
+      <table class="plano"><thead><tr><th class="pn">#</th><th>Setor</th><th class="pc">Aproveitamento</th><th class="pc">NC / Apont.</th><th class="pc">Críticos</th><th>Entregar para</th></tr></thead><tbody>${linhas}</tbody></table>
       <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
   };
   const html = documentoUlvaPaginas([resumo, ...dados.map(montarPaginaVisita)], `Visita técnica — Loja ${unidade} — ${dia}`);

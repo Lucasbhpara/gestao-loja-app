@@ -38,6 +38,30 @@ export const SETORES_VISITA: { key: SetorVisita; nome: string }[] = [
   { key: 'geral', nome: 'Geral e Documentos' },
 ];
 
+// Dois modelos de checklist (em teste, para a diretoria escolher):
+//   - 'perguntas': as perguntas Sim/Não/N/A de cada setor, com nota (%);
+//   - 'livre': o veterinário registra apontamentos livres (texto + fotos)
+//     em 5 temas iguais para todos os setores, sem nota.
+// 'Geral e Documentos' é sempre 'perguntas'.
+// No banco, cada apontamento é uma linha de visita_tecnica_respostas com
+// resposta 'nao', pergunta_id nulo, pergunta_texto = tema e justificativa =
+// o texto — assim tarefa, correção pelo encarregado e portal funcionam igual.
+// A visita livre finalizada fica com aproveitamento nulo (é como o modelo é
+// reconhecido depois).
+export type ModeloVisita = 'perguntas' | 'livre';
+
+export const TEMAS_LIVRE: { nome: string; dica: string }[] = [
+  { nome: 'Limpeza', dica: 'Piso, paredes, equipamentos, câmaras, ralos…' },
+  { nome: 'Organização', dica: 'Armazenamento, produtos no chão, equipamentos em desuso…' },
+  { nome: 'Validade / Tara', dica: 'Produtos vencidos, sem identificação, tara errada…' },
+  { nome: 'Planilhas e processos administrativos', dica: 'Planilha de temperatura, controles, registros…' },
+  { nome: 'Outros', dica: 'Qualquer outro ponto identificado.' },
+];
+
+export function modeloDoSetor(setor: SetorVisita, escolhido: ModeloVisita): ModeloVisita {
+  return setor === 'geral' ? 'perguntas' : escolhido;
+}
+
 export function nomeDoSetorVisita(key: SetorVisita): string {
   return SETORES_VISITA.find((s) => s.key === key)?.nome ?? key;
 }
@@ -106,6 +130,7 @@ export interface VisitaTecnica {
   // Perguntas que ficaram sem resposta quando a visita foi finalizada antes
   // de terminar ("Não avaliada" — fora da nota).
   perguntasNaoAvaliadas: number | null;
+  modelo: ModeloVisita;
 }
 
 function linhaParaPergunta(l: any): VisitaPergunta {
@@ -160,6 +185,7 @@ function linhaParaVisita(l: any): VisitaTecnica {
     localizacaoEndereco: l.localizacao_endereco,
     consideracoesFinais: l.consideracoes_finais ?? null,
     perguntasNaoAvaliadas: l.perguntas_nao_avaliadas ?? null,
+    modelo: l.modelo ?? (l.status === 'finalizada' && l.aproveitamento === null ? 'livre' : 'perguntas'),
   };
 }
 
@@ -315,6 +341,48 @@ export async function gravarRespostaVisita(dados: {
   if (error) throw error;
 }
 
+// Apontamento do modelo livre — upsert pelo id gerado no celular (não
+// duplica se for reenviado).
+export async function gravarApontamentoVisita(d: {
+  id: string;
+  visitaId: string;
+  tema: string;
+  texto: string;
+  fotosUrls: string[];
+  respondidaEm: string;
+}): Promise<void> {
+  const { error } = await supabase.from('visita_tecnica_respostas').upsert(
+    {
+      id: d.id,
+      visita_id: d.visitaId,
+      pergunta_id: null,
+      pergunta_texto: d.tema,
+      critico: false,
+      resposta: 'nao',
+      justificativa: d.texto,
+      foto_url: d.fotosUrls[0] ?? null,
+      fotos_urls: d.fotosUrls,
+      respondida_em: d.respondidaEm,
+    },
+    { onConflict: 'id' }
+  );
+  if (error) throw error;
+}
+
+export async function excluirApontamentoVisita(id: string): Promise<void> {
+  const { error } = await supabase.from('visita_tecnica_respostas').delete().eq('id', id);
+  if (error) throw error;
+}
+
+// Ordena apontamentos pela ordem dos temas e, dentro do tema, pela hora.
+export function ordenarApontamentos<T extends { perguntaTexto: string; respondidaEm: string }>(lista: T[]): T[] {
+  const pos = (t: string) => {
+    const i = TEMAS_LIVRE.findIndex((x) => x.nome === t);
+    return i < 0 ? 99 : i;
+  };
+  return [...lista].sort((a, b) => pos(a.perguntaTexto) - pos(b.perguntaTexto) || (a.respondidaEm < b.respondidaEm ? -1 : 1));
+}
+
 // Finaliza a visita na nuvem: Sim = 1 ponto, Não = 0 (não conformidade),
 // N/A fica fora do cálculo. Se houver "Não" e a unidade for a própria loja
 // (UNIDADE_DA_LOJA), cria UMA tarefa pro encarregado do setor (setor
@@ -332,7 +400,9 @@ export async function finalizarVisita(dados: {
   // Ordem das perguntas na tela, pra lista de não conformidades da tarefa
   // sair na mesma sequência do checklist.
   ordemPerguntas?: string[];
+  modelo?: ModeloVisita;
 }): Promise<VisitaTecnica> {
+  if (dados.modelo === 'livre') return finalizarVisitaLivre(dados);
   const respostas = await buscarRespostasDaVisita(dados.visitaId);
   if (dados.ordemPerguntas) {
     const pos = new Map(dados.ordemPerguntas.map((id, i) => [id, i]));
@@ -393,6 +463,67 @@ export async function finalizarVisita(dados: {
       passos_contados: dados.passosContados ?? null,
       consideracoes_finais: dados.consideracoesFinais ?? null,
       perguntas_nao_avaliadas: dados.perguntasNaoAvaliadas ?? 0,
+    })
+    .eq('id', dados.visitaId)
+    .select()
+    .single();
+  if (error) throw error;
+  return linhaParaVisita(data);
+}
+
+// Modelo livre: sem nota (aproveitamento nulo). Se houver apontamentos e a
+// unidade for a própria loja, cria UMA tarefa pro setor com todos eles —
+// cada apontamento vira um item da correção pelo encarregado.
+async function finalizarVisitaLivre(dados: {
+  visitaId: string;
+  setor: SetorVisita;
+  unidade: string | null;
+  veterinarioNome: string;
+  passosContados?: number | null;
+  finalizadaEm?: string;
+  consideracoesFinais?: string | null;
+}): Promise<VisitaTecnica> {
+  const apontamentos = ordenarApontamentos((await buscarRespostasDaVisita(dados.visitaId)).filter((r) => r.resposta === 'nao'));
+  const nomeSetor = nomeDoSetorVisita(dados.setor);
+
+  let tarefaId: string | null = null;
+  if (apontamentos.length > 0 && dados.unidade === UNIDADE_DA_LOJA) {
+    const linhas = apontamentos.map((r, i) => `${i + 1}. [${r.perguntaTexto}] ${r.justificativa ?? ''}`).join('\n');
+    const descricao =
+      `Visita Técnica (veterinário) finalizada por ${dados.veterinarioNome}.\n` +
+      `${apontamentos.length} apontamento(s) para corrigir:\n${linhas}` +
+      (dados.consideracoesFinais ? `\n\nConsiderações finais: ${dados.consideracoesFinais}` : '');
+    const { data: tarefa, error: erroTarefa } = await supabase
+      .from('tarefas')
+      .insert({
+        titulo: `Visita Técnica — ${nomeSetor}`,
+        descricao,
+        setor: dados.setor === 'geral' ? 'gerencia' : (dados.setor as SetorKey),
+        criado_por_nome: dados.veterinarioNome,
+        prioridade: 'normal',
+        visita_tecnica_id: dados.visitaId,
+        correcao_status: 'pendente',
+      })
+      .select()
+      .single();
+    if (erroTarefa) throw erroTarefa;
+    tarefaId = tarefa.id;
+  }
+
+  const { data, error } = await supabase
+    .from('visitas_tecnicas')
+    .update({
+      status: 'finalizada',
+      finalizada_em: dados.finalizadaEm ?? new Date().toISOString(),
+      pontos_possiveis: null,
+      pontos_realizados: null,
+      nao_conformidades: apontamentos.length,
+      criticos_nao_conformes: 0,
+      aproveitamento: null,
+      tarefa_id: tarefaId,
+      passos_contados: dados.passosContados ?? null,
+      consideracoes_finais: dados.consideracoesFinais ?? null,
+      perguntas_nao_avaliadas: 0,
     })
     .eq('id', dados.visitaId)
     .select()
