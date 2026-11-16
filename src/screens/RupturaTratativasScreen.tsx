@@ -140,6 +140,8 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const [pedidoCD, setPedidoCD] = useState<Tratativa[] | null>(null);
   const [menu, setMenu] = useState<Tratativa | null>(null);
   const [verAguardando, setVerAguardando] = useState(false);
+  // Gavetas por categoria: começam fechadas; guarda as que o usuário abriu.
+  const [gavetasAbertas, setGavetasAbertas] = useState<Set<string>>(new Set());
   const [descont, setDescont] = useState<Tratativa | null>(null);
   const [ajuste, setAjuste] = useState<Tratativa | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -351,6 +353,82 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
     );
   }
 
+  // Uma gaveta por categoria: cabeçalho com total e resumo; toca para abrir/fechar.
+  function gaveta(
+    chave: string,
+    titulo: string,
+    its: Tratativa[],
+    conteudo: () => React.ReactNode,
+    opc: { cor?: string; marcar?: boolean; nota?: string } = {},
+  ) {
+    const aberta = gavetasAbertas.has(chave);
+    const cdSem = its.filter((t) => cdAtual(t) != null && (cdAtual(t) ?? 0) <= 0).length;
+    const velhas = its.filter((t) => diasAberta(t.abertaEm) >= DIAS_ATRASADA).length;
+    const nMarc = its.filter((t) => marcadas.has(t.id)).length;
+    const todos = nMarc === its.length;
+    const partes = [
+      cdSem ? `${cdSem} CD sem estoque` : '',
+      velhas ? `${velhas} há ${DIAS_ATRASADA}+ dias` : '',
+      nMarc ? `${nMarc} marcado${nMarc > 1 ? 's' : ''}` : '',
+    ].filter(Boolean);
+    const alternarGaveta = () => {
+      const n = new Set(gavetasAbertas);
+      n.has(chave) ? n.delete(chave) : n.add(chave);
+      setGavetasAbertas(n);
+    };
+    return (
+      <View key={chave} style={[styles.lista, { marginBottom: spacing.sm }]}>
+        <TouchableOpacity activeOpacity={0.7} onPress={alternarGaveta} style={[styles.gavetaTopo, aberta && styles.gavetaTopoAberta]}>
+          <Feather name={aberta ? 'chevron-down' : 'chevron-right'} size={18} color={colors.gray400} />
+          {opc.cor ? <View style={[styles.ponto, { backgroundColor: opc.cor, marginHorizontal: 0 }]} /> : null}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.gavetaTitulo} numberOfLines={1}>{titulo}</Text>
+            {partes.length > 0 && (
+              <Text style={styles.gavetaResumo} numberOfLines={1}>
+                {partes.map((p, i) => (
+                  <Text key={i} style={p.includes('CD sem') || p.includes('dias') ? { color: '#C0352B' } : { color: AZUL }}>
+                    {i ? ' · ' : ''}{p}
+                  </Text>
+                ))}
+              </Text>
+            )}
+          </View>
+          <View style={styles.gavetaNum}><Text style={styles.gavetaNumTexto}>{its.length}</Text></View>
+          {opc.marcar && (
+            <TouchableOpacity
+              hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+              onPress={() => {
+                const n = new Set(marcadas);
+                its.forEach((t) => (todos ? n.delete(t.id) : n.add(t.id)));
+                setMarcadas(n);
+              }}
+            >
+              <Feather name={todos ? 'check-square' : 'square'} size={19} color={todos ? AZUL : colors.gray400} />
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+        {aberta && (
+          <>
+            {opc.nota ? <Text style={[styles.nota, { paddingHorizontal: 14, paddingTop: 8 }]}>{opc.nota}</Text> : null}
+            {conteudo()}
+          </>
+        )}
+      </View>
+    );
+  }
+  const abrirFecharTodas = (chaves: string[]) => {
+    const todasAbertas = chaves.length > 0 && chaves.every((c) => gavetasAbertas.has(c));
+    const n = new Set(gavetasAbertas);
+    chaves.forEach((c) => (todasAbertas ? n.delete(c) : n.add(c)));
+    setGavetasAbertas(n);
+  };
+  const linkTodas = (chaves: string[]) =>
+    chaves.length > 1 ? (
+      <TouchableOpacity onPress={() => abrirFecharTodas(chaves)} style={{ alignSelf: 'flex-end', marginBottom: spacing.sm }}>
+        <Text style={styles.link}>{chaves.every((c) => gavetasAbertas.has(c)) ? 'Fechar todas' : 'Abrir todas'}</Text>
+      </TouchableOpacity>
+    ) : null;
+
   const botao = (rotulo: string, onPress: () => void, tipo: 'pri' | 'sec' | 'perigo' = 'sec') => (
     <TouchableOpacity
       key={rotulo}
@@ -552,31 +630,15 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
         {aba === 'abertas' && (
           <>
             {abertas.length > 0 && <Text style={styles.nota}>Mais antiga: {maisAntiga} {maisAntiga === 1 ? 'dia' : 'dias'} aberta</Text>}
-            {ORDEM.map((s) => {
-              const its = abertas.filter((t) => t.situacao === s);
+            {linkTodas(ORDEM.filter((x) => abertas.some((t) => t.situacao === x)).map((x) => 'abertas:' + x))}
+            {ORDEM.map((sit) => {
+              const its = abertas.filter((t) => t.situacao === sit);
               if (!its.length) return null;
-              const info = SITUACOES[s];
-              const sel = VAI_PARA_ENCARREGADO.includes(s);
-              const marcaveis = its;
-              return (
-                <View key={s} style={{ marginBottom: spacing.lg }}>
-                  <View style={styles.secTopo}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
-                      <View style={[styles.ponto, { backgroundColor: info.cor }]} />
-                      <Text style={styles.grupoTitulo}>{info.titulo} · {its.length}</Text>
-                    </View>
-                    {sel && marcaveis.length > 0 && (
-                      <TouchableOpacity onPress={() => setMarcadas(new Set([...marcadas, ...marcaveis.map((t) => t.id)]))}>
-                        <Text style={styles.link}>Marcar todos</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  {s === 'ruptura' && (
-                    <Text style={styles.nota}>Sem estoque no CD ou com estoque na loja. Os que dá para pedir estão em “Precisa comprar”.</Text>
-                  )}
-                  <View style={styles.lista}>{its.map((t) => cartao(t, null, { selecionavel: sel, menu: opcoesAberta(t).length > 0, ocultarSituacao: true }))}</View>
-                </View>
-              );
+              const info = SITUACOES[sit];
+              const sel = VAI_PARA_ENCARREGADO.includes(sit);
+              return gaveta('abertas:' + sit, info.titulo, its,
+                () => its.map((t) => cartao(t, null, { selecionavel: sel, menu: opcoesAberta(t).length > 0, ocultarSituacao: true })),
+                { cor: info.cor, marcar: sel, nota: sit === 'ruptura' ? 'Sem estoque no CD ou com estoque na loja. Os que dá para pedir estão em “Precisa comprar”.' : undefined });
             })}
             {!carregando && !abertas.length && (
               <Text style={styles.vazio}>{algumFiltro && totalAbertas ? 'Nenhuma tratativa com esses filtros.' : 'Nenhuma tratativa aberta. Elas aparecem ao salvar uma coleta.'}</Text>
@@ -602,26 +664,10 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
               )}
             </View>
             <Text style={styles.nota}>Produto parado no estoque: mande ao encarregado conferir e levar para a loja.</Text>
+            {linkTodas([...new Set(verificar.map((t) => t.grupoNome ?? 'Sem grupo'))].map((g) => 'verificar:' + g))}
             {[...new Set(verificar.map((t) => t.grupoNome ?? 'Sem grupo'))].map((g) => {
               const its = verificar.filter((t) => (t.grupoNome ?? 'Sem grupo') === g);
-              const todos = its.every((t) => marcadas.has(t.id));
-              return (
-                <View key={g} style={{ marginBottom: spacing.md }}>
-                  <View style={styles.secTopo}>
-                    <Text style={styles.grupoTitulo}>{g} · {its.length}</Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        const n = new Set(marcadas);
-                        its.forEach((t) => (todos ? n.delete(t.id) : n.add(t.id)));
-                        setMarcadas(n);
-                      }}
-                    >
-                      <Text style={styles.link}>{todos ? 'Desmarcar' : 'Marcar grupo'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.lista}>{its.map((t) => cartao(t, null, { selecionavel: true, menu: true }))}</View>
-                </View>
-              );
+              return gaveta('verificar:' + g, g, its, () => its.map((t) => cartao(t, null, { selecionavel: true, menu: true })), { marcar: true });
             })}
             {!carregando && !verificar.length && <Text style={styles.vazio}>Nada para verificar agora.</Text>}
           </>
@@ -650,26 +696,10 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
                 </TouchableOpacity>
               )}
             </View>
+            {linkTodas([...new Set(comprar.map((t) => t.grupoNome ?? 'Sem grupo'))].map((g) => 'comprar:' + g))}
             {[...new Set(comprar.map((t) => t.grupoNome ?? 'Sem grupo'))].map((g) => {
               const its = comprar.filter((t) => (t.grupoNome ?? 'Sem grupo') === g);
-              const todos = its.every((t) => marcadas.has(t.id));
-              return (
-                <View key={g} style={{ marginBottom: spacing.md }}>
-                  <View style={styles.secTopo}>
-                    <Text style={styles.grupoTitulo}>{g} · {its.length}</Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        const n = new Set(marcadas);
-                        its.forEach((t) => (todos ? n.delete(t.id) : n.add(t.id)));
-                        setMarcadas(n);
-                      }}
-                    >
-                      <Text style={styles.link}>{todos ? 'Desmarcar' : 'Marcar grupo'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                  <View style={styles.lista}>{its.map((t) => cartao(t, null, { selecionavel: true, menu: true, ocultarSituacao: true }))}</View>
-                </View>
-              );
+              return gaveta('comprar:' + g, g, its, () => its.map((t) => cartao(t, null, { selecionavel: true, menu: true, ocultarSituacao: true })), { marcar: true });
             })}
             {!carregando && !comprar.length && (
               <Text style={styles.vazio}>Nada para comprar agora. Tudo que está em ruptura com estoque no CD já foi pedido.</Text>
@@ -1039,6 +1069,12 @@ const styles = StyleSheet.create({
   kpi: { flex: 1, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 10 },
   kpiNum: { fontSize: 18, fontWeight: '700', color: colors.navy900, fontVariant: ['tabular-nums'] },
   kpiRot: { fontSize: 11, color: colors.gray600, marginTop: 1, lineHeight: 14 },
+  gavetaTopo: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 13, paddingHorizontal: 12 },
+  gavetaTopoAberta: { borderBottomWidth: 1, borderBottomColor: colors.gray100, backgroundColor: '#FAFBFD' },
+  gavetaTitulo: { fontSize: 14, fontWeight: '600', color: colors.navy900 },
+  gavetaResumo: { fontSize: 11.5, marginTop: 2 },
+  gavetaNum: { minWidth: 26, height: 22, paddingHorizontal: 7, borderRadius: 6, backgroundColor: colors.gray50, alignItems: 'center', justifyContent: 'center' },
+  gavetaNumTexto: { fontSize: 12, fontWeight: '700', color: colors.gray600, fontVariant: ['tabular-nums'] },
   grupoTitulo: { fontSize: 11.5, fontWeight: '700', letterSpacing: 0.6, color: colors.gray600, textTransform: 'uppercase' },
   lista: { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100, overflow: 'hidden' },
   ponto: { width: 7, height: 7, borderRadius: 4, marginHorizontal: 3 },
