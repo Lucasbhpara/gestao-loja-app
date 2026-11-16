@@ -51,6 +51,10 @@ const VERDE_PEDIDO = '#1B5E20';
 const LIMITE_POUCO_ESTOQUE = 12;
 const dataBR = (d: string | null) => (d ? new Date(d).toLocaleDateString('pt-BR') : '—');
 const dataCurta = (d: string | null) => (d ? new Date(d).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }) : '');
+// Nome do produto sem tudo em maiúsculas ("AGUA SANIT.DULAR 5L FR" → "Agua Sanit.Dular 5L FR").
+// Palavras com número ou de até 2 letras (5L, FR, KG) ficam como estão.
+const nomeBonito = (n: string) =>
+  (n || '').split(' ').map((w) => (/\d/.test(w) || w.replace(/[^A-Za-zÀ-ú]/g, '').length <= 2 ? w : w.toLowerCase().replace(/(^|[.\-/])([a-zà-ú])/g, (_m, a, b) => a + b.toUpperCase()))).join(' ');
 const diasAberta = (d: string) => Math.max(0, Math.floor((Date.now() - new Date(d).getTime()) / 86400000));
 const nomeSetor = (s: string | null) => (s ? s.charAt(0) + s.slice(1).toLowerCase() : '');
 
@@ -136,6 +140,8 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   const [pedidoCD, setPedidoCD] = useState<Tratativa[] | null>(null);
   const [menu, setMenu] = useState<Tratativa | null>(null);
   const [verAguardando, setVerAguardando] = useState(false);
+  // Gavetas por categoria: começam fechadas; guarda as que o usuário abriu.
+  const [gavetasAbertas, setGavetasAbertas] = useState<Set<string>>(new Set());
   const [descont, setDescont] = useState<Tratativa | null>(null);
   const [ajuste, setAjuste] = useState<Tratativa | null>(null);
   const [ocupado, setOcupado] = useState(false);
@@ -258,16 +264,16 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   };
 
   // Selo do status da tratativa (o que já foi feito com ela).
-  function seloAcao(t: Tratativa): { texto: string; cor: string; fundo: string } | null {
+  function seloAcao(t: Tratativa): { texto: string; cor: string; fundo: string; icone: keyof typeof Feather.glyphMap } | null {
     if (!t.acao) return null;
     const quando = dataCurta(t.atualizadaEm);
     switch (t.acao) {
-      case 'pedido_feito': return { texto: `🚚 Pedido feito · ${quando}`, cor: '#1D4ED8', fundo: '#E3EDFF' };
-      case 'pedido_cd': return { texto: '⏳ Na fila do Pedido CD', cor: '#9A5B00', fundo: '#FFF4E0' };
-      case 'zerado': return { texto: `0️⃣ Zerado na loja · ${quando}`, cor: '#C0352B', fundo: '#FDECEA' };
-      case 'cobrado': return { texto: `📞 Comprador cobrado · ${quando}`, cor: '#6B21A8', fundo: '#F3E8FF' };
-      case 'auto_cd': return { texto: '✅ CD voltou a ter estoque', cor: '#178553', fundo: '#E6F6EE' };
-      default: return { texto: `${ROTULO_ACAO[t.acao]} · ${quando}`, cor: colors.navy700, fundo: colors.gray50 };
+      case 'pedido_feito': return { texto: `Pedido feito em ${quando}`, cor: AZUL, fundo: '#E3EDFF', icone: 'truck' };
+      case 'pedido_cd': return { texto: 'Na fila do Pedido CD', cor: '#A86200', fundo: '#FFF4E0', icone: 'clock' };
+      case 'zerado': return { texto: `Zerado na loja em ${quando}`, cor: '#C0352B', fundo: '#FDECEA', icone: 'slash' };
+      case 'cobrado': return { texto: `Comprador cobrado em ${quando}`, cor: '#6B21A8', fundo: '#F3E8FF', icone: 'phone' };
+      case 'auto_cd': return { texto: 'CD voltou a ter estoque', cor: '#178553', fundo: '#E6F6EE', icone: 'check-circle' };
+      default: return { texto: `${ROTULO_ACAO[t.acao]} · ${quando}`, cor: colors.navy700, fundo: colors.gray50, icone: 'info' };
     }
   }
 
@@ -280,46 +286,63 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
     const m = marcadas.has(t.id);
     const loja = saldoAgora(t);
     const selo = t.status === 'aberta' ? seloAcao(t) : null;
+    const cd = cdAtual(t);
+    const dias = diasAberta(t.abertaEm);
+    const cdSem = cd != null && cd <= 0;
+    const atrasada = dias >= DIAS_ATRASADA;
     const corpo = (
       <View style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
         {opc.selecionavel && (
-          <View style={{ paddingRight: 10, paddingTop: 1 }}>
-            <Feather name={m ? 'check-square' : 'square'} size={20} color={m ? AZUL : colors.gray400} />
+          <View style={{ paddingRight: 12, paddingTop: 1 }}>
+            <Feather name={m ? 'check-square' : 'square'} size={19} color={m ? AZUL : colors.gray400} />
           </View>
         )}
         <View style={{ flex: 1 }}>
-          <Text style={styles.itemNome} numberOfLines={2}>{t.produto}</Text>
-          <Text style={styles.itemDet}>
-            {t.codigoInterno} · {t.grupoNome}
-            {opc.ocultarSituacao ? '' : ` · ${info.emoji} ${info.titulo}`}
-          </Text>
-          <View style={styles.selos}>
-            {loja != null && (
-              <Text style={[styles.selo, loja > 0 ? styles.seloVerde : styles.seloVermelho]}>
-                Loja {loja}
-                {t.saldo != null && t.saldo !== loja ? ` (era ${t.saldo})` : ''}
-              </Text>
+          <Text style={styles.itemNome} numberOfLines={2}>{nomeBonito(t.produto)}</Text>
+          <View style={styles.itemLinhaDet}>
+            <Text style={styles.itemDet}>{t.codigoInterno}{opc.ocultarSituacao && t.grupoNome ? ` · ${t.grupoNome}` : ''}</Text>
+            {!opc.ocultarSituacao && (
+              <>
+                <Text style={styles.itemDet}> · </Text>
+                <View style={[styles.ponto, { backgroundColor: info.cor }]} />
+                <Text style={styles.itemDet}>{info.titulo}</Text>
+              </>
             )}
-            {cdAtual(t) != null && (
-              <Text style={[styles.selo, (cdAtual(t) ?? 0) > 0 ? styles.seloVerde : styles.seloVermelho]}>
-                {(cdAtual(t) ?? 0) > 0 ? `CD ${cdAtual(t)}` : 'CD sem estoque'}
-              </Text>
-            )}
-            <Text style={[styles.selo, diasAberta(t.abertaEm) >= DIAS_ATRASADA ? styles.seloVermelho : styles.seloCinza]}>
-              {diasAberta(t.abertaEm) === 0 ? 'hoje' : `${diasAberta(t.abertaEm)}d aberta`}
-            </Text>
-            {selo && <Text style={[styles.selo, { color: selo.cor, backgroundColor: selo.fundo }]}>{selo.texto}</Text>}
           </View>
+          <View style={styles.dados}>
+            <View style={styles.dado}>
+              <Text style={styles.dadoRot}>LOJA</Text>
+              <Text style={[styles.dadoVal, loja != null && loja <= 0 && styles.dadoVermelho]}>
+                {loja == null ? '—' : loja}
+                {t.saldo != null && loja != null && t.saldo !== loja ? <Text style={styles.dadoObs}>  (era {t.saldo})</Text> : null}
+              </Text>
+            </View>
+            <View style={styles.dado}>
+              <Text style={styles.dadoRot}>CD</Text>
+              <Text style={[styles.dadoVal, cdSem && styles.dadoVermelho]}>{cd == null ? '—' : cdSem ? 'Sem estoque' : cd}</Text>
+            </View>
+            <View style={styles.dado}>
+              <Text style={styles.dadoRot}>ABERTA</Text>
+              <Text style={[styles.dadoVal, atrasada && styles.dadoVermelho]}>{dias === 0 ? 'Hoje' : `${dias} ${dias === 1 ? 'dia' : 'dias'}`}</Text>
+            </View>
+          </View>
+          {selo && (
+            <View style={styles.seloLinha}>
+              <Feather name={selo.icone} size={14} color={selo.cor} />
+              <Text style={[styles.seloTexto, { color: selo.cor }]}>{selo.texto}</Text>
+            </View>
+          )}
         </View>
         {opc.menu && (
           <TouchableOpacity onPress={() => setMenu(t)} hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }} style={styles.btnMenu}>
-            <Feather name="more-vertical" size={20} color={colors.gray600} />
+            <Feather name="more-vertical" size={18} color={colors.gray400} />
           </TouchableOpacity>
         )}
       </View>
     );
     return (
-      <View key={t.id} style={[styles.item, m && { borderColor: AZUL, backgroundColor: '#F5F9FF' }]}>
+      <View key={t.id} style={[styles.item, m && { backgroundColor: '#F5F9FF' }]}>
+        {(cdSem || atrasada) && <View style={styles.faixaAlerta} />}
         {opc.selecionavel ? (
           <TouchableOpacity activeOpacity={0.7} onPress={() => alternar(t.id)}>{corpo}</TouchableOpacity>
         ) : (
@@ -329,6 +352,82 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
       </View>
     );
   }
+
+  // Uma gaveta por categoria: cabeçalho com total e resumo; toca para abrir/fechar.
+  function gaveta(
+    chave: string,
+    titulo: string,
+    its: Tratativa[],
+    conteudo: () => React.ReactNode,
+    opc: { cor?: string; marcar?: boolean; nota?: string } = {},
+  ) {
+    const aberta = gavetasAbertas.has(chave);
+    const cdSem = its.filter((t) => cdAtual(t) != null && (cdAtual(t) ?? 0) <= 0).length;
+    const velhas = its.filter((t) => diasAberta(t.abertaEm) >= DIAS_ATRASADA).length;
+    const nMarc = its.filter((t) => marcadas.has(t.id)).length;
+    const todos = nMarc === its.length;
+    const partes = [
+      cdSem ? `${cdSem} CD sem estoque` : '',
+      velhas ? `${velhas} há ${DIAS_ATRASADA}+ dias` : '',
+      nMarc ? `${nMarc} marcado${nMarc > 1 ? 's' : ''}` : '',
+    ].filter(Boolean);
+    const alternarGaveta = () => {
+      const n = new Set(gavetasAbertas);
+      n.has(chave) ? n.delete(chave) : n.add(chave);
+      setGavetasAbertas(n);
+    };
+    return (
+      <View key={chave} style={[styles.lista, { marginBottom: spacing.sm }]}>
+        <TouchableOpacity activeOpacity={0.7} onPress={alternarGaveta} style={[styles.gavetaTopo, aberta && styles.gavetaTopoAberta]}>
+          <Feather name={aberta ? 'chevron-down' : 'chevron-right'} size={18} color={colors.gray400} />
+          {opc.cor ? <View style={[styles.ponto, { backgroundColor: opc.cor, marginHorizontal: 0 }]} /> : null}
+          <View style={{ flex: 1 }}>
+            <Text style={styles.gavetaTitulo} numberOfLines={1}>{titulo}</Text>
+            {partes.length > 0 && (
+              <Text style={styles.gavetaResumo} numberOfLines={1}>
+                {partes.map((p, i) => (
+                  <Text key={i} style={p.includes('CD sem') || p.includes('dias') ? { color: '#C0352B' } : { color: AZUL }}>
+                    {i ? ' · ' : ''}{p}
+                  </Text>
+                ))}
+              </Text>
+            )}
+          </View>
+          <View style={styles.gavetaNum}><Text style={styles.gavetaNumTexto}>{its.length}</Text></View>
+          {opc.marcar && (
+            <TouchableOpacity
+              hitSlop={{ top: 10, bottom: 10, left: 6, right: 6 }}
+              onPress={() => {
+                const n = new Set(marcadas);
+                its.forEach((t) => (todos ? n.delete(t.id) : n.add(t.id)));
+                setMarcadas(n);
+              }}
+            >
+              <Feather name={todos ? 'check-square' : 'square'} size={19} color={todos ? AZUL : colors.gray400} />
+            </TouchableOpacity>
+          )}
+        </TouchableOpacity>
+        {aberta && (
+          <>
+            {opc.nota ? <Text style={[styles.nota, { paddingHorizontal: 14, paddingTop: 8 }]}>{opc.nota}</Text> : null}
+            {conteudo()}
+          </>
+        )}
+      </View>
+    );
+  }
+  const abrirFecharTodas = (chaves: string[]) => {
+    const todasAbertas = chaves.length > 0 && chaves.every((c) => gavetasAbertas.has(c));
+    const n = new Set(gavetasAbertas);
+    chaves.forEach((c) => (todasAbertas ? n.delete(c) : n.add(c)));
+    setGavetasAbertas(n);
+  };
+  const linkTodas = (chaves: string[]) =>
+    chaves.length > 1 ? (
+      <TouchableOpacity onPress={() => abrirFecharTodas(chaves)} style={{ alignSelf: 'flex-end', marginBottom: spacing.sm }}>
+        <Text style={styles.link}>{chaves.every((c) => gavetasAbertas.has(c)) ? 'Fechar todas' : 'Abrir todas'}</Text>
+      </TouchableOpacity>
+    ) : null;
 
   const botao = (rotulo: string, onPress: () => void, tipo: 'pri' | 'sec' | 'perigo' = 'sec') => (
     <TouchableOpacity
@@ -355,7 +454,7 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
           executar(async () => {
             const sistema = estoque.get(t.codigoInterno)?.q ?? t.saldo;
             await marcarZerado(t, sistema, quem);
-            setAviso(`${t.produto}: marcado como zerado. ${(cdAtual(t) ?? 0) > 0 ? 'Foi para “🛒 Precisa comprar”.' : 'O CD está sem estoque: ficou em “Outras”.'}`);
+            setAviso(`${t.produto}: marcado como zerado. ${(cdAtual(t) ?? 0) > 0 ? 'Foi para “Precisa comprar”.' : 'O CD está sem estoque: ficou em “Outras”.'}`);
           }),
       });
     }
@@ -418,20 +517,22 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
   return (
     <View style={styles.tela}>
       <CabecalhoTela titulo="Tratativas" subtitulo="Produtos da ruptura até resolver" icone="check-square" onVoltar={onVoltar} />
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ flexGrow: 0, flexShrink: 0, minHeight: 56 }} contentContainerStyle={styles.abas}>
+      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.abasBarra} contentContainerStyle={styles.abas}>
         {([
-          ['comprar', '🛒 Precisa comprar', comprar.length],
-          ['verificar', '📦 Verificar estoque', verificar.length],
+          ['verificar', 'Verificar estoque', verificar.length],
+          ['comprar', 'Precisa comprar', comprar.length],
           ['abertas', 'Outras', abertas.length],
           ['validar', 'Validar', paraValidar.length],
           ['encarregado', 'Encarregado', comEncarregado.length],
           ['resolvidas', 'Resolvidas', null],
         ] as [Aba, string, number | null][]).map(([k, r, n]) => (
           <TouchableOpacity key={k} style={[styles.aba, aba === k && styles.abaAtiva]} onPress={() => { setAba(k); setMarcadas(new Set()); }}>
+            {k === 'verificar' && <Feather name="package" size={15} color={aba === k ? colors.navy900 : colors.gray400} />}
+            {k === 'comprar' && <Feather name="shopping-cart" size={15} color={aba === k ? colors.navy900 : colors.gray400} />}
             <Text style={[styles.abaTexto, aba === k && styles.abaTextoAtivo]} numberOfLines={1}>{r}</Text>
             {n != null && (
-              <View style={[styles.abaNum, aba === k && styles.abaNumAtivo, k === 'validar' && n > 0 && aba !== k && { backgroundColor: '#C0352B' }]}>
-                <Text style={[styles.abaNumTexto, (aba === k || (k === 'validar' && n > 0)) && { color: colors.white }]}>{n}</Text>
+              <View style={[styles.abaNum, aba === k && styles.abaNumAtivo, k === 'validar' && n > 0 && aba !== k && { backgroundColor: '#FDECEA' }]}>
+                <Text style={[styles.abaNumTexto, aba === k && { color: AZUL }, k === 'validar' && n > 0 && aba !== k && { color: '#C0352B' }]}>{n}</Text>
               </View>
             )}
           </TouchableOpacity>
@@ -464,13 +565,13 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
           {listaDaAba.length > 0 && aba !== 'resolvidas' && (
             <TouchableOpacity style={[styles.chip, styles.chipRota]} onPress={() => setRota(paraRota(selecionadas.length ? selecionadas : listaDaAba))}>
               <Text style={[styles.chipTexto, { color: AZUL }]}>
-                🧭 Rota{selecionadas.length && aba === 'abertas' ? ` (${selecionadas.length})` : ''}
+                Rota{selecionadas.length && aba === 'abertas' ? ` (${selecionadas.length})` : ''}
               </Text>
             </TouchableOpacity>
           )}
           <TouchableOpacity style={[styles.chip, painelFiltros || qtdFiltrosPainel ? styles.chipAtivo : null]} onPress={() => setPainelFiltros(!painelFiltros)}>
             <Text style={[styles.chipTexto, (painelFiltros || qtdFiltrosPainel > 0) && { color: colors.white }]}>
-              ⚲ Filtros{qtdFiltrosPainel ? ` (${qtdFiltrosPainel})` : ''}
+              Filtros{qtdFiltrosPainel ? ` (${qtdFiltrosPainel})` : ''}
             </Text>
           </TouchableOpacity>
         </ScrollView>
@@ -479,10 +580,10 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
             <Text style={styles.painelRotulo}>Estoque e pedido</Text>
             <View style={styles.linhaChips}>
               <TouchableOpacity style={[styles.chip, soComEstoque && styles.chipAtivo]} onPress={() => setSoComEstoque(!soComEstoque)}>
-                <Text style={[styles.chipTexto, soComEstoque && { color: colors.white }]}>📦 Tem estoque na loja</Text>
+                <Text style={[styles.chipTexto, soComEstoque && { color: colors.white }]}>Tem estoque na loja</Text>
               </TouchableOpacity>
               <TouchableOpacity style={[styles.chip, soAguardando && styles.chipAtivo]} onPress={() => setSoAguardando(!soAguardando)}>
-                <Text style={[styles.chipTexto, soAguardando && { color: colors.white }]}>🚚 Pedido feito · aguardando chegada</Text>
+                <Text style={[styles.chipTexto, soAguardando && { color: colors.white }]}>Pedido feito · aguardando chegada</Text>
               </TouchableOpacity>
             </View>
             <Text style={styles.painelRotulo}>Tempo aberta</Text>
@@ -529,28 +630,15 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
         {aba === 'abertas' && (
           <>
             {abertas.length > 0 && <Text style={styles.nota}>Mais antiga: {maisAntiga} {maisAntiga === 1 ? 'dia' : 'dias'} aberta</Text>}
-            {ORDEM.map((s) => {
-              const its = abertas.filter((t) => t.situacao === s);
+            {linkTodas(ORDEM.filter((x) => abertas.some((t) => t.situacao === x)).map((x) => 'abertas:' + x))}
+            {ORDEM.map((sit) => {
+              const its = abertas.filter((t) => t.situacao === sit);
               if (!its.length) return null;
-              const info = SITUACOES[s];
-              const sel = VAI_PARA_ENCARREGADO.includes(s);
-              const marcaveis = its;
-              return (
-                <View key={s} style={{ marginBottom: spacing.lg }}>
-                  <View style={styles.secTopo}>
-                    <Text style={[styles.secTitulo, { color: info.cor }]}>{info.emoji} {info.titulo} · {its.length}</Text>
-                    {sel && marcaveis.length > 0 && (
-                      <TouchableOpacity onPress={() => setMarcadas(new Set([...marcadas, ...marcaveis.map((t) => t.id)]))}>
-                        <Text style={styles.link}>Marcar todos</Text>
-                      </TouchableOpacity>
-                    )}
-                  </View>
-                  {s === 'ruptura' && (
-                    <Text style={styles.nota}>Sem estoque no CD ou com estoque na loja. Os que dá para pedir estão em “🛒 Precisa comprar”.</Text>
-                  )}
-                  {its.map((t) => cartao(t, null, { selecionavel: sel, menu: opcoesAberta(t).length > 0, ocultarSituacao: true }))}
-                </View>
-              );
+              const info = SITUACOES[sit];
+              const sel = VAI_PARA_ENCARREGADO.includes(sit);
+              return gaveta('abertas:' + sit, info.titulo, its,
+                () => its.map((t) => cartao(t, null, { selecionavel: sel, menu: opcoesAberta(t).length > 0, ocultarSituacao: true })),
+                { cor: info.cor, marcar: sel, nota: sit === 'ruptura' ? 'Sem estoque no CD ou com estoque na loja. Os que dá para pedir estão em “Precisa comprar”.' : undefined });
             })}
             {!carregando && !abertas.length && (
               <Text style={styles.vazio}>{algumFiltro && totalAbertas ? 'Nenhuma tratativa com esses filtros.' : 'Nenhuma tratativa aberta. Elas aparecem ao salvar uma coleta.'}</Text>
@@ -560,6 +648,11 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
 
         {aba === 'verificar' && (
           <>
+            <View style={styles.kpis}>
+              <View style={styles.kpi}><Text style={styles.kpiNum}>{verificar.length}</Text><Text style={styles.kpiRot}>para verificar</Text></View>
+              <View style={styles.kpi}><Text style={[styles.kpiNum, { color: '#C0352B' }]}>{verificar.filter((t) => cdAtual(t) != null && (cdAtual(t) ?? 0) <= 0).length}</Text><Text style={styles.kpiRot}>CD sem estoque</Text></View>
+              <View style={styles.kpi}><Text style={[styles.kpiNum, { color: '#A86200' }]}>{verificar.filter((t) => diasAberta(t.abertaEm) >= DIAS_ATRASADA).length}</Text><Text style={styles.kpiRot}>abertas há {DIAS_ATRASADA}+ dias</Text></View>
+            </View>
             <View style={styles.secResumo}>
               <Text style={styles.secResumoTexto}>
                 {verificar.length} fora da área de venda com estoque na loja{marcadas.size ? ` · ${selecionadas.length} marcados` : ''}
@@ -571,28 +664,12 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
               )}
             </View>
             <Text style={styles.nota}>Produto parado no estoque: mande ao encarregado conferir e levar para a loja.</Text>
+            {linkTodas([...new Set(verificar.map((t) => t.grupoNome ?? 'Sem grupo'))].map((g) => 'verificar:' + g))}
             {[...new Set(verificar.map((t) => t.grupoNome ?? 'Sem grupo'))].map((g) => {
               const its = verificar.filter((t) => (t.grupoNome ?? 'Sem grupo') === g);
-              const todos = its.every((t) => marcadas.has(t.id));
-              return (
-                <View key={g} style={{ marginBottom: spacing.md }}>
-                  <View style={styles.secTopo}>
-                    <Text style={[styles.secTitulo, { fontSize: 14, color: colors.navy700 }]}>{g} · {its.length}</Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        const n = new Set(marcadas);
-                        its.forEach((t) => (todos ? n.delete(t.id) : n.add(t.id)));
-                        setMarcadas(n);
-                      }}
-                    >
-                      <Text style={styles.link}>{todos ? 'Desmarcar' : 'Marcar grupo'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                  {its.map((t) => cartao(t, null, { selecionavel: true, menu: true }))}
-                </View>
-              );
+              return gaveta('verificar:' + g, g, its, () => its.map((t) => cartao(t, null, { selecionavel: true, menu: true })), { marcar: true });
             })}
-            {!carregando && !verificar.length && <Text style={styles.vazio}>Nada para verificar agora. 👍</Text>}
+            {!carregando && !verificar.length && <Text style={styles.vazio}>Nada para verificar agora.</Text>}
           </>
         )}
 
@@ -604,6 +681,11 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
                 <Text style={styles.btnGrandeTexto}>Pedir tudo com menos de {LIMITE_POUCO_ESTOQUE} un. na loja · {poucoEstoque.length}</Text>
               </TouchableOpacity>
             )}
+            <View style={styles.kpis}>
+              <View style={styles.kpi}><Text style={styles.kpiNum}>{comprar.length}</Text><Text style={styles.kpiRot}>para comprar</Text></View>
+              <View style={styles.kpi}><Text style={[styles.kpiNum, { color: AZUL }]}>{aguardando.length}</Text><Text style={styles.kpiRot}>pedidos aguardando</Text></View>
+              <View style={styles.kpi}><Text style={[styles.kpiNum, { color: '#A86200' }]}>{comprar.filter((t) => diasAberta(t.abertaEm) >= DIAS_ATRASADA).length}</Text><Text style={styles.kpiRot}>abertas há {DIAS_ATRASADA}+ dias</Text></View>
+            </View>
             <View style={styles.secResumo}>
               <Text style={styles.secResumoTexto}>
                 {comprar.length} sem estoque na loja e com estoque no CD{marcadas.size ? ` · ${selecionadas.length} marcados` : ''}
@@ -614,38 +696,25 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
                 </TouchableOpacity>
               )}
             </View>
+            {linkTodas([...new Set(comprar.map((t) => t.grupoNome ?? 'Sem grupo'))].map((g) => 'comprar:' + g))}
             {[...new Set(comprar.map((t) => t.grupoNome ?? 'Sem grupo'))].map((g) => {
               const its = comprar.filter((t) => (t.grupoNome ?? 'Sem grupo') === g);
-              const todos = its.every((t) => marcadas.has(t.id));
-              return (
-                <View key={g} style={{ marginBottom: spacing.md }}>
-                  <View style={styles.secTopo}>
-                    <Text style={[styles.secTitulo, { fontSize: 14, color: colors.navy700 }]}>{g} · {its.length}</Text>
-                    <TouchableOpacity
-                      onPress={() => {
-                        const n = new Set(marcadas);
-                        its.forEach((t) => (todos ? n.delete(t.id) : n.add(t.id)));
-                        setMarcadas(n);
-                      }}
-                    >
-                      <Text style={styles.link}>{todos ? 'Desmarcar' : 'Marcar grupo'}</Text>
-                    </TouchableOpacity>
-                  </View>
-                  {its.map((t) => cartao(t, null, { selecionavel: true, menu: true, ocultarSituacao: true }))}
-                </View>
-              );
+              return gaveta('comprar:' + g, g, its, () => its.map((t) => cartao(t, null, { selecionavel: true, menu: true, ocultarSituacao: true })), { marcar: true });
             })}
             {!carregando && !comprar.length && (
-              <Text style={styles.vazio}>Nada para comprar agora. 👍 Tudo que está em ruptura com estoque no CD já foi pedido.</Text>
+              <Text style={styles.vazio}>Nada para comprar agora. Tudo que está em ruptura com estoque no CD já foi pedido.</Text>
             )}
             {aguardando.length > 0 && (
               <View style={{ marginBottom: spacing.lg }}>
                 <TouchableOpacity style={styles.secTopo} onPress={() => setVerAguardando(!verAguardando)}>
-                  <Text style={[styles.secTitulo, { color: '#1D4ED8' }]}>🚚 Pedido feito · aguardando chegada · {aguardando.length}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
+                    <Feather name="truck" size={14} color={AZUL} />
+                    <Text style={[styles.grupoTitulo, { color: AZUL }]}>Pedido feito · aguardando chegada · {aguardando.length}</Text>
+                  </View>
                   <Feather name={verAguardando ? 'chevron-up' : 'chevron-down'} size={18} color="#1D4ED8" />
                 </TouchableOpacity>
                 <Text style={styles.nota}>Fecham sozinhos quando o produto volta a ter estoque na loja.</Text>
-                {verAguardando && aguardando.map((t) => cartao(t, null, { menu: opcoesAberta(t).length > 0 }))}
+                {verAguardando && <View style={styles.lista}>{aguardando.map((t) => cartao(t, null, { menu: opcoesAberta(t).length > 0 }))}</View>}
               </View>
             )}
 
@@ -654,21 +723,21 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
 
         {aba === 'validar' && (
           <>
-            {paraValidar.map((t) => cartao(t, acoesValidar(t)))}
+            {paraValidar.length > 0 && <View style={styles.lista}>{paraValidar.map((t) => cartao(t, acoesValidar(t)))}</View>}
             {!carregando && !paraValidar.length && <Text style={styles.vazio}>Nada para validar agora.</Text>}
           </>
         )}
 
         {aba === 'encarregado' && (
           <>
-            {comEncarregado.map((t) =>
+            {comEncarregado.length > 0 && <View style={styles.lista}>{comEncarregado.map((t) =>
               cartao(
                 t,
                 <Text style={styles.tag}>
                   {nomeSetor(t.setorTarefa)} · {t.acao ? ROTULO_ACAO[t.acao] : ''} · enviado {dataBR(t.atualizadaEm)}
                 </Text>,
               ),
-            )}
+            )}</View>}
             {!carregando && !comEncarregado.length && <Text style={styles.vazio}>Nada com os encarregados.</Text>}
           </>
         )}
@@ -676,9 +745,9 @@ function TelaGerencia({ onVoltar }: { onVoltar: () => void }) {
         {aba === 'resolvidas' && (
           <>
             <Text style={styles.nota}>Últimos 7 dias</Text>
-            {resolvidas.filter(doSetor).sort(ordenar).map((t) =>
-              cartao(t, <Text style={styles.tag}>✅ {t.acao ? ROTULO_ACAO[t.acao] : 'Resolvida'} · {dataBR(t.resolvidaEm)}</Text>),
-            )}
+            <View style={styles.lista}>{resolvidas.filter(doSetor).sort(ordenar).map((t) =>
+              cartao(t, <Text style={[styles.tag, { color: '#178553' }]}>✓ {t.acao ? ROTULO_ACAO[t.acao] : 'Resolvida'} · {dataBR(t.resolvidaEm)}</Text>),
+            )}</View>
             {!carregando && !resolvidas.length && <Text style={styles.vazio}>Nenhuma resolvida nos últimos 7 dias.</Text>}
           </>
         )}
@@ -961,7 +1030,7 @@ function TelaEncarregado({ onVoltar }: { onVoltar: () => void }) {
             </View>
           );
         })}
-        {!carregando && !lista.length && <Text style={styles.vazio}>Nenhum produto de ruptura para o seu setor agora. 👍</Text>}
+        {!carregando && !lista.length && <Text style={styles.vazio}>Nenhum produto de ruptura para o seu setor agora.</Text>}
       </ScrollView>
 
       <Modal visible={!!naoAchei} transparent animationType="fade" onRequestClose={() => setNaoAchei(null)}>
@@ -987,14 +1056,38 @@ function TelaEncarregado({ onVoltar }: { onVoltar: () => void }) {
 
 const styles = StyleSheet.create({
   tela: { flex: 1, backgroundColor: colors.gray50 },
-  abas: { flexDirection: 'row', gap: 6, paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: 2 },
-  aba: { flexDirection: 'row', alignItems: 'center', gap: 5, minHeight: 40, paddingVertical: 8, paddingHorizontal: 14, borderRadius: radius.full, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100 },
-  abaAtiva: { backgroundColor: AZUL, borderColor: AZUL },
-  abaTexto: { fontSize: 13, lineHeight: 18, fontWeight: '700', color: colors.navy700 },
-  abaTextoAtivo: { color: colors.white },
-  abaNum: { minWidth: 18, paddingHorizontal: 5, height: 18, borderRadius: 9, backgroundColor: colors.gray100, alignItems: 'center', justifyContent: 'center' },
-  abaNumAtivo: { backgroundColor: 'rgba(255,255,255,0.25)' },
-  abaNumTexto: { fontSize: 10.5, fontWeight: '800', color: colors.navy700 },
+  abasBarra: { flexGrow: 0, flexShrink: 0, backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.gray100 },
+  abas: { flexDirection: 'row', gap: 18, paddingHorizontal: spacing.lg },
+  aba: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingTop: 13, paddingBottom: 10, borderBottomWidth: 2.5, borderBottomColor: 'transparent' },
+  abaAtiva: { borderBottomColor: AZUL },
+  abaTexto: { fontSize: 13.5, lineHeight: 18, fontWeight: '600', color: colors.gray400 },
+  abaTextoAtivo: { color: colors.navy900 },
+  abaNum: { minWidth: 20, paddingHorizontal: 6, height: 18, borderRadius: 5, backgroundColor: colors.gray50, alignItems: 'center', justifyContent: 'center' },
+  abaNumAtivo: { backgroundColor: '#E8F0FF' },
+  abaNumTexto: { fontSize: 11, fontWeight: '700', color: colors.gray600 },
+  kpis: { flexDirection: 'row', gap: 8, marginBottom: spacing.md },
+  kpi: { flex: 1, backgroundColor: colors.white, borderWidth: 1, borderColor: colors.gray100, borderRadius: 10, paddingVertical: 9, paddingHorizontal: 10 },
+  kpiNum: { fontSize: 18, fontWeight: '700', color: colors.navy900, fontVariant: ['tabular-nums'] },
+  kpiRot: { fontSize: 11, color: colors.gray600, marginTop: 1, lineHeight: 14 },
+  gavetaTopo: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 13, paddingHorizontal: 12 },
+  gavetaTopoAberta: { borderBottomWidth: 1, borderBottomColor: colors.gray100, backgroundColor: '#FAFBFD' },
+  gavetaTitulo: { fontSize: 14, fontWeight: '600', color: colors.navy900 },
+  gavetaResumo: { fontSize: 11.5, marginTop: 2 },
+  gavetaNum: { minWidth: 26, height: 22, paddingHorizontal: 7, borderRadius: 6, backgroundColor: colors.gray50, alignItems: 'center', justifyContent: 'center' },
+  gavetaNumTexto: { fontSize: 12, fontWeight: '700', color: colors.gray600, fontVariant: ['tabular-nums'] },
+  grupoTitulo: { fontSize: 11.5, fontWeight: '700', letterSpacing: 0.6, color: colors.gray600, textTransform: 'uppercase' },
+  lista: { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100, overflow: 'hidden' },
+  ponto: { width: 7, height: 7, borderRadius: 4, marginHorizontal: 3 },
+  itemLinhaDet: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', marginTop: 2 },
+  dados: { flexDirection: 'row', marginTop: 9 },
+  dado: { flex: 1 },
+  dadoRot: { fontSize: 9.5, fontWeight: '700', letterSpacing: 0.7, color: colors.gray400 },
+  dadoVal: { fontSize: 13.5, fontWeight: '600', color: colors.navy900, marginTop: 1, fontVariant: ['tabular-nums'] },
+  dadoVermelho: { color: '#C0352B' },
+  dadoObs: { fontSize: 11.5, fontWeight: '500', color: colors.gray600 },
+  seloLinha: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 8 },
+  seloTexto: { fontSize: 12.5, fontWeight: '600' },
+  faixaAlerta: { position: 'absolute', left: 0, top: 10, bottom: 10, width: 3, borderTopRightRadius: 3, borderBottomRightRadius: 3, backgroundColor: '#C0352B' },
   chipRota: { backgroundColor: '#E3EDFF', borderColor: '#E3EDFF' },
   selos: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 6 },
   selo: { fontSize: 11, fontWeight: '700', paddingHorizontal: 7, paddingVertical: 2, borderRadius: radius.full, overflow: 'hidden' },
@@ -1016,9 +1109,9 @@ const styles = StyleSheet.create({
   nota: { fontSize: 12, color: colors.gray600, marginBottom: spacing.sm },
   secTopo: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: spacing.sm },
   secTitulo: { fontSize: 15, fontWeight: '800' },
-  item: { backgroundColor: colors.white, borderRadius: radius.md, borderWidth: 1, borderColor: colors.gray100, padding: spacing.md, marginBottom: spacing.sm },
-  itemNome: { fontSize: 14, fontWeight: '700', color: colors.navy900 },
-  itemDet: { fontSize: 11.5, color: colors.gray600, marginTop: 2 },
+  item: { backgroundColor: colors.white, borderBottomWidth: 1, borderBottomColor: colors.gray50, paddingVertical: 13, paddingLeft: 14, paddingRight: 12 },
+  itemNome: { fontSize: 14, fontWeight: '600', color: colors.navy900, lineHeight: 19 },
+  itemDet: { fontSize: 12, color: colors.gray600 },
   tag: { fontSize: 11.5, color: AZUL, fontWeight: '700', marginTop: 6 },
   oQueFazer: { fontSize: 13, color: colors.navy700, fontWeight: '600', marginTop: 6 },
   linhaBotoes: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: spacing.sm },
