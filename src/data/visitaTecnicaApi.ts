@@ -67,6 +67,19 @@ export const TEMAS_LIVRE: { nome: string; dica: string }[] = [
   { nome: 'Outros', dica: 'Qualquer outro ponto identificado.' },
 ];
 
+// Nota final do modelo livre: o próprio veterinário dá de 0 a 100.
+export const FAIXAS_NOTA_LIVRE: { min: number; texto: string; cor: string; fundo: string }[] = [
+  { min: 97, texto: 'Excelente', cor: '#0B7A3E', fundo: '#DCF5E6' },
+  { min: 94, texto: 'Muito bom', cor: '#15803D', fundo: '#E3F6EA' },
+  { min: 90, texto: 'Bom', cor: '#3F7D20', fundo: '#EEF7E3' },
+  { min: 85, texto: 'Regular', cor: '#A16207', fundo: '#FEF6DC' },
+  { min: 80, texto: 'Atenção', cor: '#C2410C', fundo: '#FFEDD5' },
+  { min: 0, texto: 'Ruim', cor: '#B42318', fundo: '#FDE4E1' },
+];
+export function faixaNotaLivre(n: number) {
+  return FAIXAS_NOTA_LIVRE.find((f) => n >= f.min) ?? FAIXAS_NOTA_LIVRE[FAIXAS_NOTA_LIVRE.length - 1];
+}
+
 export function modeloDoSetor(setor: SetorVisita, escolhido: ModeloVisita): ModeloVisita {
   return setor === 'geral' ? 'perguntas' : escolhido;
 }
@@ -302,6 +315,7 @@ export async function gravarCabecalhoVisita(v: {
   localizacaoEndereco: string | null;
   consideracoesFinais: string | null;
   acompanhante?: AcompanhanteVisita | null;
+  modelo?: ModeloVisita;
 }): Promise<void> {
   const a = v.acompanhante;
   const { error } = await supabase.from('visitas_tecnicas').upsert(
@@ -317,6 +331,7 @@ export async function gravarCabecalhoVisita(v: {
       localizacao_lng: v.localizacaoLng,
       localizacao_endereco: v.localizacaoEndereco,
       consideracoes_finais: v.consideracoesFinais,
+      ...(v.modelo ? { modelo: v.modelo } : {}),
       ...(a
         ? { acompanhante_nome: a.nome || null, acompanhante_funcao: a.funcao || null, acompanhante_assinatura: a.assinatura, acompanhante_ausente: a.ausente }
         : {}),
@@ -420,6 +435,7 @@ export async function finalizarVisita(dados: {
   // sair na mesma sequência do checklist.
   ordemPerguntas?: string[];
   modelo?: ModeloVisita;
+  notaLivre?: number | null;
 }): Promise<VisitaTecnica> {
   if (dados.modelo === 'livre') return finalizarVisitaLivre(dados);
   const respostas = await buscarRespostasDaVisita(dados.visitaId);
@@ -501,7 +517,9 @@ async function finalizarVisitaLivre(dados: {
   passosContados?: number | null;
   finalizadaEm?: string;
   consideracoesFinais?: string | null;
+  notaLivre?: number | null;
 }): Promise<VisitaTecnica> {
+  const nota = dados.notaLivre ?? null;
   const apontamentos = ordenarApontamentos((await buscarRespostasDaVisita(dados.visitaId)).filter((r) => r.resposta === 'nao'));
   const nomeSetor = nomeDoSetorVisita(dados.setor);
 
@@ -510,6 +528,7 @@ async function finalizarVisitaLivre(dados: {
     const linhas = apontamentos.map((r, i) => `${i + 1}. [${r.perguntaTexto}] ${r.justificativa ?? ''}`).join('\n');
     const descricao =
       `Visita Técnica (veterinário) finalizada por ${dados.veterinarioNome}.\n` +
+      (nota != null ? `Nota do veterinário: ${nota} (${faixaNotaLivre(nota).texto}).\n` : '') +
       `${apontamentos.length} apontamento(s) para corrigir:\n${linhas}` +
       (dados.consideracoesFinais ? `\n\nConsiderações finais: ${dados.consideracoesFinais}` : '');
     const { data: tarefa, error: erroTarefa } = await supabase
@@ -538,7 +557,8 @@ async function finalizarVisitaLivre(dados: {
       pontos_realizados: null,
       nao_conformidades: apontamentos.length,
       criticos_nao_conformes: 0,
-      aproveitamento: null,
+      aproveitamento: nota,
+      modelo: 'livre',
       tarefa_id: tarefaId,
       passos_contados: dados.passosContados ?? null,
       consideracoes_finais: dados.consideracoesFinais ?? null,

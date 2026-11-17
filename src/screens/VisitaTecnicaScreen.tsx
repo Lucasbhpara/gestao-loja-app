@@ -25,7 +25,9 @@ import {
   ModeloVisita,
   RespostaVisita,
   SETORES_VISITA,
+  FAIXAS_NOTA_LIVRE,
   TEMAS_LIVRE,
+  faixaNotaLivre,
   modeloDoSetor,
   SetorVisita,
   UNIDADE_DA_LOJA,
@@ -51,6 +53,7 @@ import {
   MAX_FOTOS,
   acompanhanteLocal,
   adicionarFotoApontamento,
+  notaLivreLocal,
   adicionarFotoLocal,
   apontamentosDaVisita,
   novoApontamento,
@@ -765,7 +768,7 @@ function PainelUnidade({
                 { icone: 'grid' as const, texto: 'Escolha o setor; as perguntas ficam em gavetas por assunto (Temperatura, Câmara fria…).' },
                 { icone: 'alert-triangle' as const, texto: 'Responda Sim (conforme), Não ou N/A. Itens CRÍTICO e com 📷 pedem atenção e foto.' },
                 { icone: 'wifi-off' as const, texto: 'Sem sinal na câmara? Pode continuar: tudo fica salvo e é enviado depois.' },
-                { icone: 'send' as const, texto: 'Finalize cada setor e, no fim, toque em "Finalizar visita e gerar PDF": sai um arquivo só, um setor por folha. Cada "Não" vira tarefa do encarregado.' },
+                { icone: 'send' as const, texto: 'Finalize cada setor (no modelo livre, com a sua nota de 0 a 100) e, no fim, toque em "Finalizar visita e gerar PDF": sai um arquivo só, um setor por folha. Cada "Não" vira tarefa do encarregado.' },
               ].map((p, i) => (
                 <View key={i} style={styles.passo}>
                   <View style={styles.passoIcone}>
@@ -780,7 +783,7 @@ function PainelUnidade({
           <Text style={styles.secaoTitulo}>Modelo do checklist</Text>
           <View style={styles.modeloLinha}>
             {([
-              { m: 'livre' as ModeloVisita, titulo: 'Apontamentos livres', sub: '5 temas · texto e fotos · sem nota' },
+              { m: 'livre' as ModeloVisita, titulo: 'Apontamentos livres', sub: '5 temas · texto e fotos · nota final do veterinário' },
               { m: 'perguntas' as ModeloVisita, titulo: 'Perguntas com nota', sub: 'Sim / Não / N/A · aproveitamento %' },
             ]).map((o) => (
               <TouchableOpacity key={o.m} style={[styles.modeloOpcao, modelo === o.m && styles.modeloOpcaoAtiva]} onPress={() => escolherModelo(o.m)} activeOpacity={0.85}>
@@ -1547,10 +1550,16 @@ function FormularioLivre({ visitaId, onVoltar }: { visitaId: string; onVoltar: (
 
   function finalizar() {
     if (!visita) return;
+    const nota = visitaLocal(visitaId)?.notaLivre;
+    if (nota == null) {
+      Alert.alert('Falta a nota do setor', 'Dê a nota final do setor (0 a 100) no card "Nota final do setor", no fim da tela.');
+      return;
+    }
     if (!acompanhanteOk(visitaId)) return;
     const n = preenchidos.length;
     Alert.alert(
       `Finalizar ${nomeDoSetorVisita(setor)}`,
+      `Nota final: ${nota} · ${faixaNotaLivre(nota).texto}\n` +
       (n
         ? `${n} apontamento(s) registrado(s).`
         : 'Nenhum apontamento registrado — o setor fica como "sem apontamentos".') +
@@ -1706,6 +1715,7 @@ function FormularioLivre({ visitaId, onVoltar }: { visitaId: string; onVoltar: (
             multiline
           />
         </View>
+        <CardNotaLivre visitaId={visitaId} />
         <CardAcompanhante visitaId={visitaId} setor={setor} />
       </ScrollView>
 
@@ -1718,6 +1728,70 @@ function FormularioLivre({ visitaId, onVoltar }: { visitaId: string; onVoltar: (
         </TouchableOpacity>
       </View>
     </AreaTeclado>
+  );
+}
+
+// Nota final do modelo livre: o veterinário dá de 0 a 100 e o app mostra a
+// faixa (Excelente, Muito bom, Bom, Regular, Atenção, Ruim). Obrigatória.
+function CardNotaLivre({ visitaId }: { visitaId: string }) {
+  useOffline();
+  const atual = visitaLocal(visitaId)?.notaLivre ?? null;
+  const [texto, setTexto] = useState(atual != null ? String(atual).replace('.', ',') : '');
+  const valor = texto.trim() === '' ? null : Number(texto.replace(',', '.'));
+  const valida = valor != null && !Number.isNaN(valor) && valor >= 0 && valor <= 100;
+  const faixa = valida ? faixaNotaLivre(valor!) : null;
+  function salvar() {
+    if (texto.trim() === '') return notaLivreLocal(visitaId, null);
+    if (!valida) {
+      Alert.alert('Nota inválida', 'A nota vai de 0 a 100.');
+      return;
+    }
+    const n = Math.round(valor! * 10) / 10;
+    notaLivreLocal(visitaId, n);
+    setTexto(String(n).replace('.', ','));
+  }
+  return (
+    <View style={[styles.consideracoesCard, faixa && atual != null && { borderWidth: 1.5, borderColor: faixa.fundo }]}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginBottom: spacing.sm }}>
+        <Feather name="award" size={16} color={colors.navy700} />
+        <Text style={[styles.consideracoesTitulo, { flex: 1 }]}>Nota final do setor</Text>
+        {atual != null ? <Feather name="check-circle" size={18} color="#1F9D55" /> : <Text style={styles.opcional}>obrigatório</Text>}
+      </View>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: spacing.md }}>
+        <TextInput
+          style={[styles.input, styles.notaInput]}
+          placeholder="0 a 100"
+          value={texto}
+          onChangeText={(t) => setTexto(t.replace(/[^0-9.,]/g, '').slice(0, 5))}
+          onBlur={salvar}
+          onSubmitEditing={salvar}
+          keyboardType="decimal-pad"
+          returnKeyType="done"
+          maxLength={5}
+        />
+        {faixa ? (
+          <View style={[styles.faixaChip, { backgroundColor: faixa.fundo }]}>
+            <Text style={[styles.faixaChipTexto, { color: faixa.cor }]}>{faixa.texto}</Text>
+          </View>
+        ) : (
+          <Text style={[styles.opcional, { flex: 1 }]}>Sua avaliação geral do setor.</Text>
+        )}
+      </View>
+      <View style={styles.faixasLegenda}>
+        {FAIXAS_NOTA_LIVRE.map((f, i) => {
+          const ate = i === 0 ? 100 : FAIXAS_NOTA_LIVRE[i - 1].min;
+          const ativa = faixa?.texto === f.texto;
+          return (
+            <View key={f.texto} style={[styles.faixaItem, ativa && { backgroundColor: f.fundo }]}>
+              <View style={[styles.faixaPonto, { backgroundColor: f.cor }]} />
+              <Text style={[styles.faixaTexto, ativa && { fontWeight: '800', color: f.cor }]}>
+                {f.min === 0 ? 'abaixo de 80' : i === 0 ? '97 a 100' : `${f.min} a ${ate}`} · {f.texto}
+              </Text>
+            </View>
+          );
+        })}
+      </View>
+    </View>
   );
 }
 
@@ -1903,6 +1977,13 @@ const styles = StyleSheet.create({
   linhaNome: { fontSize: 13.5, fontWeight: '700', color: colors.gray900 },
   linhaMeta: { fontSize: 11, color: colors.gray600, marginTop: 2 },
   modeloLinha: { gap: spacing.sm },
+  notaInput: { width: 110, fontSize: 22, fontWeight: '800', textAlign: 'center', minHeight: 52 },
+  faixaChip: { borderRadius: 18, paddingHorizontal: 14, paddingVertical: 8 },
+  faixaChipTexto: { fontSize: 15, fontWeight: '800' },
+  faixasLegenda: { marginTop: spacing.md, gap: 2 },
+  faixaItem: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 8 },
+  faixaPonto: { width: 8, height: 8, borderRadius: 4 },
+  faixaTexto: { fontSize: 12, color: colors.gray600 },
   chipFuncao: { borderWidth: 1.5, borderColor: colors.navy700, borderRadius: 18, paddingHorizontal: 14, height: 34, justifyContent: 'center' },
   chipFuncaoAtivo: { backgroundColor: colors.navy700 },
   chipFuncaoTexto: { color: colors.navy700, fontWeight: '700', fontSize: 13 },
