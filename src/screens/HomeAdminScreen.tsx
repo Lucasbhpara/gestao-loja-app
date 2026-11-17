@@ -60,7 +60,7 @@ import { ehDonoMatricula } from '../data/donos';
 // porque o id muda de formato ao migrar para o Supabase.
 // Lucas e Rodrigo (ver src/data/donos.ts).
 // Giro de Produtos: Lucas, Rodrigo e Valmir.
-const MATRICULAS_GIRO = ['7990353', '9728010', '999999'];
+const MATRICULAS_GIRO = ['7990353', '9728010', '9728646', '999999'];
 
 export default function HomeAdminScreen() {
   const { usuarioAtual, logout, usandoNuvem } = useAuth();
