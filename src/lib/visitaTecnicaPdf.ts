@@ -7,6 +7,7 @@ import {
   SETORES_VISITA,
   TEMAS_LIVRE,
   VisitaTecnica,
+  faixaNotaLivre,
   ordenarApontamentos,
   buscarPerguntasDoSetor,
   buscarRespostasDaVisita,
@@ -93,7 +94,12 @@ function montarPaginaLivre(dados: DadosVisita): PaginaUlva {
       );
     })
     .join('');
+  const nota = visita.aproveitamento;
+  const fx = nota != null ? faixaNotaLivre(nota) : null;
   const kpis =
+    (fx
+      ? kpi('Nota do veterinário', `${String(nota).replace('.', ',')}<span class="classif" style="color:${fx.cor};background:${fx.fundo}">${fx.texto}</span>`, fx.cor)
+      : '') +
     kpi('Apontamentos', String(apont.length), apont.length ? PDF_VERMELHO : PDF_VERDE) +
     kpi('Temas com apontamento', `${temasCom.size} de ${TEMAS_LIVRE.length}`) +
     kpi('Fotos', String(totalFotos));
@@ -201,7 +207,7 @@ async function carregarDadosVisita(visita: VisitaTecnica): Promise<DadosVisita> 
     buscarRespostasDaVisita(visita.id),
   ]);
   const contexto = await contextoVisitaTecnica(
-    { id: visita.id, setor: visita.setor, unidade: visita.unidade, finalizadaEm: visita.finalizadaEm, tarefaId: visita.tarefaId },
+    { id: visita.id, setor: visita.setor, unidade: visita.unidade, finalizadaEm: visita.finalizadaEm, tarefaId: visita.tarefaId, modelo: visita.modelo },
     nomeDoSetorVisita(visita.setor),
     respostas.filter((r) => r.resposta === 'nao').map((r) => ({ texto: r.perguntaTexto, critico: !!r.critico })),
   );
@@ -251,7 +257,7 @@ export async function compartilharVisitaCompleta(visitasDoDia: VisitaTecnica[]):
       const nc = v.naoConformidades ?? 0;
       const cr = v.criticosNaoConformes ?? 0;
       return `<tr><td class="pn">${i + 1}</td><td><b>${esc(nomeDoSetorVisita(v.setor))}</b>${d.contexto?.numero ? `<div class="base">Nº ${esc(d.contexto.numero)}</div>` : ''}</td>
-        <td class="pc" style="color:${pct != null ? corAproveitamento(pct) : '#5B6280'};font-weight:700">${pct != null ? `${pct}%` : 'Sem nota'}</td>
+        <td class="pc" style="color:${pct != null ? corAproveitamento(pct) : '#5B6280'};font-weight:700">${pct != null ? (v.modelo === 'livre' ? `${String(pct).replace('.', ',')} · ${faixaNotaLivre(pct).texto}` : `${pct}%`) : 'Sem nota'}</td>
         <td class="pc" style="color:${nc ? PDF_VERMELHO : PDF_VERDE};font-weight:700">${nc}</td>
         <td class="pc" style="color:${cr ? PDF_VERMELHO : PDF_VERDE};font-weight:700">${cr}</td>
         <td>${v.setor === 'geral' ? 'Gerência' : 'Encarregado · ' + esc(nomeDoSetorVisita(v.setor))}</td></tr>`;

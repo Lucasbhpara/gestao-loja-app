@@ -82,6 +82,7 @@ export interface VisitaLocal {
   apontamentos: Record<string, ApontamentoLocal>;
   removidos: string[]; // apontamentos já enviados que foram apagados no celular
   acompanhante: AcompanhanteVisita | null; // responsável da loja que acompanhou (assina no fim)
+  notaLivre: number | null; // modelo livre: nota final de 0 a 100 dada pelo veterinário
   setor: SetorVisita;
   unidade: string;
   veterinarioNome: string;
@@ -170,6 +171,7 @@ function limparEstado(e: Estado): Estado {
       ...v,
       modelo: (v as any).modelo === 'livre' ? 'livre' : 'perguntas',
       acompanhante: (v as any).acompanhante ?? null,
+      notaLivre: typeof (v as any).notaLivre === 'number' ? (v as any).notaLivre : null,
       respostas,
       apontamentos,
       removidos: Array.isArray((v as any).removidos) ? (v as any).removidos : [],
@@ -285,6 +287,7 @@ export function criarVisitaLocal(dados: {
     apontamentos: {},
     removidos: [],
     acompanhante: null,
+    notaLivre: null,
     setor: dados.setor,
     unidade: dados.unidade,
     veterinarioNome: dados.veterinarioNome,
@@ -330,6 +333,7 @@ export async function importarVisitaRemota(setor: SetorVisita, unidade: string, 
     apontamentos: {},
     removidos: [],
     acompanhante: remota.acompanhante,
+    notaLivre: null,
     setor: remota.setor,
     unidade,
     veterinarioNome: remota.veterinarioNome,
@@ -501,6 +505,13 @@ export function removerApontamento(visitaId: string, id: string) {
   persistir();
 }
 
+export function notaLivreLocal(visitaId: string, nota: number | null) {
+  const v = estado.visitas[visitaId];
+  if (!v || v.notaLivre === nota) return;
+  estado.visitas[visitaId] = { ...v, notaLivre: nota };
+  persistir();
+}
+
 export function acompanhanteLocal(visitaId: string, a: AcompanhanteVisita | null) {
   const v = estado.visitas[visitaId];
   if (!v) return;
@@ -536,7 +547,7 @@ export async function finalizarLocal(visitaId: string, perguntas: VisitaPergunta
       status: 'finalizada',
       finalizadaEm: new Date().toISOString(),
       cabecalhoPendente: true,
-      resultadoLocal: { aproveitamento: null, naoConformidades: Object.keys(atual.apontamentos).length, criticos: 0, naoAvaliadas: 0 },
+      resultadoLocal: { aproveitamento: atual.notaLivre ?? null, naoConformidades: Object.keys(atual.apontamentos).length, criticos: 0, naoAvaliadas: 0 },
     };
     avisar();
     await persistirAgora();
@@ -655,6 +666,7 @@ async function sincronizarVisita(id: string) {
       localizacaoEndereco: v.localizacaoEndereco,
       consideracoesFinais: v.consideracoes || null,
       acompanhante: v.acompanhante ?? null,
+      modelo: v.modelo,
     });
     v = estado.visitas[id];
     if (!v) return; // descartada enquanto enviava — não recria
@@ -763,6 +775,7 @@ async function sincronizarVisita(id: string) {
       perguntasNaoAvaliadas: v.resultadoLocal?.naoAvaliadas ?? 0,
       ordemPerguntas: ordem,
       modelo: v.modelo,
+      notaLivre: v.notaLivre ?? null,
     });
     if (estado.visitas[id]) estado.visitas[id] = { ...estado.visitas[id], resultadoNuvem: oficial };
   }
