@@ -1,4 +1,4 @@
-import { ContextoRelatorio, classificacao, contextoVisitaTecnica, htmlPlanoAcao, textoComparacao } from './contextoRelatorio';
+import { ContextoRelatorio, LinhaPlano, classificacao, contextoVisitaTecnica, htmlPlanoAcao, htmlResolucao, textoComparacao } from './contextoRelatorio';
 import { PaginaUlva, documentoUlva, documentoUlvaPaginas, kpi, rotulo, PDF_VERDE, PDF_VERMELHO, corAproveitamento } from './layoutPdf';
 import * as Print from 'expo-print';
 import {
@@ -22,6 +22,44 @@ import { compartilharPdf, dataParaNomeArquivo } from './compartilharPdf';
 function esc(texto: string): string {
   return texto.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 }
+
+// Foto no PDF: quando o Supabase aceita, usa uma versão reduzida da foto
+// (bem mais leve que a original da câmera, que tem vários MB) — é o que
+// deixava o PDF demorando. Testa uma vez por abertura do app; se a redução
+// não estiver disponível no projeto, segue com a foto original.
+const MARCA_PUBLICA = '/storage/v1/object/public/';
+let reducaoDisponivel: boolean | null = null;
+function urlReduzida(url: string): string {
+  return url.replace(MARCA_PUBLICA, '/storage/v1/render/image/public/') + (url.includes('?') ? '&' : '?') + 'width=480&quality=60&resize=contain';
+}
+async function testarReducao(exemplo: string | undefined): Promise<void> {
+  if (reducaoDisponivel !== null || !exemplo || !exemplo.includes(MARCA_PUBLICA)) return;
+  try {
+    const ctl = new AbortController();
+    const t = setTimeout(() => ctl.abort(), 5000);
+    const r = await fetch(urlReduzida(exemplo), { signal: ctl.signal });
+    clearTimeout(t);
+    reducaoDisponivel = r.ok && (r.headers.get('content-type') ?? '').startsWith('image/');
+  } catch {
+    reducaoDisponivel = false;
+  }
+}
+function fotoHtml(url: string): string {
+  const src = reducaoDisponivel && url.includes(MARCA_PUBLICA) ? urlReduzida(url) : url;
+  return `<img class="foto" src="${esc(src)}" />`;
+}
+function fotosHtml(urls: string[]): string {
+  return urls.length ? `<div class="fotos">${urls.map(fotoHtml).join('')}</div>` : '';
+}
+
+// Status do item no plano de ação, para o selo ao lado do apontamento.
+const SELO_PLANO: Record<LinhaPlano['status'], [string, string]> = {
+  pendente: ['Corrigir', 'b-nao'],
+  corrigido: ['Corrigido · aguardando', 'b-azul'],
+  nao_possivel: ['Não foi possível', 'b-na'],
+  aprovado: ['Concluído', 'b-sim'],
+  devolvido: ['Devolvido', 'b-nao'],
+};
 
 function dataHora(iso: string): string {
   const d = new Date(iso);
@@ -70,6 +108,7 @@ function localHtml(visita: VisitaTecnica): string {
 function montarPaginaLivre(dados: DadosVisita): PaginaUlva {
   const { visita, respostas, contexto } = dados;
   const apont = ordenarApontamentos(respostas.filter((r) => r.resposta === 'nao'));
+  const planoPorResposta = new Map((contexto?.plano ?? []).filter((l) => l.respostaId).map((l) => [l.respostaId!, l]));
   const totalFotos = apont.reduce((s, r) => s + r.fotosUrls.length, 0);
   const temasCom = new Set(apont.map((r) => r.perguntaTexto));
   const nomesTemas = [...TEMAS_LIVRE.map((t) => t.nome), ...Array.from(temasCom).filter((t) => !TEMAS_LIVRE.some((x) => x.nome === t))];
@@ -84,11 +123,16 @@ function montarPaginaLivre(dados: DadosVisita): PaginaUlva {
         rotulo(tema, `${doTema.length} ${doTema.length === 1 ? 'apontamento' : 'apontamentos'}`) +
         doTema
           .map(
-            (r) => `<div class="item ruim">
-          <div class="topo"><div class="texto">${++n}. ${esc(r.justificativa || '(sem texto)')}</div><span class="badge b-nao">Corrigir</span></div>
-          ${r.fotosUrls.length ? `<div class="fotos">${r.fotosUrls.map((u) => `<img class="foto" src="${u}" />`).join('')}</div>` : ''}
-          <div class="det" style="margin-top:6px">Corrigido em ____/____ por _______________________</div>
-        </div>`,
+            (r) => {
+              const l = planoPorResposta.get(r.id);
+              const [selo, cls] = SELO_PLANO[l?.status ?? 'pendente'];
+              const resolucao = l ? htmlResolucao(l) : '';
+              return `<div class="item ${l?.status === 'aprovado' ? '' : 'ruim'}">
+          <div class="topo"><div class="texto">${++n}. ${esc(r.justificativa || '(sem texto)')}</div><span class="badge ${cls}">${selo}</span></div>
+          ${fotosHtml(r.fotosUrls)}
+          ${resolucao || '<div class="det" style="margin-top:6px">Corrigido em ____/____ por _______________________</div>'}
+        </div>`;
+            },
           )
           .join('')
       );
@@ -122,6 +166,7 @@ function montarPaginaVisita(dados: DadosVisita): PaginaUlva {
   if (dados.visita.modelo === 'livre') return montarPaginaLivre(dados);
   const { visita, perguntas, respostas, contexto } = dados;
   const porPergunta = new Map(respostas.filter((r) => r.perguntaId).map((r) => [r.perguntaId!, r]));
+  const planoPorResposta = new Map((contexto?.plano ?? []).filter((l) => l.respostaId).map((l) => [l.respostaId!, l]));
   const pct = visita.aproveitamento ?? 0;
 
   let grupoAtual: string | null = null;
@@ -130,6 +175,7 @@ function montarPaginaVisita(dados: DadosVisita): PaginaUlva {
   const itens = perguntas
     .map((p, i) => {
       const r = porPergunta.get(p.id);
+      const lp = r ? planoPorResposta.get(r.id) : undefined;
       // Sem resposta: "Não avaliada" (visita finalizada antes de terminar).
       // Pergunta desativada depois e sem resposta não entra.
       if (!r && !p.ativo) return '';
@@ -147,7 +193,8 @@ function montarPaginaVisita(dados: DadosVisita): PaginaUlva {
           <div class="topo"><div class="texto">${i + 1}. ${esc(p.texto)}${crit}</div>${selo(r.resposta)}</div>
           ${p.baseManual ? `<div class="base">Base: ${esc(p.baseManual)}</div>` : ''}
           ${r.justificativa ? `<div class="det"><b>Observação:</b> ${esc(r.justificativa)}</div>` : ''}
-          ${r.fotosUrls.length ? `<div class="fotos">${r.fotosUrls.map((u) => `<img class="foto" src="${u}" />`).join('')}</div>` : ''}
+          ${fotosHtml(r.fotosUrls)}
+          ${lp ? htmlResolucao(lp) : ''}
         </div>`;
     })
     .join('');
@@ -160,7 +207,7 @@ function montarPaginaVisita(dados: DadosVisita): PaginaUlva {
       (r) => `<div class="item ${r.resposta === 'nao' ? 'ruim' : ''}">
           <div class="topo"><div class="texto">${esc(r.perguntaTexto)}${r.critico ? ' <span class="critico">CRÍTICO</span>' : ''}</div>${selo(r.resposta)}</div>
           ${r.justificativa ? `<div class="det"><b>Observação:</b> ${esc(r.justificativa)}</div>` : ''}
-          ${r.fotosUrls.length ? `<div class="fotos">${r.fotosUrls.map((u) => `<img class="foto" src="${u}" />`).join('')}</div>` : ''}
+          ${fotosHtml(r.fotosUrls)}
         </div>`,
     )
     .join('');
@@ -206,6 +253,7 @@ async function carregarDadosVisita(visita: VisitaTecnica): Promise<DadosVisita> 
     buscarPerguntasDoSetor(visita.setor, true),
     buscarRespostasDaVisita(visita.id),
   ]);
+  await testarReducao(respostas.find((r) => r.fotosUrls.length)?.fotosUrls[0]);
   const contexto = await contextoVisitaTecnica(
     { id: visita.id, setor: visita.setor, unidade: visita.unidade, finalizadaEm: visita.finalizadaEm, tarefaId: visita.tarefaId, modelo: visita.modelo },
     nomeDoSetorVisita(visita.setor),
