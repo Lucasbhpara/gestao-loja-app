@@ -11,7 +11,12 @@ export type LinhaPlano = {
   responsavel: string;
   prazo: string | null; // AAAA-MM-DD
   status: 'pendente' | 'corrigido' | 'nao_possivel' | 'aprovado' | 'devolvido';
-  quem: string | null;
+  quem: string | null; // quem resolveu (encarregado)
+  quando: string | null; // quando resolveu (ISO)
+  comentario: string | null; // o que foi feito
+  respostaId: string | null; // liga o item à resposta/apontamento da visita
+  conferidoPor: string | null; // quem conferiu (aprovou/devolveu)
+  conferidoEm: string | null;
 };
 export type ContextoRelatorio = {
   numero: string | null;
@@ -21,6 +26,22 @@ export type ContextoRelatorio = {
 
 const esc = (t: string) => String(t ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const dataBr = (iso: string) => iso.slice(0, 10).split('-').reverse().join('/');
+// Data e hora no fuso do celular: "18/11/2026 às 14:32".
+export const dataHoraBr = (iso: string) => {
+  const d = new Date(iso);
+  return d.toLocaleDateString('pt-BR') + ' às ' + d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
+};
+
+// Texto curto da conferência de um item: quem resolveu, quando, o que fez
+// e quem conferiu. Vazio se ninguém mexeu ainda.
+export function htmlResolucao(l: LinhaPlano): string {
+  if (!l.quem && !l.quando && !l.comentario) return '';
+  const partes: string[] = [];
+  if (l.quem || l.quando) partes.push(`<b>Resolvido por:</b> ${esc(l.quem ?? '—')}${l.quando ? ` em ${dataHoraBr(l.quando)}` : ''}`);
+  if (l.comentario) partes.push(`<b>O que foi feito:</b> ${esc(l.comentario)}`);
+  if (l.conferidoPor) partes.push(`<b>Conferido por:</b> ${esc(l.conferidoPor)}${l.conferidoEm ? ` em ${dataHoraBr(l.conferidoEm)}` : ''}`);
+  return `<div class="det" style="margin-top:4px">${partes.join('<br/>')}</div>`;
+}
 
 export function formatarNumero(prefixo: string, numero: number | null | undefined, iso: string | null | undefined): string | null {
   if (numero == null) return null;
@@ -30,13 +51,21 @@ export function formatarNumero(prefixo: string, numero: number | null | undefine
 
 async function planoDaTarefa(tarefaId: string | null, responsavel: string, naoConformes: { texto: string; critico: boolean }[]): Promise<LinhaPlano[]> {
   let prazo: string | null = null;
+  let conferidoPor: string | null = null;
+  let conferidoEm: string | null = null;
   let itens: any[] = [];
   if (tarefaId) {
     const [t, c] = await Promise.all([
-      supabase.from('tarefas').select('prazo, concluida').eq('id', tarefaId).maybeSingle(),
-      supabase.from('correcao_itens').select('pergunta_texto, critico, status, aprovacao, respondido_por').eq('tarefa_id', tarefaId).order('criado_em'),
+      supabase.from('tarefas').select('prazo, concluida, correcao_avaliada_por, correcao_avaliada_em').eq('id', tarefaId).maybeSingle(),
+      supabase
+        .from('correcao_itens')
+        .select('pergunta_texto, critico, status, aprovacao, respondido_por, respondido_em, comentario, resposta_id')
+        .eq('tarefa_id', tarefaId)
+        .order('criado_em'),
     ]);
     prazo = (t.data as any)?.prazo ?? null;
+    conferidoPor = (t.data as any)?.correcao_avaliada_por ?? null;
+    conferidoEm = (t.data as any)?.correcao_avaliada_em ?? null;
     itens = (c.data as any[]) ?? [];
   }
   if (itens.length) {
@@ -47,9 +76,26 @@ async function planoDaTarefa(tarefaId: string | null, responsavel: string, naoCo
       prazo,
       status: i.aprovacao === 'aprovado' ? 'aprovado' : i.aprovacao === 'devolvido' ? 'devolvido' : i.status === 'corrigido' ? 'corrigido' : i.status === 'nao_possivel' ? 'nao_possivel' : 'pendente',
       quem: i.respondido_por ?? null,
+      quando: i.respondido_em ?? null,
+      comentario: i.comentario ?? null,
+      respostaId: i.resposta_id ?? null,
+      conferidoPor: i.aprovacao ? conferidoPor : null,
+      conferidoEm: i.aprovacao ? conferidoEm : null,
     }));
   }
-  return naoConformes.map((n) => ({ item: n.texto, critico: n.critico, responsavel, prazo, status: 'pendente', quem: null }));
+  return naoConformes.map((n) => ({
+    item: n.texto,
+    critico: n.critico,
+    responsavel,
+    prazo,
+    status: 'pendente',
+    quem: null,
+    quando: null,
+    comentario: null,
+    respostaId: null,
+    conferidoPor: null,
+    conferidoEm: null,
+  }));
 }
 
 export async function contextoChecklist(
@@ -138,11 +184,17 @@ export function htmlPlanoAcao(ctx: ContextoRelatorio | null | undefined): string
   const linhas = p
     .map((l, i) => {
       const [txt, cls] = STATUS[l.status];
-      return `<tr><td class="pn">${i + 1}</td><td>${esc(l.item)}${l.critico ? ' <span class="critico">CRÍTICO</span>' : ''}</td><td>${esc(l.responsavel)}</td><td class="pc">${l.prazo ? dataBr(l.prazo) : '—'}</td><td class="pc"><span class="badge ${cls}">${txt}</span></td></tr>`;
+      const quem = l.quem || l.quando ? `${esc(l.quem ?? '—')}${l.quando ? `<div class="base">${dataHoraBr(l.quando)}</div>` : ''}` : '—';
+      return `<tr><td class="pn">${i + 1}</td><td>${esc(l.item)}${l.critico ? ' <span class="critico">CRÍTICO</span>' : ''}${
+        l.comentario ? `<div class="base">O que foi feito: ${esc(l.comentario)}</div>` : ''
+      }</td><td>${esc(l.responsavel)}</td><td class="pc">${l.prazo ? dataBr(l.prazo) : '—'}</td><td>${quem}</td><td class="pc"><span class="badge ${cls}">${txt}</span></td></tr>`;
     })
     .join('');
   const feitos = p.filter((l) => l.status === 'aprovado').length;
+  const conf = p.find((l) => l.conferidoPor);
   return `${rotulo('Plano de ação', `${feitos} de ${p.length} concluídos`)}
-<table class="plano"><thead><tr><th class="pn">#</th><th>Não conformidade</th><th>Responsável</th><th class="pc">Prazo</th><th class="pc">Status</th></tr></thead><tbody>${linhas}</tbody></table>`;
+<table class="plano"><thead><tr><th class="pn">#</th><th>Não conformidade</th><th>Responsável</th><th class="pc">Prazo</th><th>Resolvido por / quando</th><th class="pc">Status</th></tr></thead><tbody>${linhas}</tbody></table>${
+    conf ? `<div class="base" style="margin-top:6px">Correções conferidas por ${esc(conf.conferidoPor!)}${conf.conferidoEm ? ` em ${dataHoraBr(conf.conferidoEm)}` : ''}.</div>` : ''
+  }`;
 }
 
