@@ -1,0 +1,19 @@
+name: tmp listar perguntas visita
+on:
+  push:
+    branches: [tmp-perguntas-leitura]
+jobs:
+  ler:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Listar perguntas ativas
+        run: |
+          K='sb_publishable_Kk5u4REY7PUWKMpx9wlZnA_BXgfqrxF'
+          curl -s "https://llstmcmgormolhbnszap.supabase.co/rest/v1/visita_tecnica_perguntas?select=id,setor,ordem,grupo,texto,foto_obrigatoria,ativo&ativo=eq.true&order=setor,ordem" -H "apikey: $K" -H "Authorization: Bearer $K" > p.json
+          python3 -c "
+          import json
+          d=json.load(open('p.json'));n={}
+          for p in d:
+            n[p['setor']]=n.get(p['setor'],0)+1
+            print('PQ|'+p['setor']+'|'+str(n[p['setor']])+'|'+p['id']+'|'+str(p['foto_obrigatoria'])+'|'+(p['grupo'] or '')+'|'+p['texto'])
+          "
