@@ -391,6 +391,7 @@ function PainelUnidade({
   const [compartilhandoDia, setCompartilhandoDia] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
   const [mostrarComoFunciona, setMostrarComoFunciona] = useState(false);
+  const [mostrarAjustes, setMostrarAjustes] = useState(false);
   const [paraAprovar, setParaAprovar] = useState<Tarefa[]>([]);
   const [aprovando, setAprovando] = useState<Tarefa | null>(null);
   // Modelo do checklist (em teste): guardado no celular. Visita já começada
@@ -631,7 +632,7 @@ function PainelUnidade({
     <View style={styles.flex}>
       <ScrollView
         style={styles.flex}
-        contentContainerStyle={{ paddingBottom: 48 }}
+        contentContainerStyle={{ paddingBottom: setoresHoje.length || setoresEmAndamento.length ? 170 : 48 }}
         refreshControl={
           <RefreshControl
             refreshing={atualizando}
@@ -732,72 +733,24 @@ function PainelUnidade({
             </View>
           )}
 
-          {paraAprovar.length > 0 && (
-            <>
-              <Text style={styles.secaoTitulo}>Correções para aprovar</Text>
-              <View style={styles.listaCard}>
-                {paraAprovar.map((t, i) => (
-                  <TouchableOpacity key={t.id} style={[styles.linhaFinalizada, i > 0 && styles.linhaDivisor]} onPress={() => setAprovando(t)}>
-                    <View style={[styles.linhaIcone, { backgroundColor: '#FFF1DC' }]}>
-                      <Feather name="check-circle" size={15} color="#B4650E" />
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.linhaNome}>{t.titulo.replace('Visita Técnica — ', '')}</Text>
-                      <Text style={styles.linhaMeta}>Corrigido por {t.correcaoEnviadaPor ?? '—'}{t.correcaoRodada > 1 ? ` · rodada ${t.correcaoRodada}` : ''}</Text>
-                    </View>
-                    <Text style={styles.tileAcao}>Avaliar</Text>
-                    <Feather name="chevron-right" size={16} color={colors.navy700} />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </>
-          )}
-
-          <View style={{ marginTop: spacing.lg }}>
-            <ValidadeDocumentosCard unidade={unidade} usuarioNome={usuarioNome} modo="resumo" />
+          <View style={styles.setoresTituloLinha}>
+            <Text style={[styles.secaoTitulo, { marginTop: 0, marginBottom: 0, flex: 1 }]}>Setores</Text>
+            <Text style={styles.setoresContagem}>
+              {setoresHoje.length} de {SETORES_VISITA.length} concluídos hoje
+            </Text>
           </View>
-
-          <TouchableOpacity style={styles.comoFunciona} onPress={() => setMostrarComoFunciona((v) => !v)} activeOpacity={0.8}>
-            <Feather name="info" size={15} color={colors.navy700} />
-            <Text style={styles.comoFuncionaTitulo}>Como funciona</Text>
-            <Feather name={mostrarComoFunciona ? 'chevron-up' : 'chevron-down'} size={16} color={colors.gray600} />
-          </TouchableOpacity>
-          {mostrarComoFunciona && (
-            <View style={styles.passos}>
-              {[
-                { icone: 'grid' as const, texto: 'Escolha o setor; as perguntas ficam em gavetas por assunto (Temperatura, Câmara fria…).' },
-                { icone: 'alert-triangle' as const, texto: 'Responda Sim (conforme), Não ou N/A. Itens CRÍTICO e com 📷 pedem atenção e foto.' },
-                { icone: 'wifi-off' as const, texto: 'Sem sinal na câmara? Pode continuar: tudo fica salvo e é enviado depois.' },
-                { icone: 'send' as const, texto: 'Finalize cada setor (no modelo livre, com a sua nota de 0 a 100) e, no fim, toque em "Finalizar visita e gerar PDF": sai um arquivo só, um setor por folha. Cada "Não" vira tarefa do encarregado.' },
-              ].map((p, i) => (
-                <View key={i} style={styles.passo}>
-                  <View style={styles.passoIcone}>
-                    <Feather name={p.icone} size={14} color={colors.navy700} />
-                  </View>
-                  <Text style={styles.passoTexto}>{p.texto}</Text>
-                </View>
-              ))}
-            </View>
-          )}
-
-          <Text style={styles.secaoTitulo}>Modelo do checklist</Text>
-          <View style={styles.modeloLinha}>
-            {([
-              { m: 'livre' as ModeloVisita, titulo: 'Apontamentos livres', sub: '5 temas · texto e fotos · nota final do veterinário' },
-              { m: 'perguntas' as ModeloVisita, titulo: 'Perguntas com nota', sub: 'Sim / Não / N/A · aproveitamento %' },
-            ]).map((o) => (
-              <TouchableOpacity key={o.m} style={[styles.modeloOpcao, modelo === o.m && styles.modeloOpcaoAtiva]} onPress={() => escolherModelo(o.m)} activeOpacity={0.85}>
-                <Feather name={modelo === o.m ? 'check-circle' : 'circle'} size={15} color={modelo === o.m ? colors.navy700 : colors.gray600} />
-                <View style={{ flex: 1 }}>
-                  <Text style={[styles.modeloTitulo, modelo === o.m && { color: colors.navy900 }]}>{o.titulo}</Text>
-                  <Text style={styles.modeloSub}>{o.sub}</Text>
-                </View>
-              </TouchableOpacity>
+          <View style={styles.legendaLinha}>
+            {[
+              { cor: colors.gray400, texto: 'Não visitado' },
+              { cor: '#E8A13A', texto: 'Em andamento' },
+              { cor: colors.green500, texto: 'Concluído hoje' },
+            ].map((l) => (
+              <View key={l.texto} style={styles.legendaItem}>
+                <View style={[styles.legendaPonto, { backgroundColor: l.cor }]} />
+                <Text style={styles.legendaTexto}>{l.texto}</Text>
+              </View>
             ))}
           </View>
-          <Text style={styles.modeloNota}>Geral e Documentos continua sempre com as perguntas.</Text>
-
-          <Text style={styles.secaoTitulo}>Setores</Text>
 
           {carregando ? (
             <ActivityIndicator color={colors.navy700} style={{ marginTop: spacing.xxl }} />
@@ -824,11 +777,16 @@ function PainelUnidade({
                     ? { pct: nuvem.aproveitamento, em: nuvem.finalizadaEm!, crit: nuvem.criticosNaoConformes ?? 0, apont: nuvem.naoConformidades ?? 0 }
                     : null;
                 const banda = ultimaPct ? (ultimaPct.pct != null ? faixa(ultimaPct.pct) : CHIP_LIVRE) : null;
+                const concluidoHoje = !andamento && setoresHoje.some((s) => s.key === key);
 
                 return (
                   <TouchableOpacity
                     key={key}
-                    style={[styles.tile, key === 'geral' && styles.tileLargo]}
+                    style={[
+                      styles.tile,
+                      key === 'geral' && styles.tileLargo,
+                      andamento ? styles.tileAndamento : concluidoHoje ? styles.tileConcluido : null,
+                    ]}
                     onPress={() => abrirSetor(key)}
                     disabled={abrindo === key}
                     activeOpacity={0.85}
@@ -862,6 +820,14 @@ function PainelUnidade({
                           Em andamento · {respondidas}/{total}
                         </Text>
                       </View>
+                    ) : concluidoHoje ? (
+                      <View style={styles.tileStatusConcluidoLinha}>
+                        <Feather name="check-circle" size={13} color={colors.green500} />
+                        <Text style={styles.tileStatusConcluido}>
+                          Concluído hoje
+                          {ultimaPct?.crit ? <Text style={{ color: colors.red500 }}> · {ultimaPct.crit} crít.</Text> : null}
+                        </Text>
+                      </View>
                     ) : ultimaPct ? (
                       <Text style={styles.tileStatus}>
                         Última: {haQuanto(ultimaPct.em)}
@@ -871,7 +837,7 @@ function PainelUnidade({
                       <Text style={styles.tileStatusVazio}>Não visitado</Text>
                     )}
                     <View style={styles.tileAcaoLinha}>
-                      <Text style={styles.tileAcao}>{andamento ? 'Continuar' : 'Iniciar visita'}</Text>
+                      <Text style={styles.tileAcao}>{andamento ? 'Continuar' : concluidoHoje ? 'Visitar de novo' : 'Iniciar visita'}</Text>
                       <Feather name="arrow-right" size={14} color={colors.navy700} />
                     </View>
                   </TouchableOpacity>
@@ -880,32 +846,30 @@ function PainelUnidade({
             </View>
           )}
 
-          {!carregando && (setoresHoje.length > 0 || setoresEmAndamento.length > 0) && (
-            <View style={styles.cardFinal}>
-              <Text style={styles.cardFinalTitulo}>Visita de hoje · Loja {unidade}</Text>
-              <Text style={styles.cardFinalTexto}>
-                {setoresHoje.length
-                  ? `Concluídos: ${setoresHoje.map((s) => s.nome).join(', ')}.`
-                  : 'Nenhum setor concluído ainda.'}
-                {setoresEmAndamento.length ? `\nEm andamento: ${setoresEmAndamento.map((s) => s.nome).join(', ')}.` : ''}
-              </Text>
-              <TouchableOpacity
-                style={[styles.btnFinal, !setoresHoje.length && { opacity: 0.5 }]}
-                onPress={finalizarVisitaLoja}
-                disabled={!setoresHoje.length || compartilhandoDia === hojeChave}
-              >
-                {compartilhandoDia === hojeChave ? (
-                  <ActivityIndicator color={colors.white} />
-                ) : (
-                  <>
-                    <Feather name="printer" size={16} color={colors.white} />
-                    <Text style={styles.btnFinalTexto}>Finalizar visita e gerar PDF</Text>
-                  </>
-                )}
-              </TouchableOpacity>
-              <Text style={styles.cardFinalDica}>Um arquivo só, com cada setor numa folha, para imprimir e entregar a cada encarregado.</Text>
-            </View>
+          {paraAprovar.length > 0 && (
+            <>
+              <Text style={styles.secaoTitulo}>Correções para aprovar</Text>
+              <View style={styles.listaCard}>
+                {paraAprovar.map((t, i) => (
+                  <TouchableOpacity key={t.id} style={[styles.linhaFinalizada, i > 0 && styles.linhaDivisor]} onPress={() => setAprovando(t)}>
+                    <View style={[styles.linhaIcone, { backgroundColor: '#FFF1DC' }]}>
+                      <Feather name="check-circle" size={15} color="#B4650E" />
+                    </View>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.linhaNome}>{t.titulo.replace('Visita Técnica — ', '')}</Text>
+                      <Text style={styles.linhaMeta}>Corrigido por {t.correcaoEnviadaPor ?? '—'}{t.correcaoRodada > 1 ? ` · rodada ${t.correcaoRodada}` : ''}</Text>
+                    </View>
+                    <Text style={styles.tileAcao}>Avaliar</Text>
+                    <Feather name="chevron-right" size={16} color={colors.navy700} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </>
           )}
+
+          <View style={{ marginTop: spacing.lg }}>
+            <ValidadeDocumentosCard unidade={unidade} usuarioNome={usuarioNome} modo="resumo" />
+          </View>
 
           {!carregando && (pendentesUnidade.length > 0 || finalizadas.length > 0) && (
             <>
@@ -913,7 +877,8 @@ function PainelUnidade({
               <View style={styles.listaCard}>
                 {pendentesUnidade.map((v, i) => {
                   const visual = VISUAL_SETOR[v.setor];
-                  const banda = faixa(v.resultadoLocal?.aproveitamento ?? 0);
+                  const pctLocal = v.resultadoLocal?.aproveitamento ?? null;
+                  const banda = v.modelo === 'livre' || pctLocal == null ? CHIP_LIVRE : faixa(pctLocal);
                   return (
                     <View key={v.id} style={[styles.linhaFinalizada, i > 0 && styles.linhaDivisor]}>
                       <View style={[styles.linhaIcone, { backgroundColor: visual.fundo }]}>
@@ -924,7 +889,9 @@ function PainelUnidade({
                         <Text style={[styles.linhaMeta, { color: '#B4650E', fontWeight: '700' }]}>Aguardando internet para enviar</Text>
                       </View>
                       <View style={[styles.notaChip, { backgroundColor: banda.fundo, marginRight: spacing.sm }]}>
-                        <Text style={[styles.notaChipTexto, { color: banda.cor }]}>{v.resultadoLocal?.aproveitamento ?? 0}%</Text>
+                        <Text style={[styles.notaChipTexto, { color: banda.cor }]}>
+                          {v.modelo === 'livre' ? textoChip(null, v.resultadoLocal?.naoConformidades ?? 0) : `${pctLocal ?? 0}%`}
+                        </Text>
                       </View>
                       <View style={[styles.btnShare, { backgroundColor: colors.gray100 }]}>
                         <Feather name="clock" size={16} color={colors.gray600} />
@@ -975,7 +942,6 @@ function PainelUnidade({
                             <View style={[styles.notaChip, { backgroundColor: banda.fundo, marginRight: spacing.sm }]}>
                               <Text style={[styles.notaChipTexto, { color: banda.cor }]}>{textoChip(v.aproveitamento, v.naoConformidades ?? 0)}</Text>
                             </View>
-<View />
                           </View>
                         );
                       })}
@@ -985,8 +951,93 @@ function PainelUnidade({
               </View>
             </>
           )}
+
+          <Text style={styles.secaoTitulo}>Mais opções</Text>
+          <TouchableOpacity style={styles.comoFunciona} onPress={() => setMostrarComoFunciona((v) => !v)} activeOpacity={0.8}>
+            <Feather name="info" size={15} color={colors.navy700} />
+            <Text style={styles.comoFuncionaTitulo}>Como funciona</Text>
+            <Feather name={mostrarComoFunciona ? 'chevron-up' : 'chevron-down'} size={16} color={colors.gray600} />
+          </TouchableOpacity>
+          {mostrarComoFunciona && (
+            <View style={styles.passos}>
+              {[
+                { icone: 'grid' as const, texto: 'Escolha o setor; as perguntas ficam em gavetas por assunto (Temperatura, Câmara fria…).' },
+                { icone: 'alert-triangle' as const, texto: 'Responda Sim (conforme), Não ou N/A. Itens CRÍTICO e com 📷 pedem atenção e foto.' },
+                { icone: 'wifi-off' as const, texto: 'Sem sinal na câmara? Pode continuar: tudo fica salvo e é enviado depois.' },
+                { icone: 'send' as const, texto: 'Finalize cada setor (no modelo livre, com a sua nota de 0 a 100) e, no fim, toque em "Finalizar visita e gerar PDF": sai um arquivo só, um setor por folha. Cada "Não" vira tarefa do encarregado.' },
+              ].map((p, i) => (
+                <View key={i} style={styles.passo}>
+                  <View style={styles.passoIcone}>
+                    <Feather name={p.icone} size={14} color={colors.navy700} />
+                  </View>
+                  <Text style={styles.passoTexto}>{p.texto}</Text>
+                </View>
+              ))}
+            </View>
+          )}
+
+          <TouchableOpacity style={styles.comoFunciona} onPress={() => setMostrarAjustes((v) => !v)} activeOpacity={0.8}>
+            <Feather name="sliders" size={15} color={colors.navy700} />
+            <View style={{ flex: 1 }}>
+              <Text style={[styles.comoFuncionaTitulo, { flex: 0 }]}>Modelo do checklist</Text>
+              <Text style={styles.modeloSub}>{modelo === 'livre' ? 'Apontamentos livres' : 'Perguntas com nota'} · toque para trocar</Text>
+            </View>
+            <Feather name={mostrarAjustes ? 'chevron-up' : 'chevron-down'} size={16} color={colors.gray600} />
+          </TouchableOpacity>
+          {mostrarAjustes && (
+            <View style={{ marginTop: 6 }}>
+              <View style={styles.modeloLinha}>
+                {([
+                  { m: 'livre' as ModeloVisita, titulo: 'Apontamentos livres', sub: '5 temas · texto e fotos · nota final do veterinário' },
+                  { m: 'perguntas' as ModeloVisita, titulo: 'Perguntas com nota', sub: 'Sim / Não / N/A · aproveitamento %' },
+                ]).map((o) => (
+                  <TouchableOpacity key={o.m} style={[styles.modeloOpcao, modelo === o.m && styles.modeloOpcaoAtiva]} onPress={() => escolherModelo(o.m)} activeOpacity={0.85}>
+                    <Feather name={modelo === o.m ? 'check-circle' : 'circle'} size={15} color={modelo === o.m ? colors.navy700 : colors.gray600} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={[styles.modeloTitulo, modelo === o.m && { color: colors.navy900 }]}>{o.titulo}</Text>
+                      <Text style={styles.modeloSub}>{o.sub}</Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </View>
+              <Text style={styles.modeloNota}>Geral e Documentos continua sempre com as perguntas.</Text>
+            </View>
+          )}
         </View>
       </ScrollView>
+      {!carregando && (setoresHoje.length > 0 || setoresEmAndamento.length > 0) && (
+        <View style={styles.barraHoje}>
+          <View style={styles.barraHojeTopo}>
+            <Text style={styles.barraHojeTitulo}>
+              Visita de hoje · {setoresHoje.length}/{SETORES_VISITA.length} setores
+            </Text>
+            {setoresEmAndamento.length > 0 && (
+              <Text style={styles.barraHojeAndamento} numberOfLines={1}>
+                {setoresEmAndamento.length} em andamento
+              </Text>
+            )}
+          </View>
+          <View style={styles.barraFundo}>
+            <View style={[styles.barraCheiaVerde, { width: `${Math.round((setoresHoje.length / SETORES_VISITA.length) * 100)}%` }]} />
+          </View>
+          <TouchableOpacity
+            style={[styles.btnFinal, !setoresHoje.length && { opacity: 0.5 }]}
+            onPress={finalizarVisitaLoja}
+            disabled={!setoresHoje.length || compartilhandoDia === hojeChave}
+          >
+            {compartilhandoDia === hojeChave ? (
+              <ActivityIndicator color={colors.white} />
+            ) : (
+              <>
+                <Feather name="printer" size={16} color={colors.white} />
+                <Text style={styles.btnFinalTexto}>
+                  {setoresHoje.length ? 'Finalizar visita e gerar PDF' : 'Finalize um setor para gerar o PDF'}
+                </Text>
+              </>
+            )}
+          </TouchableOpacity>
+        </View>
+      )}
     </View>
   );
 }
@@ -1038,6 +1089,9 @@ function FormularioPerguntas({ visitaId, onVoltar }: { visitaId: string; onVolta
     const primeiro = grupos.find((g) => g.perguntas.some(({ p }) => !visita?.respostas[p.id]));
     return new Set(primeiro ? [primeiro.nome] : []);
   });
+  // Posição de cada gaveta na rolagem — pra levar direto à próxima gaveta
+  // ou à primeira pendência.
+  const posicaoGrupo = React.useRef<Record<string, number>>({});
 
   // Pedômetro (passos da visita), guardado junto da visita no celular.
   useEffect(() => {
@@ -1085,9 +1139,40 @@ function FormularioPerguntas({ visitaId, onVoltar }: { visitaId: string; onVolta
     });
   }
 
+  function rolarParaGrupo(nome: string) {
+    setTimeout(() => {
+      const y = posicaoGrupo.current[nome];
+      if (y != null) teclado.scrollRef.current?.scrollTo({ y: Math.max(0, y - 8), animated: true });
+    }, 180);
+  }
+
   function responder(p: VisitaPergunta, valor: RespostaVisita) {
     responderLocal(visitaId, p, valor);
     sincronizarEmBreve();
+    // Gaveta completa (sem "Não" pendente de observação/foto): fecha e abre a
+    // próxima que ainda tem pergunta sem resposta.
+    if (valor === 'nao') return;
+    const atuais = visitaLocal(visitaId)?.respostas ?? {};
+    const idx = grupos.findIndex((g) => g.perguntas.some(({ p: q }) => q.id === p.id));
+    if (idx < 0) return;
+    const g = grupos[idx];
+    if (!g.perguntas.every(({ p: q }) => !pendenciaDa(q, atuais[q.id]))) return;
+    const prox = [...grupos.slice(idx + 1), ...grupos.slice(0, idx)].find((x) => x.perguntas.some(({ p: q }) => !atuais[q.id]));
+    setAbertos((prev) => {
+      const n = new Set(prev);
+      n.delete(g.nome);
+      if (prox) n.add(prox.nome);
+      return n;
+    });
+    if (prox) rolarParaGrupo(prox.nome);
+  }
+
+  // Abre a gaveta da primeira pergunta com pendência e rola até ela.
+  function irParaPendente() {
+    const g = grupos.find((x) => x.perguntas.some(({ p }) => pendenciaDa(p, respostas[p.id])));
+    if (!g) return;
+    setAbertos((prev) => new Set(prev).add(g.nome));
+    rolarParaGrupo(g.nome);
   }
 
   function salvarJustificativa(p: VisitaPergunta) {
@@ -1167,8 +1252,9 @@ function FormularioPerguntas({ visitaId, onVoltar }: { visitaId: string; onVolta
       if (semObs) linhas.push(`• ${semObs} "Não" sem observação.`);
       if (semFoto) linhas.push(`• ${semFoto} foto(s) obrigatória(s) faltando.`);
       Alert.alert('A visita ainda não está completa', linhas.join('\n') + '\n\nDeseja finalizar mesmo assim?', [
-        { text: 'Continuar respondendo', style: 'cancel' },
-        { text: 'Finalizar mesmo assim', style: 'destructive', onPress: () => confirmarFinalizacao() },
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Ir para a pendência', onPress: irParaPendente },
+        { text: 'Finalizar assim', style: 'destructive', onPress: () => confirmarFinalizacao() },
       ]);
       return;
     }
@@ -1262,7 +1348,13 @@ function FormularioPerguntas({ visitaId, onVoltar }: { visitaId: string; onVolta
             return pend === 'sem_obs' || pend === 'sem_foto';
           });
           return (
-            <View key={g.nome} style={styles.gaveta}>
+            <View
+              key={g.nome}
+              style={styles.gaveta}
+              onLayout={(e) => {
+                posicaoGrupo.current[g.nome] = e.nativeEvent.layout.y;
+              }}
+            >
               <TouchableOpacity style={styles.gavetaCabecalho} onPress={() => alternarGrupo(g.nome)} activeOpacity={0.8}>
                 <View style={[styles.gavetaStatus, completo ? styles.gavetaStatusOk : temPendenciaIniciada ? styles.gavetaStatusAlerta : null]}>
                   {completo ? (
@@ -2005,6 +2097,21 @@ const styles = StyleSheet.create({
   diaTitulo: { fontSize: 13, fontWeight: '800', color: colors.navy900, textTransform: 'capitalize' },
   btnPdfDia: { flexDirection: 'row', alignItems: 'center', gap: 6, backgroundColor: colors.navy700, borderRadius: 18, paddingHorizontal: 12, height: 34, minWidth: 120, justifyContent: 'center' },
   btnPdfDiaTexto: { color: colors.white, fontSize: 12.5, fontWeight: '700' },
+  setoresTituloLinha: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.xl, marginBottom: spacing.sm },
+  setoresContagem: { fontSize: 12, fontWeight: '700', color: colors.green500 },
+  legendaLinha: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, marginBottom: spacing.md },
+  legendaItem: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  legendaPonto: { width: 8, height: 8, borderRadius: 4 },
+  legendaTexto: { fontSize: 11, color: colors.gray600 },
+  tileAndamento: { borderWidth: 1.5, borderColor: '#F4D9A8', backgroundColor: '#FFFBF3' },
+  tileConcluido: { borderWidth: 1.5, borderColor: '#BFE5CF', backgroundColor: '#F5FBF7' },
+  tileStatusConcluidoLinha: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: spacing.sm },
+  tileStatusConcluido: { fontSize: 11.5, fontWeight: '700', color: colors.green500 },
+  barraHoje: { position: 'absolute', left: 0, right: 0, bottom: 0, backgroundColor: colors.white, borderTopWidth: 1, borderTopColor: colors.gray100, paddingHorizontal: spacing.lg, paddingTop: spacing.md, paddingBottom: spacing.lg, shadowColor: '#121B4A', shadowOpacity: 0.08, shadowRadius: 10, shadowOffset: { width: 0, height: -3 }, elevation: 8 },
+  barraHojeTopo: { flexDirection: 'row', alignItems: 'center', marginBottom: 6, gap: spacing.sm },
+  barraHojeTitulo: { flex: 1, fontSize: 13, fontWeight: '800', color: colors.navy900 },
+  barraHojeAndamento: { fontSize: 11.5, fontWeight: '700', color: '#B4650E' },
+  barraCheiaVerde: { height: 6, borderRadius: 3, backgroundColor: colors.green500 },
   btnShare: { width: 36, height: 36, borderRadius: 18, backgroundColor: colors.navy700, alignItems: 'center', justifyContent: 'center' },
 
   // Formulário
