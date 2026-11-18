@@ -36,6 +36,7 @@ import ChecklistScreen from './ChecklistScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
+import MapaPdvScreen from './MapaPdvScreen';
 import UsoConsumoScreen from './UsoConsumoScreen';
 import OfertasHubScreen from './OfertasHubScreen';
 import ChegadasScreen from './ChegadasScreen';
@@ -83,6 +84,7 @@ export default function HomeColaboradorScreen() {
     | 'chegadas'
     | 'olhoValidade'
     | 'inventario'
+    | 'mapaPdv'
   >('home');
 
   // Inventário (contagem de estoque) liberado só para quem o administrador
@@ -212,6 +214,7 @@ export default function HomeColaboradorScreen() {
 
   const somenteValidade = usuarioAtual.setor === 'promotores';
   const ehFlv = usuarioAtual.setor === 'flv';
+  const ehFrenteCaixa = usuarioAtual.setor === 'frente-caixa';
   // Conferência também é usada pelo CPD (ex.: "Conferência Jornal", pra
   // checar os produtos do tabloide de ofertas) e pelo Açougue (conferência
   // de NF de carnes/cortes) — não só pelo FLV.
@@ -278,6 +281,10 @@ export default function HomeColaboradorScreen() {
   }
   if (tela === 'escalaFaltas') {
     return <EscalaFaltaAtestadoScreen onVoltar={() => setTela('home')} />;
+  }
+  // Mapa dos PDVs: só para quem é da Frente de Caixa (encarregadas).
+  if (tela === 'mapaPdv' && ehFrenteCaixa) {
+    return <MapaPdvScreen onVoltar={() => setTela('home')} />;
   }
   if (tela === 'usoConsumo') {
     return <UsoConsumoScreen onVoltar={() => setTela('home')} />;
@@ -545,6 +552,7 @@ export default function HomeColaboradorScreen() {
           ...f('Mural de Avisos', 'Comunicados para a equipe', 'bell', 'avisos'),
           ...f('Abrir ocorrência', 'Registros do dia a dia da loja', 'alert-triangle', 'ocorrencias', 'ocorrencia'),
         ]),
+        ...(ehFrenteCaixa ? f('Mapa dos PDVs', 'Quem fica em cada caixa no dia', 'monitor', 'mapaPdv') : []),
       ],
     },
     {
@@ -597,6 +605,7 @@ export default function HomeColaboradorScreen() {
       escalaFaltas: 'escalaFaltas',
       sobre: 'sobre',
       inventario: 'inventario',
+      mapaPdv: 'mapaPdv',
     };
     const destino = mapa[t];
     if (destino) setTela(destino);
