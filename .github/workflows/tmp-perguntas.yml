@@ -1,19 +1,21 @@
-name: tmp listar perguntas visita
+name: tmp ajustar perguntas visita
 on:
   push:
     branches: [tmp-perguntas-leitura]
 jobs:
-  ler:
+  ajustar:
     runs-on: ubuntu-latest
     steps:
-      - name: Listar perguntas ativas
+      - name: Ajustar perguntas
         run: |
           K='sb_publishable_Kk5u4REY7PUWKMpx9wlZnA_BXgfqrxF'
-          curl -s "https://llstmcmgormolhbnszap.supabase.co/rest/v1/visita_tecnica_perguntas?select=id,setor,ordem,grupo,texto,foto_obrigatoria,ativo&ativo=eq.true&order=setor,ordem" -H "apikey: $K" -H "Authorization: Bearer $K" > p.json
-          python3 -c "
-          import json
-          d=json.load(open('p.json'));n={}
-          for p in d:
-            n[p['setor']]=n.get(p['setor'],0)+1
-            print('PQ|'+p['setor']+'|'+str(n[p['setor']])+'|'+p['id']+'|'+str(p['foto_obrigatoria'])+'|'+(p['grupo'] or '')+'|'+p['texto'])
-          "
+          U='https://llstmcmgormolhbnszap.supabase.co/rest/v1/visita_tecnica_perguntas'
+          p() { echo "== $1"; curl -s -X PATCH "$U?id=eq.$1" -H "apikey: $K" -H "Authorization: Bearer $K" -H "Content-Type: application/json" -H "Prefer: return=representation" --data "$2" | python3 -c "import json,sys;d=json.load(sys.stdin);print('RES', len(d) if isinstance(d,list) else d, [(x['texto'],x['ativo'],x['foto_obrigatoria']) for x in d] if isinstance(d,list) else '')"; }
+          p 382baa95-da0b-4326-add7-2e3aeed80a1b '{"texto":"A câmara está livre de equipamentos e materiais em desuso (carrinho de cliente, cuba, escada, caixas plásticas)?"}'
+          p 383033c5-b0ed-4ca2-a607-7afd1c71a583 '{"texto":"A câmara está livre de equipamentos e materiais em desuso (carrinho de cliente, cuba, escada, caixas plásticas)?"}'
+          p 60480fe4-1532-40ca-9455-121d0d1199ae '{"texto":"O depósito está livre de carrinhos de clientes e de equipamentos em desuso?"}'
+          p 191ca294-7b47-4400-aa3f-49fd9db5146b '{"texto":"Todos os produtos estão na embalagem original, e os avariados ficam separados dos produtos em bom estado?"}'
+          p 84a51a5b-c0be-4b54-90b0-7ed5bba0c316 '{"texto":"Todas as caixas estão sobre paletes ou estrados (nenhuma em contato direto com o chão)?"}'
+          p 6e550fe7-e69c-4270-9896-42bf774d5146 '{"ativo":false}'
+          p 486b530b-d2f9-4d93-b448-46aae96ad3fe '{"ativo":false}'
+          p 29af8376-f14b-4463-bcff-d33b5ff8cecf '{"foto_obrigatoria":false}'
