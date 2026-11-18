@@ -32,6 +32,8 @@ import RupturaScreen from './RupturaScreen';
 import RupturaTratativasScreen from './RupturaTratativasScreen';
 import ColaboradoresScreen from './ColaboradoresScreen';
 import EscalaFaltaAtestadoScreen from './EscalaFaltaAtestadoScreen';
+import Escala5x2Screen from './Escala5x2Screen';
+import MapaPdvScreen from './MapaPdvScreen';
 import PrecificacaoScreen from './PrecificacaoScreen';
 import UsoConsumoScreen from './UsoConsumoScreen';
 import OfertasHubScreen from './OfertasHubScreen';
@@ -104,6 +106,8 @@ export default function HomeAdminScreen() {
     | 'resultadosInventario'
     | 'ruptura'
     | 'rupturaTratativas'
+    | 'escala5x2'
+    | 'mapaPdv'
   >('home');
 
   // Relatório diário (só do Lucas): a notificação "Relatório pronto" traz
@@ -339,6 +343,12 @@ export default function HomeAdminScreen() {
   }
   if (tela === 'escalaFaltas') {
     return <EscalaFaltaAtestadoScreen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'escala5x2') {
+    return <Escala5x2Screen onVoltar={() => setTela('home')} />;
+  }
+  if (tela === 'mapaPdv') {
+    return <MapaPdvScreen onVoltar={() => setTela('home')} />;
   }
     if (tela === 'precificacao') {
     return <PrecificacaoScreen onVoltar={() => setTela('home')} />;

@@ -242,6 +242,36 @@ banco funciona normalmente.
 Sempre que eu atualizar esse painel, vou te mandar o arquivo `portal-admin.html`
 de novo pra você substituir o antigo.
 
+## Escala 5x2 e Mapa dos PDVs (Frente de Caixa)
+
+Duas ferramentas novas no grupo **Rotina da Loja** do ULVA 2.0:
+
+- **Escala 5x2** (administradores): o mês em grade, igual à planilha, com os
+  grupos de folga (A a F, cada um com sua cor), o quadro de cada grupo
+  ("Quadro 4/5 (-1)" quando falta gente), a conferência das regras, o botão
+  **Gerar escala do mês**, **Imprimir** (PDF para o quadro de avisos),
+  **Colaborador novo** (o app sugere o grupo e a vaga) e o cadastro de
+  feriados (loja fechada, loja aberta ou dia de pico).
+- **Mapa dos PDVs** (administradores e quem é do setor Frente de Caixa):
+  quem fica em cada um dos 12 caixas no dia, de manhã e de tarde; a visão
+  "por horário" (almoços e troca de turno); troca manual de operadora;
+  "vir de manhã"; faltas e atestados (de 1 a 15 dias); PDV com defeito com
+  número do chamado; e a imagem do dia para o WhatsApp (sem faltas,
+  atestados nem horários de almoço).
+
+Regras: cada grupo folga junto, num ciclo de 2 semanas, com domingo 1x1 e
+nenhuma folga no sábado. Feriado com a loja fechada não conta como folga.
+PDV 1 e 12 ficam sempre abertos (se um deles estiver com defeito, o 2 ou o
+11 assume). O código das regras está em `src/data/escala5x2Api.ts` e
+`src/lib/pdvDistribuicao.ts`.
+
+**Para ativar:** rode `supabase/escala_5x2.sql` uma vez no SQL Editor. Ele
+cria as tabelas, cadastra os grupos, as vagas, os feriados de 25/12 e 01/01
+e os 12 PDVs, e grava as folgas de 01/12/2026 a 31/01/2027 na mesma tabela
+`escala_folgas` de sempre (sem apagar faltas, atestados e férias). A última
+consulta do arquivo lista as vagas que não foram ligadas a um colaborador
+pelo nome; essas você liga pelo app (Escala 5x2 → tocar na vaga).
+
 ## O que ainda falta (próximas etapas)
 
 - Foto nas Tarefas (o `expo-image-picker` já está no projeto, usado no

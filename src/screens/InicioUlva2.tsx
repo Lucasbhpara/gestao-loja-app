@@ -16,7 +16,8 @@ export type TelaFerramenta =
   | 'perdas' | 'painelResultados' | 'vendasLoja' | 'vendas' | 'giro'
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
   | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'relatorioMensal' | 'buscaProduto' | 'olhoValidade' | 'resultadosInventario'
-  | 'pedidos' | 'pedidoFlv' | 'relatorioDiario' | 'ruptura' | 'rupturaTratativas' | 'conferenciaFolheto';
+  | 'pedidos' | 'pedidoFlv' | 'relatorioDiario' | 'ruptura' | 'rupturaTratativas' | 'conferenciaFolheto'
+  | 'escala5x2' | 'mapaPdv';
 
 export type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
 export type GrupoId = 'rotina' | 'comercial' | 'resultados' | 'estoque';
@@ -34,6 +35,8 @@ export const GRUPOS_ULVA2: Grupo[] = [
       { nome: 'Criar tarefa', desc: 'Tarefas para os encarregados', icone: 'edit-3', tela: 'tarefas' },
       { nome: 'Mural de Avisos', desc: 'Comunicados para a equipe', icone: 'bell', tela: 'avisos' },
       { nome: 'Ocorrências', desc: 'Registros do dia a dia da loja', icone: 'alert-triangle', tela: 'ocorrencias' },
+      { nome: 'Escala 5x2', desc: 'Grupos de folga da frente de caixa, conferência e impressão', icone: 'calendar', tela: 'escala5x2' },
+      { nome: 'Mapa dos PDVs', desc: 'Quem fica em cada caixa no dia', icone: 'monitor', tela: 'mapaPdv' },
     ],
   },
   {
