@@ -11934,24 +11934,59 @@ function htmlPerguntasVisita() {
     return '<button class="chip ' + (setor === s.key ? 'ativo' : '') + '" onclick="alternarSetorPerguntasVisita(\'' + s.key + '\')">' + s.nome + ' (' + qtd + ')</button>';
   }).join('');
   const lista = estado.visitaPerguntas.filter((p) => p.setor === setor);
+  // Número igual ao que aparece no app (conta só as perguntas ativas).
+  const numeroApp = new Map();
+  lista.filter((p) => p.ativo).forEach((p, i) => numeroApp.set(p.id, i + 1));
   let grupoAtual = null;
   const linhas = lista.map((p) => {
     let cab = '';
     if (p.grupo && p.grupo !== grupoAtual) { grupoAtual = p.grupo; cab = '<h4 style="font-size:12.5px;text-transform:uppercase;letter-spacing:.5px;color:var(--navy-700);margin:18px 0 8px;">' + escVisita(p.grupo) + '</h4>'; }
     return cab + '<div class="item-card" style="display:flex;align-items:center;gap:12px;margin-bottom:8px;' + (p.ativo ? '' : 'opacity:.5;') + '">' +
       '<div style="flex:1;">' +
-        '<div style="font-size:13.5px;font-weight:600;">' + p.ordem + '. ' + escVisita(p.texto) + '</div>' +
+        '<div style="font-size:13.5px;font-weight:600;">' + (p.ativo ? numeroApp.get(p.id) + '. ' : '<span style="color:var(--text-muted);">(desativada)</span> ') + escVisita(p.texto) + '</div>' +
         '<div style="font-size:11.5px;color:var(--text-muted);margin-top:4px;">' +
           (p.critico ? '<span class="pill vermelho" style="font-size:10px;margin-right:6px;">CRÍTICO</span>' : '') +
           (p.foto_obrigatoria ? '📷 foto obrigatória · ' : '') + 'Base: ' + escVisita(p.base_manual || '—') +
         '</div>' +
       '</div>' +
+      '<button class="btn-acao secundario" style="padding:6px 12px;font-size:11.5px;white-space:nowrap;" onclick="editarPerguntaVisita(\'' + p.id + '\')">✏️ Editar</button>' +
       '<button class="btn-acao secundario" style="padding:6px 12px;font-size:11.5px;white-space:nowrap;" onclick="alternarAtivoPerguntaVisita(\'' + p.id + '\', ' + !p.ativo + ')">' + (p.ativo ? 'Desativar' : 'Reativar') + '</button>' +
     '</div>';
   }).join('');
   return '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:16px;">' + chips + '</div>' +
-    '<div class="celula-vazio" style="text-align:left;padding:0 0 12px;">Perguntas baseadas no Manual de Boas Práticas e POPs (rev. 12.26). Desativar tira a pergunta das próximas visitas sem apagar o histórico das visitas antigas.</div>' +
+    '<div class="celula-vazio" style="text-align:left;padding:0 0 12px;">Perguntas baseadas no Manual de Boas Práticas e POPs (rev. 12.26). Os números são os mesmos do app. Desativar tira a pergunta das próximas visitas sem apagar o histórico das visitas antigas. Dica: escreva a pergunta de forma que <b>Sim = está certo</b> e <b>Não = problema</b> (o "Não" é que vira não conformidade). Depois de salvar, no celular puxe a tela do painel pra baixo pra atualizar as perguntas.</div>' +
     (linhas || '<div class="celula-vazio">Nenhuma pergunta nesse setor.</div>');
+}
+
+// Editar texto, dica e foto obrigatória de uma pergunta. As visitas antigas
+// não mudam: cada resposta guarda o texto da pergunta do dia da visita.
+function editarPerguntaVisita(id) {
+  const p = estado.visitaPerguntas.find((x) => x.id === id);
+  if (!p) return;
+  const corpo =
+    '<label class="campo-label">Pergunta</label>' +
+    '<textarea class="campo-input" id="ep-texto" rows="3" style="resize:vertical;">' + escVisita(p.texto) + '</textarea>' +
+    '<div style="font-size:11.5px;color:var(--text-muted);margin:-6px 0 12px;">Sim = conforme (bom) · Não = não conformidade (ruim).</div>' +
+    '<label class="campo-label">Como verificar (dica para o veterinário)</label>' +
+    '<textarea class="campo-input" id="ep-dica" rows="2" style="resize:vertical;">' + escVisita(p.como_verificar || '') + '</textarea>' +
+    '<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0;"><input type="checkbox" id="ep-foto"' + (p.foto_obrigatoria ? ' checked' : '') + '> 📷 Foto obrigatória</label>' +
+    '<label style="display:flex;align-items:center;gap:8px;font-size:13px;margin:6px 0;"><input type="checkbox" id="ep-critico"' + (p.critico ? ' checked' : '') + '> Item CRÍTICO</label>';
+  abrirModal('Editar pergunta', corpo, 'Salvar', async () => {
+    const texto = document.getElementById('ep-texto').value.trim();
+    if (!texto) { mostrarToast('Escreva a pergunta.', 'erro'); return; }
+    const mudancas = {
+      texto,
+      como_verificar: document.getElementById('ep-dica').value.trim() || null,
+      foto_obrigatoria: document.getElementById('ep-foto').checked,
+      critico: document.getElementById('ep-critico').checked,
+    };
+    const { error } = await sb.from('visita_tecnica_perguntas').update(mudancas).eq('id', id);
+    if (error) { mostrarToast('Não consegui salvar: ' + error.message, 'erro'); return; }
+    Object.assign(p, mudancas);
+    fecharModal();
+    mostrarToast('Pergunta salva.');
+    renderizarVisitaTecnica();
+  });
 }
 
 async function alternarAtivoPerguntaVisita(id, ativo) {

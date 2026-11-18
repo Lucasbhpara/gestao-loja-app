@@ -14,6 +14,8 @@ import {
   BackHandler,
   AppState,
   KeyboardAvoidingView,
+  Dimensions,
+  StatusBar,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import ValidadeDocumentosCard from '../components/ValidadeDocumentosCard';
@@ -97,6 +99,14 @@ import { PadAssinatura, VisualAssinatura } from '../components/AssinaturaDedo';
 // Usada pelo próprio veterinário (login cai direto aqui, vem `onSair`) e
 // pelo administrador, como tile da Home (vem `onVoltar`).
 // =============================================================================
+
+// Folga para a barra de navegação do Android (botões ◁ ○ □ ou a barrinha de
+// gestos): com a tela de ponta a ponta, o app desenha por baixo dela e o
+// botão de finalizar ficava escondido atrás. Mede quando dá; senão usa 40.
+const FOLGA_BARRA_SISTEMA =
+  Platform.OS === 'android'
+    ? Math.max(40, Math.round(Dimensions.get('screen').height - Dimensions.get('window').height - (StatusBar.currentHeight ?? 0)))
+    : 24;
 
 const CHAVE_ULTIMA_UNIDADE = '@ulva/visita-ultima-unidade';
 const CHAVE_MODELO = '@ulva/visita-modelo-checklist';
@@ -632,7 +642,7 @@ function PainelUnidade({
     <View style={styles.flex}>
       <ScrollView
         style={styles.flex}
-        contentContainerStyle={{ paddingBottom: setoresHoje.length || setoresEmAndamento.length ? 170 : 48 }}
+        contentContainerStyle={{ paddingBottom: setoresHoje.length || setoresEmAndamento.length ? 170 + FOLGA_BARRA_SISTEMA : 48 }}
         refreshControl={
           <RefreshControl
             refreshing={atualizando}
@@ -1006,7 +1016,7 @@ function PainelUnidade({
         </View>
       </ScrollView>
       {!carregando && (setoresHoje.length > 0 || setoresEmAndamento.length > 0) && (
-        <View style={styles.barraHoje}>
+        <View style={[styles.barraHoje, { paddingBottom: spacing.lg + FOLGA_BARRA_SISTEMA }]}>
           <View style={styles.barraHojeTopo}>
             <Text style={styles.barraHojeTitulo}>
               Visita de hoje · {setoresHoje.length}/{SETORES_VISITA.length} setores
@@ -1332,7 +1342,7 @@ function FormularioPerguntas({ visitaId, onVoltar }: { visitaId: string; onVolta
       <ScrollView
         ref={teclado.scrollRef}
         style={styles.flex}
-        contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 + teclado.espacoExtra }}
+        contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 + FOLGA_BARRA_SISTEMA + teclado.espacoExtra }}
         keyboardShouldPersistTaps="handled"
       >
         {setor === 'geral' && (
@@ -1495,7 +1505,7 @@ function FormularioPerguntas({ visitaId, onVoltar }: { visitaId: string; onVolta
         <CardAcompanhante visitaId={visitaId} setor={setor} />
       </ScrollView>
 
-      <View style={[styles.rodape, teclado.aberto && { display: 'none' }]}>
+      <View style={[styles.rodape, { paddingBottom: spacing.lg + FOLGA_BARRA_SISTEMA }, teclado.aberto && { display: 'none' }]}>
         <TouchableOpacity
           style={[styles.btnFinalizar, (!podeFinalizar || finalizando) && styles.btnFinalizarDesabilitado]}
           onPress={finalizar}
@@ -1702,7 +1712,7 @@ function FormularioLivre({ visitaId, onVoltar }: { visitaId: string; onVoltar: (
       <ScrollView
         ref={teclado.scrollRef}
         style={styles.flex}
-        contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 + teclado.espacoExtra }}
+        contentContainerStyle={{ padding: spacing.lg, paddingBottom: 130 + FOLGA_BARRA_SISTEMA + teclado.espacoExtra }}
         keyboardShouldPersistTaps="handled"
       >
         <Text style={styles.livreExplica}>
@@ -1811,7 +1821,7 @@ function FormularioLivre({ visitaId, onVoltar }: { visitaId: string; onVoltar: (
         <CardAcompanhante visitaId={visitaId} setor={setor} />
       </ScrollView>
 
-      <View style={[styles.rodape, teclado.aberto && { display: 'none' }]}>
+      <View style={[styles.rodape, { paddingBottom: spacing.lg + FOLGA_BARRA_SISTEMA }, teclado.aberto && { display: 'none' }]}>
         <TouchableOpacity style={[styles.btnFinalizar, finalizando && styles.btnFinalizarDesabilitado]} onPress={finalizar} disabled={finalizando}>
           {finalizando ? <ActivityIndicator color={colors.white} size="small" style={{ marginRight: 8 }} /> : null}
           <Text style={styles.btnFinalizarTexto} numberOfLines={1}>
