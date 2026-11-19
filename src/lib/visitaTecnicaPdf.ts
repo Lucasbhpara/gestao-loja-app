@@ -101,16 +101,24 @@ const CSS_ASSIN = `.assin{margin-top:16px;border:1px solid #E3E7EE;border-radius
 // fim da folha, prazo e assinaturas do encarregado e de quem conferiu.
 // Serve para as lojas que ainda não usam o ULVA.
 const ESPACO_CORRECAO = `<div class="corr"><div class="corr-l"><b>O que foi feito:</b></div><div class="corr-l"></div><div class="corr-r"><span>Data: ____/____/______</span><span>Rubrica: ____________________</span></div></div>`;
-function devolutivaHtml(qtd: number): string {
+function devolutivaHtml(qtd: number, visita?: VisitaTecnica): string {
   const campo = (titulo: string) =>
     `<div class="dev-c"><div class="dev-t">${titulo}</div><div class="dev-l">Nome:</div><div class="dev-l">Assinatura:</div><div class="dev-l">Data: ____/____/______</div></div>`;
   return `<div class="dev">
     <div class="assin-tit">Devolutiva da loja</div>
     <div class="dev-p">${qtd ? `${qtd} ${qtd === 1 ? 'item para corrigir' : 'itens para corrigir'}. ` : ''}Prazo para correção: ____/____/______ &nbsp;·&nbsp; Devolver esta folha assinada ao gerente.</div>
+    ${qrLinkHtml(qtd, visita)}
     <div class="dev-g">${campo('Encarregado do setor — ciente e corrigido')}${campo('Gerente — conferido')}</div>
   </div>`;
 }
-const CSS_FOLHA = `.corr{margin-top:8px;border:1px dashed #B9C0CE;border-radius:8px;padding:6px 10px;page-break-inside:avoid;break-inside:avoid}.corr-l{border-bottom:1px solid #C9CFDB;min-height:20px;font-size:10.5px;color:#3B4A6B;padding-top:4px}.corr-r{display:flex;justify-content:space-between;font-size:10.5px;color:#3B4A6B;margin-top:8px}.dev{margin-top:16px;border:1.5px solid #0E1B2C;border-radius:10px;padding:10px 14px;page-break-inside:avoid;break-inside:avoid}.dev-p{font-size:11px;color:#0E1B2C;margin:4px 0 8px}.dev-g{display:flex;gap:14px}.dev-c{flex:1}.dev-t{font-size:10.5px;font-weight:800;color:#0E1B2C;margin-bottom:2px}.dev-l{border-bottom:1px solid #8A93A5;min-height:24px;font-size:10px;color:#5B6280;padding-top:8px}`;
+// Link para a loja responder pelo celular (lojas sem o app: sem tarefa).
+function qrLinkHtml(qtd: number, visita?: VisitaTecnica): string {
+  if (!qtd || !visita || visita.tarefaId || !visita.tokenLoja) return '';
+  const link = `https://ulva.com.br/vt/corrigir/?t=${visita.tokenLoja}`;
+  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&data=${encodeURIComponent(link)}`;
+  return `<div class="dev-qr"><img src="${qr}" width="84" height="84" /><div><b>Prefere responder pelo celular?</b><br/>Aponte a câmera para o código, diga o que foi feito em cada item e mande foto. Não precisa de app nem de senha.<br/><span style="color:#5B6280;word-break:break-all">${link}</span></div></div>`;
+}
+const CSS_FOLHA = `.dev-qr{display:flex;gap:12px;align-items:center;font-size:10.5px;line-height:1.45;color:#0E1B2C;border:1px dashed #B9C0CE;border-radius:8px;padding:8px 10px;margin-bottom:8px}.dev-qr img{flex:none}.corr{margin-top:8px;border:1px dashed #B9C0CE;border-radius:8px;padding:6px 10px;page-break-inside:avoid;break-inside:avoid}.corr-l{border-bottom:1px solid #C9CFDB;min-height:20px;font-size:10.5px;color:#3B4A6B;padding-top:4px}.corr-r{display:flex;justify-content:space-between;font-size:10.5px;color:#3B4A6B;margin-top:8px}.dev{margin-top:16px;border:1.5px solid #0E1B2C;border-radius:10px;padding:10px 14px;page-break-inside:avoid;break-inside:avoid}.dev-p{font-size:11px;color:#0E1B2C;margin:4px 0 8px}.dev-g{display:flex;gap:14px}.dev-c{flex:1}.dev-t{font-size:10.5px;font-weight:800;color:#0E1B2C;margin-bottom:2px}.dev-l{border-bottom:1px solid #8A93A5;min-height:24px;font-size:10px;color:#5B6280;padding-top:8px}`;
 
 
 function localHtml(visita: VisitaTecnica): string {
@@ -175,7 +183,7 @@ function montarPaginaLivre(dados: DadosVisita): PaginaUlva {
       ${secoes}
       ${visita.consideracoesFinais ? `${rotulo('Considerações finais')}<div class="caixa">${esc(visita.consideracoesFinais)}</div>` : ''}
       ${acompanhanteHtml(visita)}
-      ${devolutivaHtml(apont.length)}
+      ${devolutivaHtml(apont.length, visita)}
       <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
   };
 }
@@ -258,7 +266,7 @@ function montarPaginaVisita(dados: DadosVisita): PaginaUlva {
       ${htmlPlanoAcao(contexto)}
       ${visita.consideracoesFinais ? `${rotulo('Considerações finais')}<div class="caixa">${esc(visita.consideracoesFinais)}</div>` : ''}
       ${acompanhanteHtml(visita)}
-      ${devolutivaHtml(nc)}
+      ${devolutivaHtml(nc, visita)}
       <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
   };
 }
@@ -276,7 +284,7 @@ async function carregarDadosVisita(visita: VisitaTecnica): Promise<DadosVisita> 
   const contexto = await contextoVisitaTecnica(
     { id: visita.id, setor: visita.setor, unidade: visita.unidade, finalizadaEm: visita.finalizadaEm, tarefaId: visita.tarefaId, modelo: visita.modelo },
     nomeDoSetorVisita(visita.setor),
-    respostas.filter((r) => r.resposta === 'nao').map((r) => ({ texto: r.perguntaTexto, critico: !!r.critico })),
+    respostas.filter((r) => r.resposta === 'nao').map((r) => ({ texto: r.perguntaTexto, critico: !!r.critico, respostaId: r.id })),
   );
   return { visita, perguntas, respostas, contexto };
 }
