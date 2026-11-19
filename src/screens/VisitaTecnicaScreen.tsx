@@ -16,6 +16,9 @@ import {
   KeyboardAvoidingView,
   Dimensions,
   StatusBar,
+  Modal,
+  Linking,
+  Share,
 } from 'react-native';
 import { Feather } from '@expo/vector-icons';
 import ValidadeDocumentosCard from '../components/ValidadeDocumentosCard';
@@ -388,6 +391,55 @@ function EscolherUnidade({
 }
 
 // =============================================================================
+// QR code + código de acesso para a loja corrigir pelo celular
+// =============================================================================
+function temLinkLoja(v: VisitaTecnica): boolean {
+  return (v.naoConformidades ?? 0) > 0 && !v.tarefaId && !!v.tokenLoja;
+}
+function linkLoja(v: VisitaTecnica): string {
+  return `https://ulva.com.br/vt/corrigir/?t=${v.tokenLoja}`;
+}
+function ModalQrLoja({ visita, onFechar }: { visita: VisitaTecnica | null; onFechar: () => void }) {
+  if (!visita) return null;
+  const link = linkLoja(visita);
+  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=520x520&margin=0&data=${encodeURIComponent(link)}`;
+  const msg = `Correção da Visita Técnica — Loja ${visita.unidade ?? ''} · ${nomeDoSetorVisita(visita.setor)}. Abra o link, diga o que foi feito em cada item e mande foto: ${link}`;
+  async function whatsapp() {
+    const url = `whatsapp://send?text=${encodeURIComponent(msg)}`;
+    try {
+      if (await Linking.canOpenURL(url)) return void (await Linking.openURL(url));
+    } catch {}
+    Share.share({ message: msg }).catch(() => {});
+  }
+  return (
+    <Modal visible transparent animationType="fade" onRequestClose={onFechar}>
+      <View style={styles.qrFundo}>
+        <View style={styles.qrCaixa}>
+          <Text style={styles.qrTitulo}>Correção pela loja</Text>
+          <Text style={styles.qrSub}>
+            {nomeDoSetorVisita(visita.setor)} · Loja {visita.unidade} · {visita.naoConformidades} {visita.naoConformidades === 1 ? 'item' : 'itens'}
+          </Text>
+          <Image source={{ uri: qr }} style={styles.qrImagem} resizeMode="contain" />
+          <Text style={styles.qrCodigoRot}>Código de acesso</Text>
+          <Text style={styles.qrCodigo}>{visita.pinLoja ?? '—'}</Text>
+          <Text style={styles.qrAjuda}>
+            O encarregado aponta a câmera do celular para o QR code, digita o código e responde cada item com foto. Não precisa de app.
+          </Text>
+          <TouchableOpacity style={styles.qrBtnZap} onPress={whatsapp}>
+            <Feather name="send" size={16} color={colors.white} />
+            <Text style={styles.qrBtnZapTxt}>Enviar link no WhatsApp</Text>
+          </TouchableOpacity>
+          <Text style={styles.qrNota}>Pelo WhatsApp, passe o código à parte.</Text>
+          <TouchableOpacity style={styles.qrBtnFechar} onPress={onFechar}>
+            <Text style={styles.qrBtnFecharTxt}>Fechar</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+// =============================================================================
 // 2. Painel da unidade
 // =============================================================================
 function PainelUnidade({
@@ -414,6 +466,9 @@ function PainelUnidade({
   const [ultimas, setUltimas] = useState<Map<SetorVisita, VisitaTecnica>>(new Map());
   const [finalizadas, setFinalizadas] = useState<VisitaTecnica[]>([]);
   const [visitaAberta, setVisitaAberta] = useState<string | null>(null);
+  // QR code + código para a loja corrigir pelo celular (lojas sem o app).
+  const [qrVisita, setQrVisita] = useState<VisitaTecnica | null>(null);
+  const [aguardandoQr, setAguardandoQr] = useState<string | null>(null);
   const [abrindo, setAbrindo] = useState<SetorVisita | null>(null);
   const [compartilhandoDia, setCompartilhandoDia] = useState<string | null>(null);
   const [enviando, setEnviando] = useState(false);
@@ -458,6 +513,15 @@ function PainelUnidade({
   useEffect(() => {
     carregar();
   }, [unidade]);
+
+  // Ao sair de um setor finalizado com problemas, abre o QR para a loja.
+  useEffect(() => {
+    if (!aguardandoQr) return;
+    const v = finalizadas.find((x) => x.id === aguardandoQr);
+    if (!v) return;
+    setAguardandoQr(null);
+    if (temLinkLoja(v)) setQrVisita(v);
+  }, [finalizadas, aguardandoQr]);
 
   // Voltar do Android: dentro da visita volta pro painel; no painel, troca
   // de unidade (no modo veterinário) ou deixa a Home do admin decidir.
@@ -648,8 +712,12 @@ function PainelUnidade({
         visitaId={visitaAberta}
         onVoltar={() => {
           descartarSeVazia(visitaAberta);
+          setAguardandoQr(visitaAberta);
           setVisitaAberta(null);
           carregar();
+          // A visita sobe para o banco em segundo plano: tenta de novo em
+          // alguns segundos para o QR já aparecer.
+          setTimeout(() => carregar(), 6000);
         }}
       />
     );
@@ -657,6 +725,7 @@ function PainelUnidade({
 
   return (
     <View style={styles.flex}>
+      <ModalQrLoja visita={qrVisita} onFechar={() => setQrVisita(null)} />
       <ScrollView
         style={styles.flex}
         contentContainerStyle={{ paddingBottom: setoresHoje.length || setoresEmAndamento.length ? 170 + FOLGA_BARRA_SISTEMA : 48 }}
@@ -969,6 +1038,11 @@ function PainelUnidade({
                             <View style={[styles.notaChip, { backgroundColor: banda.fundo, marginRight: spacing.sm }]}>
                               <Text style={[styles.notaChipTexto, { color: banda.cor }]}>{textoChip(v.aproveitamento, v.naoConformidades ?? 0)}</Text>
                             </View>
+                            {temLinkLoja(v) && (
+                              <TouchableOpacity style={styles.btnShare} onPress={() => setQrVisita(v)}>
+                                <Feather name="maximize" size={16} color={colors.white} />
+                              </TouchableOpacity>
+                            )}
                           </View>
                         );
                       })}
@@ -2018,6 +2092,19 @@ function CardAcompanhante({ visitaId, setor }: { visitaId: string; setor: SetorV
 }
 
 const styles = StyleSheet.create({
+  qrFundo: { flex: 1, backgroundColor: 'rgba(14,27,44,0.7)', alignItems: 'center', justifyContent: 'center', padding: spacing.lg },
+  qrCaixa: { backgroundColor: colors.white, borderRadius: radius.xl, padding: spacing.xl, width: '100%', maxWidth: 380, alignItems: 'center' },
+  qrTitulo: { fontSize: 19, fontWeight: '800', color: colors.gray900 },
+  qrSub: { fontSize: 13, color: colors.gray600, marginTop: 4, textAlign: 'center' },
+  qrImagem: { width: 230, height: 230, marginTop: spacing.lg, backgroundColor: colors.gray50 },
+  qrCodigoRot: { fontSize: 12, color: colors.gray600, fontWeight: '700', marginTop: spacing.lg, textTransform: 'uppercase', letterSpacing: 1 },
+  qrCodigo: { fontSize: 40, fontWeight: '900', color: colors.navy700, letterSpacing: 10, marginTop: 2 },
+  qrAjuda: { fontSize: 13, color: colors.gray600, textAlign: 'center', marginTop: spacing.sm, lineHeight: 18 },
+  qrBtnZap: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: '#1F9D55', borderRadius: radius.md, height: 48, alignSelf: 'stretch', marginTop: spacing.lg },
+  qrBtnZapTxt: { color: colors.white, fontWeight: '800', fontSize: 15 },
+  qrNota: { fontSize: 11.5, color: colors.gray400, marginTop: 6 },
+  qrBtnFechar: { alignSelf: 'stretch', height: 44, alignItems: 'center', justifyContent: 'center', marginTop: spacing.sm },
+  qrBtnFecharTxt: { color: colors.navy700, fontWeight: '800', fontSize: 15 },
   btnHistorico: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginHorizontal: spacing.lg, marginTop: spacing.md, marginBottom: spacing.xxl, borderWidth: 1, borderColor: colors.gray100 },
   btnHistoricoTitulo: { fontWeight: '800', color: colors.gray900, fontSize: 15 },
   btnHistoricoSub: { color: colors.gray600, fontSize: 12.5, marginTop: 2 },
