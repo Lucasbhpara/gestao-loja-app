@@ -81,6 +81,7 @@ import {
 import { compartilharVisitaCompleta, visitasDoDiaPorSetor } from '../lib/visitaTecnicaPdf';
 import CorrecaoScreen from './CorrecaoScreen';
 import HistoricoLojaScreen from './HistoricoLojaScreen';
+import QrCodeView from '../components/QrCodeView';
 import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
 import { Tarefa } from '../data/tarefasApi';
 import { useTeclado } from '../lib/useTeclado';
@@ -402,7 +403,6 @@ function linkLoja(v: VisitaTecnica): string {
 function ModalQrLoja({ visita, onFechar }: { visita: VisitaTecnica | null; onFechar: () => void }) {
   if (!visita) return null;
   const link = linkLoja(visita);
-  const qr = `https://api.qrserver.com/v1/create-qr-code/?size=520x520&margin=0&data=${encodeURIComponent(link)}`;
   const msg = `Correção da Visita Técnica — Loja ${visita.unidade ?? ''} · ${nomeDoSetorVisita(visita.setor)}. Abra o link, diga o que foi feito em cada item e mande foto: ${link}`;
   async function whatsapp() {
     const url = `whatsapp://send?text=${encodeURIComponent(msg)}`;
@@ -419,7 +419,9 @@ function ModalQrLoja({ visita, onFechar }: { visita: VisitaTecnica | null; onFec
           <Text style={styles.qrSub}>
             {nomeDoSetorVisita(visita.setor)} · Loja {visita.unidade} · {visita.naoConformidades} {visita.naoConformidades === 1 ? 'item' : 'itens'}
           </Text>
-          <Image source={{ uri: qr }} style={styles.qrImagem} resizeMode="contain" />
+          <View style={{ marginTop: spacing.lg }}>
+            <QrCodeView valor={link} tamanho={230} />
+          </View>
           <Text style={styles.qrCodigoRot}>Código de acesso</Text>
           <Text style={styles.qrCodigo}>{visita.pinLoja ?? '—'}</Text>
           <Text style={styles.qrAjuda}>
