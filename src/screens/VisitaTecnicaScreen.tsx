@@ -394,7 +394,7 @@ function EscolherUnidade({
 // QR code + código de acesso para a loja corrigir pelo celular
 // =============================================================================
 function temLinkLoja(v: VisitaTecnica): boolean {
-  return (v.naoConformidades ?? 0) > 0 && !v.tarefaId && !!v.tokenLoja;
+  return (v.naoConformidades ?? 0) > 0 && !!v.tokenLoja;
 }
 function linkLoja(v: VisitaTecnica): string {
   return `https://ulva.com.br/vt/corrigir/?t=${v.tokenLoja}`;

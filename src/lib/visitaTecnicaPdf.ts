@@ -113,7 +113,7 @@ function devolutivaHtml(qtd: number, visita?: VisitaTecnica): string {
 }
 // Link para a loja responder pelo celular (lojas sem o app: sem tarefa).
 function qrLinkHtml(qtd: number, visita?: VisitaTecnica): string {
-  if (!qtd || !visita || visita.tarefaId || !visita.tokenLoja) return '';
+  if (!qtd || !visita || !visita.tokenLoja) return '';
   const link = `https://ulva.com.br/vt/corrigir/?t=${visita.tokenLoja}`;
   const qr = `https://api.qrserver.com/v1/create-qr-code/?size=240x240&margin=0&data=${encodeURIComponent(link)}`;
   return `<div class="dev-qr"><img src="${qr}" width="84" height="84" /><div><b>Prefere responder pelo celular?</b><br/>Aponte a câmera para o QR code, digite o código de acesso <b style="font-size:13px;letter-spacing:.15em">${visita.pinLoja ?? ''}</b>, diga o que foi feito em cada item e mande foto. Não precisa de app.<br/><span style="color:#5B6280;word-break:break-all">${link}</span></div></div>`;
