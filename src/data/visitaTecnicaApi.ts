@@ -145,6 +145,7 @@ export interface VisitaTecnica {
   aproveitamento: number | null;
   tarefaId: string | null;
   tokenLoja?: string | null;
+  pinLoja?: string | null;
   passosContados: number | null;
   localizacaoLat: number | null;
   localizacaoLng: number | null;
@@ -204,6 +205,7 @@ function linhaParaVisita(l: any): VisitaTecnica {
     aproveitamento: l.aproveitamento === null ? null : Number(l.aproveitamento),
     tarefaId: l.tarefa_id,
     tokenLoja: l.token_loja ?? null,
+    pinLoja: l.pin_loja ?? null,
     passosContados: l.passos_contados,
     localizacaoLat: l.localizacao_lat,
     localizacaoLng: l.localizacao_lng,
