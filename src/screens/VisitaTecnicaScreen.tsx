@@ -77,6 +77,7 @@ import {
 } from '../lib/visitaOffline';
 import { compartilharVisitaCompleta, visitasDoDiaPorSetor } from '../lib/visitaTecnicaPdf';
 import CorrecaoScreen from './CorrecaoScreen';
+import HistoricoLojaScreen from './HistoricoLojaScreen';
 import { buscarCorrecoesParaAprovar } from '../data/correcaoApi';
 import { Tarefa } from '../data/tarefasApi';
 import { useTeclado } from '../lib/useTeclado';
@@ -185,6 +186,7 @@ export default function VisitaTecnicaScreen({
   onSair?: () => void;
 }) {
   const [unidade, setUnidade] = useState<string | null>(null);
+  const [historico, setHistorico] = useState<{ loja: string | null } | null>(null);
   // Modo veterinário (sem "Voltar"): manda a posição a cada 5 min para o
   // mapa do responsável no portal ulva.com.br/vt. Sem permissão/GPS, ignora.
   useEffect(() => {
@@ -225,10 +227,15 @@ export default function VisitaTecnicaScreen({
     ]);
   }
 
+  if (historico) {
+    return <HistoricoLojaScreen lojaInicial={historico.loja} onVoltar={() => setHistorico(null)} />;
+  }
+
   if (!unidade) {
     return (
       <EscolherUnidade
         usuarioNome={usuarioNome}
+        onHistorico={() => setHistorico({ loja: null })}
         onVoltar={onVoltar}
         onSair={onSair ? confirmarSair : undefined}
         onConfirmar={(u) => {
@@ -267,6 +274,7 @@ export default function VisitaTecnicaScreen({
 // =============================================================================
 function EscolherUnidade({
   usuarioNome,
+  onHistorico,
   onVoltar,
   onSair,
   onConfirmar,
@@ -275,6 +283,7 @@ function EscolherUnidade({
   onVoltar?: () => void;
   onSair?: () => void;
   onConfirmar: (unidade: string, localizacao: Localizacao | null) => void;
+  onHistorico: () => void;
 }) {
   const [numero, setNumero] = useState('');
   const buscandoLocal = false;
@@ -365,6 +374,14 @@ function EscolherUnidade({
             <Text style={styles.offlineDicaTexto}>Funciona sem internet: tudo fica salvo no celular e é enviado sozinho depois.</Text>
           </View>
         </View>
+        <TouchableOpacity style={styles.btnHistorico} onPress={onHistorico}>
+          <Feather name="clock" size={18} color={colors.navy700} />
+          <View style={{ flex: 1 }}>
+            <Text style={styles.btnHistoricoTitulo}>Histórico da loja</Text>
+            <Text style={styles.btnHistoricoSub}>Visitas anteriores, notas e correções de qualquer loja</Text>
+          </View>
+          <Feather name="chevron-right" size={18} color={colors.gray400} />
+        </TouchableOpacity>
       </ScrollView>
     </AreaTeclado>
   );
@@ -2001,6 +2018,9 @@ function CardAcompanhante({ visitaId, setor }: { visitaId: string; setor: SetorV
 }
 
 const styles = StyleSheet.create({
+  btnHistorico: { flexDirection: 'row', alignItems: 'center', gap: 12, backgroundColor: colors.white, borderRadius: radius.lg, padding: spacing.lg, marginHorizontal: spacing.lg, marginTop: spacing.md, marginBottom: spacing.xxl, borderWidth: 1, borderColor: colors.gray100 },
+  btnHistoricoTitulo: { fontWeight: '800', color: colors.gray900, fontSize: 15 },
+  btnHistoricoSub: { color: colors.gray600, fontSize: 12.5, marginTop: 2 },
   flex: { flex: 1, backgroundColor: colors.gray50 },
   voltar: { color: colors.navy700, fontSize: 15, fontWeight: '600' },
   explicacao: { fontSize: 12.5, color: colors.gray600, lineHeight: 18, marginBottom: spacing.lg },
