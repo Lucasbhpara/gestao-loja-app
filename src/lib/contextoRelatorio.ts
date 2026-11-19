@@ -122,10 +122,32 @@ export async function contextoChecklist(
   }
 }
 
+// Lojas sem o app: a correção chega pelo link da visita (vt_correcao_loja).
+async function planoPeloLink(visitaId: string, responsavel: string, naoConformes: { texto: string; critico: boolean; respostaId?: string }[]): Promise<LinhaPlano[]> {
+  const { data } = await supabase.from('vt_correcao_loja').select('*').eq('visita_id', visitaId);
+  const porResp = new Map(((data as any[]) ?? []).map((c) => [c.resposta_id, c]));
+  return naoConformes.map((n) => {
+    const c: any = n.respostaId ? porResp.get(n.respostaId) : null;
+    return {
+      item: n.texto,
+      critico: n.critico,
+      responsavel,
+      prazo: null,
+      status: !c ? 'pendente' : c.avaliacao === 'aprovado' ? 'aprovado' : c.avaliacao === 'devolvido' ? 'devolvido' : c.status === 'nao_possivel' ? 'nao_possivel' : 'corrigido',
+      quem: c?.respondido_por ?? null,
+      quando: c?.respondido_em ?? null,
+      comentario: c?.comentario ?? null,
+      respostaId: n.respostaId ?? null,
+      conferidoPor: c?.avaliado_por ?? null,
+      conferidoEm: c?.avaliado_em ?? null,
+    } as LinhaPlano;
+  });
+}
+
 export async function contextoVisitaTecnica(
   v: { id: string; setor: string; unidade?: string | null; finalizadaEm?: string | null; tarefaId?: string | null; modelo?: string | null },
   nomeSetor: string,
-  naoConformes: { texto: string; critico: boolean }[],
+  naoConformes: { texto: string; critico: boolean; respostaId?: string }[],
 ): Promise<ContextoRelatorio> {
   try {
     const { data: eu } = await supabase.from('visitas_tecnicas').select('numero, iniciada_em, finalizada_em, tarefa_id').eq('id', v.id).maybeSingle();
@@ -137,7 +159,9 @@ export async function contextoVisitaTecnica(
     return {
       numero: formatarNumero('VT', (eu as any)?.numero, (eu as any)?.finalizada_em ?? (eu as any)?.iniciada_em),
       anterior: a && a.aproveitamento != null ? { pct: Number(a.aproveitamento), data: a.finalizada_em, numero: formatarNumero('VT', a.numero, a.finalizada_em) } : null,
-      plano: await planoDaTarefa((eu as any)?.tarefa_id ?? v.tarefaId ?? null, nomeSetor === 'Geral' ? 'Gerência' : `Encarregado · ${nomeSetor}`, naoConformes),
+      plano: ((eu as any)?.tarefa_id ?? v.tarefaId)
+        ? await planoDaTarefa((eu as any)?.tarefa_id ?? v.tarefaId ?? null, nomeSetor === 'Geral' ? 'Gerência' : `Encarregado · ${nomeSetor}`, naoConformes)
+        : await planoPeloLink(v.id, nomeSetor === 'Geral' ? 'Gerência' : `Encarregado · ${nomeSetor}`, naoConformes),
     };
   } catch {
     return { numero: null, anterior: null, plano: null };

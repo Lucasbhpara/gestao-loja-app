@@ -144,6 +144,7 @@ export interface VisitaTecnica {
   criticosNaoConformes: number | null;
   aproveitamento: number | null;
   tarefaId: string | null;
+  tokenLoja?: string | null;
   passosContados: number | null;
   localizacaoLat: number | null;
   localizacaoLng: number | null;
@@ -202,6 +203,7 @@ function linhaParaVisita(l: any): VisitaTecnica {
     criticosNaoConformes: l.criticos_nao_conformes,
     aproveitamento: l.aproveitamento === null ? null : Number(l.aproveitamento),
     tarefaId: l.tarefa_id,
+    tokenLoja: l.token_loja ?? null,
     passosContados: l.passos_contados,
     localizacaoLat: l.localizacao_lat,
     localizacaoLng: l.localizacao_lng,
