@@ -74,7 +74,7 @@ type DadosVisita = {
 };
 
 export function montarHtmlVisita(dados: DadosVisita): string {
-  return documentoUlva({ ...montarPaginaVisita(dados), css: CSS_ASSIN });
+  return documentoUlva({ ...montarPaginaVisita(dados), css: CSS_ASSIN + CSS_FOLHA });
 }
 
 // A folha de um setor (cabeçalho + corpo), usada no PDF de um setor e no PDF
@@ -95,6 +95,23 @@ function acompanhanteHtml(visita: VisitaTecnica): string {
   return `<div class="assin"><div class="assin-tit">Acompanhado por</div><div class="assin-linha">${svg}</div><div class="assin-nome">${esc(a.nome)}${a.funcao ? ` · ${esc(a.funcao)}` : ''}</div></div>`;
 }
 const CSS_ASSIN = `.assin{margin-top:16px;border:1px solid #E3E7EE;border-radius:10px;padding:10px 14px;page-break-inside:avoid;break-inside:avoid}.assin-tit{font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#8A93A5;font-weight:700}.assin-linha{border-bottom:1px solid #8A93A5;min-height:60px;display:flex;align-items:flex-end;justify-content:center}.assin-nome{text-align:center;font-size:11.5px;font-weight:700;color:#0E1B2C;margin-top:4px}.assin-sem{font-size:11.5px;color:#5B6280;margin-top:4px}`;
+
+// Folha para a loja resolver no papel: em cada não conformidade ainda sem
+// resolução no sistema, um espaço para o encarregado escrever o que fez; no
+// fim da folha, prazo e assinaturas do encarregado e de quem conferiu.
+// Serve para as lojas que ainda não usam o ULVA.
+const ESPACO_CORRECAO = `<div class="corr"><div class="corr-l"><b>O que foi feito:</b></div><div class="corr-l"></div><div class="corr-r"><span>Data: ____/____/______</span><span>Rubrica: ____________________</span></div></div>`;
+function devolutivaHtml(qtd: number): string {
+  const campo = (titulo: string) =>
+    `<div class="dev-c"><div class="dev-t">${titulo}</div><div class="dev-l">Nome:</div><div class="dev-l">Assinatura:</div><div class="dev-l">Data: ____/____/______</div></div>`;
+  return `<div class="dev">
+    <div class="assin-tit">Devolutiva da loja</div>
+    <div class="dev-p">${qtd ? `${qtd} ${qtd === 1 ? 'item para corrigir' : 'itens para corrigir'}. ` : ''}Prazo para correção: ____/____/______ &nbsp;·&nbsp; Devolver esta folha assinada ao gerente.</div>
+    <div class="dev-g">${campo('Encarregado do setor — ciente e corrigido')}${campo('Gerente — conferido')}</div>
+  </div>`;
+}
+const CSS_FOLHA = `.corr{margin-top:8px;border:1px dashed #B9C0CE;border-radius:8px;padding:6px 10px;page-break-inside:avoid;break-inside:avoid}.corr-l{border-bottom:1px solid #C9CFDB;min-height:20px;font-size:10.5px;color:#3B4A6B;padding-top:4px}.corr-r{display:flex;justify-content:space-between;font-size:10.5px;color:#3B4A6B;margin-top:8px}.dev{margin-top:16px;border:1.5px solid #0E1B2C;border-radius:10px;padding:10px 14px;page-break-inside:avoid;break-inside:avoid}.dev-p{font-size:11px;color:#0E1B2C;margin:4px 0 8px}.dev-g{display:flex;gap:14px}.dev-c{flex:1}.dev-t{font-size:10.5px;font-weight:800;color:#0E1B2C;margin-bottom:2px}.dev-l{border-bottom:1px solid #8A93A5;min-height:24px;font-size:10px;color:#5B6280;padding-top:8px}`;
+
 
 function localHtml(visita: VisitaTecnica): string {
   return visita.localizacaoLat != null && visita.localizacaoLng != null
@@ -130,7 +147,7 @@ function montarPaginaLivre(dados: DadosVisita): PaginaUlva {
               return `<div class="item ${l?.status === 'aprovado' ? '' : 'ruim'}">
           <div class="topo"><div class="texto">${++n}. ${esc(r.justificativa || '(sem texto)')}</div><span class="badge ${cls}">${selo}</span></div>
           ${fotosHtml(r.fotosUrls)}
-          ${resolucao || '<div class="det" style="margin-top:6px">Corrigido em ____/____ por _______________________</div>'}
+          ${resolucao || (l?.status === 'aprovado' ? '' : ESPACO_CORRECAO)}
         </div>`;
             },
           )
@@ -158,6 +175,7 @@ function montarPaginaLivre(dados: DadosVisita): PaginaUlva {
       ${secoes}
       ${visita.consideracoesFinais ? `${rotulo('Considerações finais')}<div class="caixa">${esc(visita.consideracoesFinais)}</div>` : ''}
       ${acompanhanteHtml(visita)}
+      ${devolutivaHtml(apont.length)}
       <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
   };
 }
@@ -194,7 +212,7 @@ function montarPaginaVisita(dados: DadosVisita): PaginaUlva {
           ${p.baseManual ? `<div class="base">Base: ${esc(p.baseManual)}</div>` : ''}
           ${r.justificativa ? `<div class="det"><b>Observação:</b> ${esc(r.justificativa)}</div>` : ''}
           ${fotosHtml(r.fotosUrls)}
-          ${lp ? htmlResolucao(lp) : ''}
+          ${lp && htmlResolucao(lp) ? htmlResolucao(lp) : r.resposta === 'nao' && lp?.status !== 'aprovado' ? ESPACO_CORRECAO : ''}
         </div>`;
     })
     .join('');
@@ -240,6 +258,7 @@ function montarPaginaVisita(dados: DadosVisita): PaginaUlva {
       ${htmlPlanoAcao(contexto)}
       ${visita.consideracoesFinais ? `${rotulo('Considerações finais')}<div class="caixa">${esc(visita.consideracoesFinais)}</div>` : ''}
       ${acompanhanteHtml(visita)}
+      ${devolutivaHtml(nc)}
       <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
   };
 }
@@ -328,6 +347,6 @@ export async function compartilharVisitaCompleta(visitasDoDia: VisitaTecnica[]):
       
       <div class="base" style="margin-top:14px">Base: Manual de Boas Práticas e POPs (rev. 12.26)</div>`,
   };
-  const html = documentoUlvaPaginas([resumo, ...dados.map(montarPaginaVisita)], `Visita técnica — Loja ${unidade} — ${dia}`, CSS_ASSIN);
+  const html = documentoUlvaPaginas([resumo, ...dados.map(montarPaginaVisita)], `Visita técnica — Loja ${unidade} — ${dia}`, CSS_ASSIN + CSS_FOLHA);
   await compartilharPdf(html, `visita-tecnica-completa-loja-${visitas[0].unidade ?? ''}-${dataParaNomeArquivo(visitas[0].finalizadaEm)}`, 'Compartilhar visita completa');
 }
