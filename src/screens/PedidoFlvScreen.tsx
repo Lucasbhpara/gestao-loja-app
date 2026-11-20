@@ -242,7 +242,7 @@ export default function PedidoFlvScreen({ onVoltar }: { onVoltar: () => void }) 
         let txt = 'Ficou salvo no histórico de Pedidos.';
         if (portal) {
           const r = await enviarFlvParaPortal(base.janela, paraEnviar, usuarioAtual.nome);
-          txt += `\n\n🛒 ${r.enviados} itens foram para a fila do Portal (MG CEASA). A extensão digita e você recebe o aviso.`;
+          txt += `\n\n🛒 ${r.enviados} itens foram para a fila do Portal (MG CEASA). O Assistente ULVA digita e você recebe o aviso.`;
           if (r.semCaixa) txt += `\n${r.semCaixa} sem conversão para caixa ficaram de fora do Portal.`;
         }
         Alert.alert('Pedido enviado', txt + '\n\nQuer mandar no WhatsApp também?', [
