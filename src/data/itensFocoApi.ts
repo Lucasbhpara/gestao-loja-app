@@ -21,12 +21,14 @@ export interface ItemFoco {
   confStatus: StatusFoco | null;
   confPor: string | null;
   confEm: string | null;
+  pedidoSolicitacaoId: string | null;
+  pedidoEm: string | null;
 }
 
 export async function listarItensFoco(): Promise<ItemFoco[]> {
   const { data, error } = await supabase
     .from('itens_foco')
-    .select('id, codigo, produto, responsavel, lista, obs, ordem, conf_status, conf_por, conf_em')
+    .select('*')
     .eq('ativo', true)
     .order('ordem');
   if (error) {
@@ -44,6 +46,8 @@ export async function listarItensFoco(): Promise<ItemFoco[]> {
     confStatus: l.conf_status ?? null,
     confPor: l.conf_por ?? null,
     confEm: l.conf_em ?? null,
+    pedidoSolicitacaoId: l.pedido_solicitacao_id ?? null,
+    pedidoEm: l.pedido_em ?? null,
   }));
 }
 
@@ -55,10 +59,150 @@ export async function marcarItemFoco(id: string, status: StatusFoco | null, por:
   if (error) throw new Error(error.message);
 }
 
-// Zera só o OK/Ruptura (a lista continua).
+// Zera o OK/Ruptura e o vínculo com o pedido (a lista continua). Quem chama
+// guarda antes a conferência no histórico (salvarConferenciaFoco).
 export async function reiniciarItensFoco(): Promise<void> {
-  const { error } = await supabase.from('itens_foco').update({ conf_status: null, conf_por: null, conf_em: null }).not('conf_status', 'is', null);
+  const { error } = await supabase
+    .from('itens_foco')
+    .update({ conf_status: null, conf_por: null, conf_em: null, pedido_solicitacao_id: null, pedido_em: null })
+    .or('conf_status.not.is.null,pedido_solicitacao_id.not.is.null');
   if (error) throw new Error(error.message);
+}
+
+// ------------------------------------------------------- histórico ----
+export interface ConferenciaFoco {
+  id: string;
+  criadoEm: string;
+  por: string | null;
+  responsavel: string | null; // null = todos
+  total: number;
+  ok: number;
+  ruptura: number;
+  pendentes: number;
+  itens: { codigo: string | null; produto: string; responsavel: string; status: StatusFoco | null }[];
+  pedidoSolicitacaoId: string | null;
+}
+
+export async function salvarConferenciaFoco(lista: ItemFoco[], responsavel: string | null, por: string): Promise<void> {
+  const ok = lista.filter((i) => i.confStatus === 'ok').length;
+  const ruptura = lista.filter((i) => i.confStatus === 'ruptura').length;
+  const pedidos = lista.map((i) => i.pedidoSolicitacaoId).filter(Boolean) as string[];
+  const { error } = await supabase.from('itens_foco_conferencias').insert({
+    por: por || null,
+    responsavel,
+    total: lista.length,
+    ok,
+    ruptura,
+    pendentes: lista.length - ok - ruptura,
+    itens: lista.map((i) => ({ codigo: i.codigo, produto: i.produto, responsavel: i.responsavel, status: i.confStatus })),
+    pedido_solicitacao_id: pedidos.length ? pedidos[pedidos.length - 1] : null,
+  });
+  if (error) {
+    if (/itens_foco_conferencias/.test(error.message)) throw new Error('Falta criar o histórico: rode supabase/itens_foco_historico.sql no SQL Editor do Supabase.');
+    throw new Error(error.message);
+  }
+}
+
+export async function listarConferenciasFoco(): Promise<ConferenciaFoco[]> {
+  const { data, error } = await supabase.from('itens_foco_conferencias').select('*').order('criado_em', { ascending: false }).limit(60);
+  if (error) {
+    if (/itens_foco_conferencias/.test(error.message)) throw new Error('Falta criar o histórico: rode supabase/itens_foco_historico.sql no SQL Editor do Supabase.');
+    throw new Error(error.message);
+  }
+  return (data ?? []).map((l: any) => ({
+    id: l.id,
+    criadoEm: l.criado_em,
+    por: l.por ?? null,
+    responsavel: l.responsavel ?? null,
+    total: l.total ?? 0,
+    ok: l.ok ?? 0,
+    ruptura: l.ruptura ?? 0,
+    pendentes: l.pendentes ?? 0,
+    itens: Array.isArray(l.itens) ? l.itens : [],
+    pedidoSolicitacaoId: l.pedido_solicitacao_id ?? null,
+  }));
+}
+
+// ------------------------------------------- Pedido CD (Assistente ULVA) ----
+// Grava uma solicitação na mesma fila das Tratativas/Cortes
+// (pedido_cd_solicitacoes). O Assistente ULVA (extensão do Chrome) digita no
+// formulário MG SECOS do Portal 360 e, quando termina, o banco avisa no
+// celular de quem enviou. Só vai o que o CD tem.
+export interface SolicitacaoPedido {
+  id: string;
+  status: 'pendente' | 'processando' | 'pronto' | 'parou' | 'erro' | 'cancelada';
+  criadoEm: string;
+  concluidoEm: string | null;
+  digitados: number;
+}
+
+export async function enviarFocoAoPedidoCD(lista: ItemFoco[], responsavel: string | null, por: string): Promise<{ enviados: number; solicitacaoId: string }> {
+  const vai = lista.filter((i) => i.codigo);
+  if (!vai.length) throw new Error('Nenhum item com código para pedir.');
+  const { data, error } = await supabase
+    .from('pedido_cd_solicitacoes')
+    .insert({
+      itens: vai.map((i) => ({ codigo: i.codigo, produto: i.produto, grupo_nome: 'Itens Foco', item_foco_id: i.id })),
+      grupos: responsavel ? `Itens Foco · ${responsavel}` : 'Itens Foco',
+      criado_por: por || null,
+    })
+    .select('id')
+    .single();
+  if (error) throw new Error(error.message);
+  const id = (data as any).id as string;
+  const { error: e2 } = await supabase
+    .from('itens_foco')
+    .update({ pedido_solicitacao_id: id, pedido_em: new Date().toISOString() })
+    .in('id', vai.map((i) => i.id));
+  if (e2) {
+    if (/pedido_solicitacao_id/.test(e2.message)) throw new Error('O pedido foi para a fila, mas falta rodar supabase/itens_foco_historico.sql para o ULVA lembrar dele.');
+    throw new Error(e2.message);
+  }
+  return { enviados: vai.length, solicitacaoId: id };
+}
+
+export async function buscarSolicitacoes(ids: string[]): Promise<Record<string, SolicitacaoPedido>> {
+  const unicos = [...new Set(ids.filter(Boolean))];
+  if (!unicos.length) return {};
+  const { data, error } = await supabase
+    .from('pedido_cd_solicitacoes')
+    .select('id, status, criado_em, concluido_em, resultado')
+    .in('id', unicos);
+  if (error) throw new Error(error.message);
+  const out: Record<string, SolicitacaoPedido> = {};
+  (data ?? []).forEach((l: any) => {
+    const r = l.resultado ?? {};
+    out[l.id] = {
+      id: l.id,
+      status: l.status,
+      criadoEm: l.criado_em,
+      concluidoEm: l.concluido_em ?? null,
+      digitados: (Array.isArray(r.ok) ? r.ok.length : 0) + (Array.isArray(r.ja) ? r.ja.length : 0),
+    };
+  });
+  return out;
+}
+
+// Rodapé dos relatórios: "Pedido realizado no dia … às …".
+export function rodapePedido(s: SolicitacaoPedido | null | undefined): string {
+  if (!s) return '';
+  const dh = (iso: string) => {
+    const d = new Date(iso);
+    return {
+      dia: d.toLocaleDateString('pt-BR'),
+      hora: d.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' }),
+    };
+  };
+  if ((s.status === 'pronto' || s.status === 'parou') && s.concluidoEm) {
+    const { dia, hora } = dh(s.concluidoEm);
+    return `🛒 Pedido realizado no dia ${dia} às ${hora}\nRealizado pelo Assistente ULVA`;
+  }
+  if (s.status === 'pendente' || s.status === 'processando') {
+    const { dia, hora } = dh(s.criadoEm);
+    return `🛒 Pedido enviado ao Assistente ULVA no dia ${dia} às ${hora} (aguardando digitar no Portal 360)`;
+  }
+  if (s.status === 'erro') return '⚠️ O Assistente ULVA não conseguiu concluir o pedido. Veja em Pedidos CD.';
+  return '';
 }
 
 // ------------------------------------------------ disponibilidade ----

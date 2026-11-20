@@ -15,22 +15,31 @@ import {
   reiniciarItensFoco,
   buscarDisponibilidade,
   disponibilidadeDe,
+  ConferenciaFoco,
+  SolicitacaoPedido,
+  salvarConferenciaFoco,
+  listarConferenciasFoco,
+  enviarFocoAoPedidoCD,
+  buscarSolicitacoes,
+  rodapePedido,
 } from '../data/itensFocoApi';
 
 // Itens Foco: a lista do supervisor com os produtos que cada representante
-// cobra na loja. Duas abas:
+// cobra na loja. Três abas (a 3ª é o Histórico das conferências):
 //  • Conferência — igual à do folheto: OK / Ruptura item a item, filtro por
 //    responsável, rota no mapa da loja (sai da entrada e segue os números) e
 //    relatório no WhatsApp separado por responsável.
 //  • Disponível no CD — estoque da loja x estoque do CD (formulário do CD
 //    importado na Ruptura), com o que dá para pedir já e o que o CD não tem.
+//    "Enviar ao Pedido CD" põe na fila do Assistente ULVA (extensão do Chrome),
+//    e os relatórios terminam com "Pedido realizado no dia … às …".
 
 const AZUL = '#2F7BFF';
 const VERDE = '#1E8E5A';
 const LARANJA = '#A86200';
 const VERMELHO = '#D23C33';
 
-type Aba = 'conferencia' | 'cd';
+type Aba = 'conferencia' | 'cd' | 'historico';
 type Filtro = 'pendentes' | 'feitos' | 'todos';
 type FiltroCd = 'pedir' | SituacaoCd | 'todos';
 
@@ -73,11 +82,19 @@ export default function ItensFocoScreen({ onVoltar }: { onVoltar: () => void }) 
   const [rota, setRota] = useState<ItemRota[] | null>(null);
   const [disp, setDisp] = useState<ResultadoDisponibilidade | null>(null);
   const [carregandoCd, setCarregandoCd] = useState(false);
+  const [pedidos, setPedidos] = useState<Record<string, SolicitacaoPedido>>({});
+  const [historico, setHistorico] = useState<ConferenciaFoco[] | null>(null);
+  const [erroHist, setErroHist] = useState<string | null>(null);
+  const [abertoHist, setAbertoHist] = useState<string | null>(null);
+  const [enviandoPedido, setEnviandoPedido] = useState(false);
 
   const recarregar = useCallback(async () => {
     try {
-      setItens(await listarItensFoco());
+      const l = await listarItensFoco();
+      setItens(l);
       setErro(null);
+      const ids = l.map((i) => i.pedidoSolicitacaoId).filter(Boolean) as string[];
+      if (ids.length) buscarSolicitacoes(ids).then((r) => setPedidos((p) => ({ ...p, ...r }))).catch(() => {});
     } catch (e: any) {
       setErro(e?.message ?? 'Não consegui abrir os itens foco.');
     } finally {
@@ -85,6 +102,30 @@ export default function ItensFocoScreen({ onVoltar }: { onVoltar: () => void }) 
     }
   }, []);
   useEffect(() => { recarregar(); }, [recarregar]);
+
+  const carregarHistorico = useCallback(async () => {
+    try {
+      const h = await listarConferenciasFoco();
+      setHistorico(h);
+      setErroHist(null);
+      const ids = h.map((x) => x.pedidoSolicitacaoId).filter(Boolean) as string[];
+      if (ids.length) buscarSolicitacoes(ids).then((r) => setPedidos((p) => ({ ...p, ...r }))).catch(() => {});
+    } catch (e: any) {
+      setErroHist(e?.message ?? 'Não consegui abrir o histórico.');
+      setHistorico([]);
+    }
+  }, []);
+  useEffect(() => { carregarHistorico(); }, [carregarHistorico]);
+
+  // Último pedido (fila do Assistente ULVA) dos itens que estão na tela.
+  const pedidoDe = (lista: ItemFoco[]): SolicitacaoPedido | null => {
+    const comPedido = lista.filter((i) => i.pedidoSolicitacaoId).sort((a, b) => (b.pedidoEm ?? '').localeCompare(a.pedidoEm ?? ''));
+    return comPedido.length ? pedidos[comPedido[0].pedidoSolicitacaoId!] ?? null : null;
+  };
+  const comRodape = (texto: string, lista: ItemFoco[]) => {
+    const r = rodapePedido(pedidoDe(lista));
+    return r ? `${texto}\n\n${r}` : texto;
+  };
 
   const carregarCd = useCallback(async (lista: ItemFoco[]) => {
     setCarregandoCd(true);
@@ -131,11 +172,23 @@ export default function ItensFocoScreen({ onVoltar }: { onVoltar: () => void }) 
     }
   }
 
+  // Antes de zerar, guarda a conferência no Histórico (se mudou algo desde a
+  // última vez que foi guardada no "Finalizar").
   function reiniciar() {
-    Alert.alert('Reiniciar conferência', 'Todos os itens foco voltam para pendente (de todos os responsáveis).', [
+    Alert.alert('Reiniciar conferência', 'Todos os itens foco voltam para pendente (de todos os responsáveis). A conferência atual fica guardada no Histórico.', [
       { text: 'Cancelar', style: 'cancel' },
       { text: 'Reiniciar', style: 'destructive', onPress: async () => {
-        try { await reiniciarItensFoco(); await recarregar(); } catch (e: any) { Alert.alert('Erro', e?.message ?? ''); }
+        try {
+          const ultimaSalva = historico?.[0]?.criadoEm ?? '';
+          const ultimaMarca = itens.reduce((m, i) => [i.confEm ?? '', i.pedidoEm ?? '', m].sort().pop()!, '');
+          if (itens.some((i) => i.confStatus) && ultimaMarca > ultimaSalva) {
+            await salvarConferenciaFoco(itens.filter((i) => i.confStatus || i.pedidoSolicitacaoId), null, por);
+          }
+          await reiniciarItensFoco();
+          setPedidos({});
+          await recarregar();
+          carregarHistorico();
+        } catch (e: any) { Alert.alert('Erro', e?.message ?? ''); }
       } },
     ]);
   }
@@ -189,7 +242,7 @@ export default function ItensFocoScreen({ onVoltar }: { onVoltar: () => void }) 
     if (rup.length) partes.push('', `*⚠️ RUPTURAS (${rup.length})*`, ...porResp(rup));
     if (pend.length) partes.push('', `*⏳ NÃO CONFERIDOS (${pend.length})*`, ...porResp(pend));
     if (!rup.length && !pend.length) partes.push('', 'Tudo certo: todos os itens foco na loja. 👏');
-    return partes.join('\n');
+    return comRodape(partes.join('\n'), base);
   }
 
   function textoCd(): string {
@@ -215,16 +268,58 @@ export default function ItensFocoScreen({ onVoltar }: { onVoltar: () => void }) 
     if (pedir.length) partes.push('', `*🛒 PEDIR AO CD — loja sem / ruptura e CD tem (${pedir.length})*`, ...pedir.map(linha));
     if (zerado.length) partes.push('', `*🔴 CD ZERADO (${zerado.length})*`, ...zerado.map(linha));
     if (fora.length) partes.push('', `*🟠 FORA DO CD — entrega direta ou fora de linha (${fora.length})*`, ...fora.map(linha));
-    return partes.join('\n');
+    return comRodape(partes.join('\n'), base);
   }
 
+  // Finalizar: guarda no Histórico e abre o WhatsApp com o relatório.
+  async function enviarEGuardar() {
+    const texto = textoConferencia();
+    try {
+      await salvarConferenciaFoco(doResp, resp, por);
+      carregarHistorico();
+    } catch (e: any) {
+      Alert.alert('Não guardei no Histórico', e?.message ?? '');
+    }
+    mandarWhatsApp(texto);
+  }
   function finalizar() {
     const pend = doResp.filter((i) => !i.confStatus).length;
-    if (!pend) { mandarWhatsApp(textoConferencia()); return; }
+    if (!pend) { enviarEGuardar(); return; }
     Alert.alert('Enviar relatório', `Ainda faltam ${pend} item(ns). Eles vão no relatório como "não conferidos".`, [
       { text: 'Continuar conferindo', style: 'cancel' },
-      { text: 'Enviar assim', onPress: () => mandarWhatsApp(textoConferencia()) },
+      { text: 'Enviar assim', onPress: () => enviarEGuardar() },
     ]);
+  }
+
+  // Pedido CD: o que está no filtro "Pedir ao CD" e ainda não foi para a fila
+  // (ou cujo pedido deu erro/foi cancelado).
+  const jaNoPedido = (i: ItemFoco) => {
+    if (!i.pedidoSolicitacaoId) return false;
+    const st = pedidos[i.pedidoSolicitacaoId]?.status;
+    return st !== 'erro' && st !== 'cancelada';
+  };
+  function enviarPedido(lista: ItemFoco[]) {
+    const vai = lista.filter((i) => i.codigo && !jaNoPedido(i));
+    if (!vai.length) { Alert.alert('Nada para enviar', 'Esses itens já estão no pedido do Assistente ULVA.'); return; }
+    Alert.alert(
+      'Enviar ao Pedido CD',
+      `${vai.length} item(ns) vão para a fila do Assistente ULVA, que digita no MG SECOS do Portal 360 (com o Chrome do notebook aberto). Você recebe o aviso quando terminar.`,
+      [
+        { text: 'Cancelar', style: 'cancel' },
+        { text: 'Enviar', onPress: async () => {
+          setEnviandoPedido(true);
+          try {
+            const r = await enviarFocoAoPedidoCD(vai, resp, por);
+            await recarregar();
+            Alert.alert('Na fila do Assistente ULVA', `${r.enviados} item(ns) enviados. O relatório vai mostrar o dia e a hora em que o pedido foi realizado.`);
+          } catch (e: any) {
+            Alert.alert('Não consegui enviar', e?.message ?? '');
+          } finally {
+            setEnviandoPedido(false);
+          }
+        } },
+      ],
+    );
   }
 
   // ---------------------------------------------------------- rota ----
@@ -298,8 +393,8 @@ export default function ItensFocoScreen({ onVoltar }: { onVoltar: () => void }) 
       ) : (
         <>
           <View style={styles.abas}>
-            {([['conferencia', '✓ Conferência'], ['cd', '📦 Disponível no CD']] as const).map(([k, t]) => (
-              <TouchableOpacity key={k} style={[styles.aba, aba === k && styles.abaAtiva]} onPress={() => setAba(k)}>
+            {([['conferencia', '✓ Conferência'], ['cd', '📦 CD'], ['historico', '📊 Histórico']] as const).map(([k, t]) => (
+              <TouchableOpacity key={k} style={[styles.aba, aba === k && styles.abaAtiva]} onPress={() => { setAba(k); if (k === 'historico') carregarHistorico(); }}>
                 <Text style={[styles.abaTexto, aba === k && { color: colors.white }]}>{t}</Text>
               </TouchableOpacity>
             ))}
@@ -372,6 +467,58 @@ export default function ItensFocoScreen({ onVoltar }: { onVoltar: () => void }) 
                 {!listaConf.length && <Text style={styles.vazio}>{filtro === 'pendentes' ? 'Tudo conferido! 🎉' : 'Nada com esse filtro.'}</Text>}
               </ScrollView>
             </>
+          ) : aba === 'historico' ? (
+            <ScrollView
+              style={styles.flex}
+              contentContainerStyle={{ padding: spacing.lg, paddingBottom: 60 }}
+              refreshControl={<RefreshControl refreshing={false} onRefresh={carregarHistorico} />}
+            >
+              <Text style={styles.ajuda}>Cada "Finalizar e enviar" (e cada Reiniciar) fica guardado aqui, com a comparação com a conferência anterior do mesmo responsável.</Text>
+              {historico === null && <ActivityIndicator color={AZUL} style={{ marginTop: spacing.lg }} />}
+              {erroHist && <Text style={styles.vazio}>{erroHist}</Text>}
+              {(historico ?? []).filter((h) => !resp || h.responsavel === resp).map((h) => {
+                const anterior = (historico ?? []).find((x) => x.responsavel === h.responsavel && x.criadoEm < h.criadoEm);
+                const conferidos = h.ok + h.ruptura;
+                const pct = conferidos ? Math.round((h.ruptura / conferidos) * 100) : 0;
+                const dif = anterior ? h.ruptura - anterior.ruptura : null;
+                const p = h.pedidoSolicitacaoId ? pedidos[h.pedidoSolicitacaoId] : undefined;
+                const aberto = abertoHist === h.id;
+                const rupturas = h.itens.filter((x) => x.status === 'ruptura');
+                const quando = new Date(h.criadoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+                return (
+                  <TouchableOpacity key={h.id} style={styles.card} activeOpacity={0.8} onPress={() => setAbertoHist(aberto ? null : h.id)}>
+                    <View style={styles.cardTopo}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.produto}>{h.responsavel ?? 'Todos os responsáveis'}</Text>
+                        <Text style={styles.meta}>{quando}{h.por ? ` · ${h.por}` : ''}</Text>
+                      </View>
+                      <Text style={[styles.sit, { color: pct > 20 ? VERMELHO : pct > 0 ? LARANJA : VERDE, borderColor: pct > 20 ? VERMELHO : pct > 0 ? LARANJA : VERDE }]}>{pct}% ruptura</Text>
+                    </View>
+                    <View style={styles.numeros}>
+                      <View style={styles.numero}><Text style={styles.numRotulo}>OK</Text><Text style={[styles.numValor, { color: VERDE }]}>{h.ok}</Text></View>
+                      <View style={styles.numero}><Text style={styles.numRotulo}>Ruptura</Text><Text style={[styles.numValor, { color: VERMELHO }]}>{h.ruptura}</Text></View>
+                      <View style={styles.numero}><Text style={styles.numRotulo}>Não conf.</Text><Text style={styles.numValor}>{h.pendentes}</Text></View>
+                    </View>
+                    {dif !== null && (
+                      <Text style={[styles.meta, { marginTop: 6, fontWeight: '700', color: dif > 0 ? VERMELHO : dif < 0 ? VERDE : colors.gray600 }]}>
+                        {dif > 0 ? `▲ ${dif} ruptura(s) a mais que a anterior` : dif < 0 ? `▼ ${-dif} ruptura(s) a menos que a anterior` : '= mesmas rupturas da anterior'}
+                      </Text>
+                    )}
+                    {p && <Text style={[styles.meta, { color: AZUL, fontWeight: '700', marginTop: 4 }]}>{rodapePedido(p).split('\n')[0]}</Text>}
+                    {aberto && (
+                      <View style={{ marginTop: spacing.sm }}>
+                        {rupturas.length ? rupturas.map((x, k) => (
+                          <Text key={k} style={styles.meta}>• {x.produto}{x.codigo ? ` (${x.codigo})` : ''}{!h.responsavel ? ` · ${x.responsavel}` : ''}</Text>
+                        )) : <Text style={styles.meta}>Nenhuma ruptura nessa conferência. 👏</Text>}
+                      </View>
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
+              {historico && !erroHist && !(historico ?? []).filter((h) => !resp || h.responsavel === resp).length && (
+                <Text style={styles.vazio}>Nenhuma conferência guardada ainda. Ela entra aqui quando você toca em "Finalizar e enviar".</Text>
+              )}
+            </ScrollView>
           ) : (
             <>
               <View style={styles.progressoBox}>
@@ -379,8 +526,15 @@ export default function ItensFocoScreen({ onVoltar }: { onVoltar: () => void }) 
                   {carregandoCd ? 'Consultando estoque da loja e do CD…' : `Formulário do CD de ${dataBr(disp?.cdAtualizadoEm ?? null)} · estoque loja de ${dataBr(disp?.lojaAtualizadaEm ?? null)}`}
                 </Text>
                 <View style={styles.linha}>
-                  <TouchableOpacity onPress={() => carregarCd(itens)} disabled={carregandoCd}><Text style={styles.link}>↻ Atualizar</Text></TouchableOpacity>
+                  <TouchableOpacity onPress={() => { carregarCd(itens); recarregar(); }} disabled={carregandoCd}><Text style={styles.link}>↻ Atualizar</Text></TouchableOpacity>
                 </View>
+                {disp && doResp.some((i) => ehPedir(i) && !jaNoPedido(i)) && (
+                  <TouchableOpacity style={[styles.btnEnviar, { backgroundColor: AZUL }, enviandoPedido && styles.desab]} disabled={enviandoPedido} onPress={() => enviarPedido(doResp.filter(ehPedir))}>
+                    <Feather name="shopping-cart" size={16} color={colors.white} />
+                    <Text style={styles.btnEnviarTexto}>Enviar ao Pedido CD ({doResp.filter((i) => ehPedir(i) && !jaNoPedido(i)).length})</Text>
+                  </TouchableOpacity>
+                )}
+                {(() => { const r = rodapePedido(pedidoDe(doResp)); return r ? <Text style={styles.pedidoInfo}>{r}</Text> : null; })()}
                 {disp && (
                   <TouchableOpacity style={styles.btnEnviar} onPress={() => mandarWhatsApp(textoCd())}>
                     <Feather name="send" size={16} color={colors.white} />
@@ -420,6 +574,11 @@ export default function ItensFocoScreen({ onVoltar }: { onVoltar: () => void }) 
                         <View style={{ flex: 1 }}>
                           <Text style={styles.produto}>{i.produto}</Text>
                           <Text style={styles.meta}>{i.codigo ? `Cód. ${i.codigo}` : 'Sem código'}{!resp ? ` · ${i.responsavel}` : ''}{i.confStatus === 'ruptura' ? ' · ⚠ ruptura na conferência' : ''}</Text>
+                          {i.pedidoSolicitacaoId && (() => {
+                            const p = pedidos[i.pedidoSolicitacaoId!];
+                            const t = !p ? '🛒 No pedido' : p.status === 'pronto' || p.status === 'parou' ? `🛒 Pedido feito ${p.concluidoEm ? new Date(p.concluidoEm).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }) : ''}` : p.status === 'erro' || p.status === 'cancelada' ? '⚠ Pedido não concluído' : '🛒 Na fila do Assistente ULVA';
+                            return <Text style={[styles.meta, { color: AZUL, fontWeight: '700' }]}>{t}</Text>;
+                          })()}
                         </View>
                         {s && <Text style={[styles.sit, { color: s.cor, borderColor: s.cor }]}>{s.texto}</Text>}
                       </View>
@@ -482,5 +641,6 @@ const styles = StyleSheet.create({
   numero: { flex: 1, backgroundColor: colors.gray50, borderRadius: radius.sm, paddingVertical: 6, paddingHorizontal: 8 },
   numRotulo: { fontSize: 10.5, color: colors.gray600, fontWeight: '700' },
   numValor: { fontSize: 16, fontWeight: '900', color: colors.navy900 },
+  pedidoInfo: { fontSize: 12.5, color: AZUL, fontWeight: '700', marginTop: spacing.sm },
   numValorP: { fontSize: 12.5, fontWeight: '700', color: colors.navy900, marginTop: 2 },
 });

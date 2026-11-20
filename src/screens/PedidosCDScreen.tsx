@@ -5,7 +5,7 @@ import { colors, radius, spacing } from '../theme/colors';
 import CabecalhoTela from '../components/CabecalhoTela';
 import { supabase } from '../lib/supabase';
 
-// Pedidos CD: o que está na fila para a extensão do Chrome digitar no Portal
+// Pedidos CD: o que está na fila para o Assistente ULVA (extensão do Chrome) digitar no Portal
 // 360 (MG SECOS) e o que já foi digitado, dia a dia.
 // Tabela pedido_cd_solicitacoes (supabase/pedido_cd_solicitacoes.sql).
 
@@ -170,12 +170,12 @@ export default function PedidosCDScreen({ quem, onVoltar, onHistoricoColetas }: 
 
   return (
     <View style={styles.tela}>
-      <CabecalhoTela titulo="Pedidos CD" subtitulo="Fila da extensão e o que já foi digitado" icone="shopping-cart" onVoltar={onVoltar} />
+      <CabecalhoTela titulo="Pedidos CD" subtitulo="Fila do Assistente ULVA e o que já foi digitado" icone="shopping-cart" onVoltar={onVoltar} />
       <ScrollView contentContainerStyle={{ padding: spacing.lg, paddingBottom: 100 }} refreshControl={<RefreshControl refreshing={carregando} onRefresh={carregar} />}>
         <Text style={styles.sec}>⏳ Na fila · {fila.length}</Text>
         {fila.length ? fila.map(cartao) : <Text style={styles.vazio}>Nada esperando para digitar. 👍</Text>}
         {fila.some((p) => p.status === 'pendente') && (
-          <Text style={styles.nota}>A extensão digita quando o MG SECOS está aberto no Chrome do notebook com o modo automático ligado.</Text>
+          <Text style={styles.nota}>O Assistente ULVA digita quando o MG SECOS está aberto no Chrome do notebook com o modo automático ligado.</Text>
         )}
 
         {[...porDia.entries()].map(([dia, ps]) => (

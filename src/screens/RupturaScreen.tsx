@@ -1071,7 +1071,7 @@ function TelaResultado({
             {pedidoEnviado != null ? (
               <View style={[styles.cardSit, { backgroundColor: '#E6F6EE', borderColor: '#E6F6EE', marginTop: spacing.md }]}>
                 <Text style={[styles.cardSitTitulo, { color: '#178553' }]}>🛒 {pedidoEnviado} enviados ao Pedido CD</Text>
-                <Text style={styles.cardSitDica}>A extensão digita no MG SECOS e você recebe o aviso “Pedido pronto” no celular.</Text>
+                <Text style={styles.cardSitDica}>O Assistente ULVA digita no MG SECOS e você recebe o aviso “Pedido pronto” no celular.</Text>
               </View>
             ) : concluida && concluida.pedir.length > 0 ? (
               <>

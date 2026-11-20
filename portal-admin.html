@@ -2093,10 +2093,10 @@ async function paginaPedidosCD() {
       '<td>' + (p.status === 'pendente' || p.status === 'parou' ? '<button class="btn-acao" onclick="cancelarPedidoCD(\'' + p.id + '\')">Tirar da fila</button>' : '') + '</td></tr>';
   };
   const cab = '<thead><tr><th>Pedido</th><th>Situação</th><th>Enviado</th><th>Digitado</th><th style="text-align:right">Produtos</th><th style="text-align:right">Digitados</th><th style="text-align:right">Caixas</th><th style="text-align:right">Fora</th><th></th></tr></thead>';
-  el.innerHTML = cabecalho('Pedidos CD', 'O que está na fila para a extensão digitar no Portal 360 e o que já foi digitado') +
+  el.innerHTML = cabecalho('Pedidos CD', 'O que está na fila para o Assistente ULVA digitar no Portal 360 e o que já foi digitado') +
     '<h3 style="margin:8px 0">⏳ Na fila · ' + naFila.length + '</h3>' +
     '<div class="tabela-wrap"><table>' + cab + '<tbody>' + (naFila.map(linha).join('') || '<tr><td colspan="9"><div class="celula-vazio">Nada esperando para digitar.</div></td></tr>') + '</tbody></table></div>' +
-    (naFila.some((p) => p.status === 'pendente') ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:8px">A extensão digita quando o MG SECOS está aberto no Chrome com o modo automático ligado.</div>' : '') +
+    (naFila.some((p) => p.status === 'pendente') ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:8px">O Assistente ULVA digita quando o MG SECOS está aberto no Chrome com o modo automático ligado.</div>' : '') +
     '<h3 style="margin:28px 0 8px">✅ Digitados (últimos 30 dias)</h3>' +
     '<div class="tabela-wrap"><table>' + cab + '<tbody>' + (feitos.map(linha).join('') || '<tr><td colspan="9"><div class="celula-vazio">Nenhum pedido digitado ainda.</div></td></tr>') + '</tbody></table></div>';
 }
@@ -2154,7 +2154,7 @@ async function paginaCortesCD() {
     '📌 Suba a planilha de <b>pedidos cortados</b> (colunas DT_EMISSAO, N_PEDIO, ORIGEM, DESTINO, COD_PROD, DESCRICAO_PRO, QTD, QTD_CORTE, STATUS, SITUACAO_PEV). ' +
     'Ao subir, ela já vai para o app em <b>Ruptura › Cortes</b>, separada por <b>CD de origem</b>, para disparar de lá (ou dispare aqui mesmo). ' +
     'Isso soma a quantidade cortada por produto, tira descontinuados e quem já teve pedido nos últimos 14 dias, e manda pra fila do Pedido CD — ' +
-    'a mesma que a extensão do Chrome digita sozinha no Portal 360.</div>' +
+    'a mesma que o Assistente ULVA digita sozinho no Portal 360.</div>' +
     zonaArrastarSoltarPlanilhaHtml('arquivo-cortes-cd', 'Planilha de pedidos cortados') +
     '<div id="cortes-cd-previa" style="margin-top:16px"></div>' +
     '<h3 style="margin:28px 0 8px">Planilhas enviadas</h3><div id="cortes-cd-lista">' + lista + '</div>';
