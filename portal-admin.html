@@ -1128,6 +1128,10 @@ async function fazerLogin() {
       erroBox.innerHTML = '<div class="login-erro">Nome ou matrícula incorretos.</div>';
       return;
     }
+    if ((encontrado.ferramentas_bloqueadas || []).includes('ulva:sem-acesso')) {
+      erroBox.innerHTML = '<div class="login-erro">Seu acesso é pelo AUDIT (ulva.com.br/audit).</div>';
+      return;
+    }
     if (!encontrado.is_admin) {
       erroBox.innerHTML = '<div class="login-erro">Acesso restrito a administradores.</div>';
       return;
@@ -1310,6 +1314,8 @@ async function paginaJornalOfertas() {
 // =============================================================================
 async function carregarColaboradores() {
   const { data, error } = await sb.from('colaboradores').select('*').order('nome');
+  // Quem é só do AUDIT (marca 'ulva:sem-acesso') não aparece na equipe da loja.
+  if (data) for (let i = data.length - 1; i >= 0; i--) if ((data[i].ferramentas_bloqueadas || []).includes('ulva:sem-acesso')) data.splice(i, 1);
   if (error) throw error;
   estado.colaboradores = data || [];
 }
