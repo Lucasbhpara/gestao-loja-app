@@ -115,7 +115,7 @@ function devolutivaHtml(qtd: number, visita?: VisitaTecnica): string {
 // Link para a loja responder pelo celular (lojas sem o app: sem tarefa).
 function qrLinkHtml(qtd: number, visita?: VisitaTecnica): string {
   if (!qtd || !visita || !visita.tokenLoja) return '';
-  const link = `https://ulva.com.br/vt/corrigir/?t=${visita.tokenLoja}`;
+  const link = `https://ulva.com.br/audit/?t=${visita.tokenLoja}`;
   return `<div class="dev-qr">${qrSvg(link, 84)}<div><b>Prefere responder pelo celular?</b><br/>Aponte a câmera para o QR code, digite o código de acesso <b style="font-size:13px;letter-spacing:.15em">${visita.pinLoja ?? ''}</b>, diga o que foi feito em cada item e mande foto. Não precisa de app.<br/><span style="color:#5B6280;word-break:break-all">${link}</span></div></div>`;
 }
 const CSS_FOLHA = `.dev-qr{display:flex;gap:12px;align-items:center;font-size:10.5px;line-height:1.45;color:#0E1B2C;border:1px dashed #B9C0CE;border-radius:8px;padding:8px 10px;margin-bottom:8px}.dev-qr svg{flex:none}.corr{margin-top:8px;border:1px dashed #B9C0CE;border-radius:8px;padding:6px 10px;page-break-inside:avoid;break-inside:avoid}.corr-l{border-bottom:1px solid #C9CFDB;min-height:20px;font-size:10.5px;color:#3B4A6B;padding-top:4px}.corr-r{display:flex;justify-content:space-between;font-size:10.5px;color:#3B4A6B;margin-top:8px}.dev{margin-top:16px;border:1.5px solid #0E1B2C;border-radius:10px;padding:10px 14px;page-break-inside:avoid;break-inside:avoid}.dev-p{font-size:11px;color:#0E1B2C;margin:4px 0 8px}.dev-g{display:flex;gap:14px}.dev-c{flex:1}.dev-t{font-size:10.5px;font-weight:800;color:#0E1B2C;margin-bottom:2px}.dev-l{border-bottom:1px solid #8A93A5;min-height:24px;font-size:10px;color:#5B6280;padding-top:8px}`;

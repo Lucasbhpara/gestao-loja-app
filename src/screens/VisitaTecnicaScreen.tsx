@@ -192,7 +192,7 @@ export default function VisitaTecnicaScreen({
   const [unidade, setUnidade] = useState<string | null>(null);
   const [historico, setHistorico] = useState<{ loja: string | null } | null>(null);
   // Modo veterinário (sem "Voltar"): manda a posição a cada 5 min para o
-  // mapa do responsável no portal ulva.com.br/vt. Sem permissão/GPS, ignora.
+  // mapa do responsável no portal ulva.com.br/audit. Sem permissão/GPS, ignora.
   useEffect(() => {
     if (onVoltar || !usuarioMatricula) return;
     let ativo = true;
@@ -398,7 +398,7 @@ function temLinkLoja(v: VisitaTecnica): boolean {
   return (v.naoConformidades ?? 0) > 0 && !!v.tokenLoja;
 }
 function linkLoja(v: VisitaTecnica): string {
-  return `https://ulva.com.br/vt/corrigir/?t=${v.tokenLoja}`;
+  return `https://ulva.com.br/audit/?t=${v.tokenLoja}`;
 }
 function ModalQrLoja({ visita, onFechar }: { visita: VisitaTecnica | null; onFechar: () => void }) {
   if (!visita) return null;

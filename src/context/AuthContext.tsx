@@ -21,6 +21,14 @@ import { registrarAcesso } from '../lib/acessos';
 // ---------------------------------------------------------------------------
 
 const STORAGE_KEY = '@gestao-loja/colaboradores';
+
+// Pessoas cadastradas pelo portal do AUDIT (veterinários etc.) usam o mesmo
+// cadastro, mas não entram no ULVA: ficam marcadas com 'ulva:sem-acesso' em
+// ferramentas_bloqueadas. O app AUDIT ignora essa marca.
+export const MARCA_SOMENTE_AUDIT = 'ulva:sem-acesso';
+export function somenteAudit(c: { ferramentasBloqueadas?: string[] }) {
+  return (c.ferramentasBloqueadas ?? []).includes(MARCA_SOMENTE_AUDIT);
+}
 const SESSION_KEY = '@gestao-loja/sessao';
 
 interface AuthContextValue {
@@ -77,7 +85,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         const sessaoId = await AsyncStorage.getItem(SESSION_KEY);
         if (sessaoId) {
-          const encontrado = lista.find((c) => c.id === sessaoId) ?? null;
+          let encontrado = lista.find((c) => c.id === sessaoId) ?? null;
+          // Quem foi cadastrado só para o AUDIT perde a sessão salva no ULVA.
+          if (encontrado && somenteAudit(encontrado)) {
+            encontrado = null;
+            await AsyncStorage.removeItem(SESSION_KEY);
+          }
           setUsuarioAtual(encontrado);
           if (encontrado) {
             registrarNotificacoes(encontrado.id).catch(() => {});
@@ -119,6 +132,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
     if (alvo.senhaAtual !== senha.trim()) {
       return { ok: false, erro: 'Senha incorreta.' };
+    }
+    if (somenteAudit(alvo)) {
+      return { ok: false, erro: 'Seu acesso é pelo app AUDIT. Use o AUDIT para entrar.' };
     }
     setUsuarioAtual(alvo);
     await AsyncStorage.setItem(SESSION_KEY, alvo.id);
