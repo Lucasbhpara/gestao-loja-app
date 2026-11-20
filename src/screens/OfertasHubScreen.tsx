@@ -8,6 +8,7 @@ import OfertasScreen from './OfertasScreen';
 import EstoqueJornalScreen from './EstoqueJornalScreen';
 import JornalOfertasScreen from './JornalOfertasScreen';
 import ConferenciaEncarteScreen from './ConferenciaEncarteScreen';
+import ItensFocoScreen from './ItensFocoScreen';
 import { listarCampanhas, campanhaAtual, listarItens, ehAlerta } from '../data/jornalEstoqueApi';
 import { supabase } from '../lib/supabase';
 import { ehDonoMatricula } from '../data/donos';
@@ -15,7 +16,7 @@ import { ehDonoMatricula } from '../data/donos';
 // Aba "Ofertas": junta o Jornal de Ofertas, o Estoque do Jornal e as
 // Ofertas no WhatsApp num lugar só.
 
-type Tela = 'hub' | 'whats' | 'estoque' | 'jornal' | 'encarte';
+type Tela = 'hub' | 'whats' | 'estoque' | 'jornal' | 'encarte' | 'foco';
 // Conferência do jornal: Lucas e Rodrigo (ver src/data/donos.ts).
 
 export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void }) {
@@ -57,6 +58,7 @@ export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void })
   if (tela === 'estoque') return <EstoqueJornalScreen onVoltar={() => setTela('hub')} />;
   if (tela === 'jornal') return <JornalOfertasScreen onVoltar={() => setTela('hub')} />;
   if (tela === 'encarte') return <ConferenciaEncarteScreen onVoltar={() => setTela('hub')} />;
+  if (tela === 'foco') return <ItensFocoScreen onVoltar={() => setTela('hub')} />;
   const ehDono = ehDonoMatricula(usuarioAtual?.matricula);
 
   const cards: { k: Tela; titulo: string; texto: string; icone: React.ComponentProps<typeof Feather>['name']; badge?: string | null; cor?: string }[] = [
@@ -67,7 +69,8 @@ export default function OfertasHubScreen({ onVoltar }: { onVoltar: () => void })
       icone: 'book-open',
     },
     ...(ehDono
-      ? [{ k: 'encarte' as Tela, titulo: 'Conferência folheto', texto: 'Também em Rotina da Loja. OK, Ruptura ou Sem explosivo, produtos de cada item e relatório no WhatsApp.', icone: 'check-square' as const }]
+      ? [{ k: 'encarte' as Tela, titulo: 'Conferência folheto', texto: 'Também em Rotina da Loja. OK, Ruptura ou Sem explosivo, produtos de cada item e relatório no WhatsApp.', icone: 'check-square' as const },
+         { k: 'foco' as Tela, titulo: 'Itens Foco', texto: 'Lista do supervisor por representante: OK ou Ruptura, rota no mapa e o que tem no CD.', icone: 'target' as const }]
       : []),
     {
       k: 'estoque',
