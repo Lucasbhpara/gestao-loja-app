@@ -44,6 +44,7 @@ import RelatorioMensalScreen from './RelatorioMensalScreen';
 import BuscaProdutoScreen from './BuscaProdutoScreen';
 import ResultadosInventarioScreen from './ResultadosInventarioScreen';
 import ConferenciaEncarteScreen from './ConferenciaEncarteScreen';
+import ItensFocoScreen from './ItensFocoScreen';
 import InicioUlva2, { GrupoId, GRUPOS_ULVA2 } from './InicioUlva2';
 import RelatorioDiarioScreen from './RelatorioDiarioScreen';
 import * as Notifications from 'expo-notifications';
@@ -102,6 +103,7 @@ export default function HomeAdminScreen() {
     | 'vendaDia'
     | 'relatorioMensal'
     | 'conferenciaFolheto'
+    | 'itensFoco'
     | 'buscaProduto'
     | 'resultadosInventario'
     | 'ruptura'
@@ -379,6 +381,10 @@ export default function HomeAdminScreen() {
   if (tela === 'conferenciaFolheto' && ehDono) {
     return <ConferenciaEncarteScreen onVoltar={() => setTela('home')} />;
   }
+  // Itens Foco (lista do supervisor): mesma trava da Conferência folheto.
+  if (tela === 'itensFoco' && ehDono) {
+    return <ItensFocoScreen onVoltar={() => setTela('home')} />;
+  }
   // Relatório mensal: só o Lucas (mesma trava do Relatório diário).
   if (tela === 'relatorioMensal' && ehDono) {
     return <RelatorioMensalScreen onVoltar={() => setTela('home')} />;
@@ -397,7 +403,7 @@ export default function HomeAdminScreen() {
                 g.id === 'resultados'
                   ? { ...g, ferramentas: [{ nome: 'Relatório diário', desc: 'Venda, meta, folgas e quebra — PDF', icone: 'file-text', tela: 'relatorioDiario' }, { nome: 'Relatório mensal', desc: 'Meta, caixas, horários, quebras, turnover e PDF', icone: 'file-text', tela: 'relatorioMensal' }, ...g.ferramentas] }
                   : g.id === 'rotina'
-                    ? { ...g, ferramentas: [{ nome: 'Conferência folheto', desc: 'OK, ruptura e sem explosivo + relatório no WhatsApp', icone: 'clipboard', tela: 'conferenciaFolheto' }, ...g.ferramentas] }
+                    ? { ...g, ferramentas: [{ nome: 'Conferência folheto', desc: 'OK, ruptura e sem explosivo + relatório no WhatsApp', icone: 'clipboard', tela: 'conferenciaFolheto' }, { nome: 'Itens Foco', desc: 'Lista do supervisor: conferência, rota no mapa e estoque no CD', icone: 'target', tela: 'itensFoco' }, ...g.ferramentas] }
                     : g,
               )
             : undefined
@@ -535,6 +541,7 @@ export default function HomeAdminScreen() {
             { label: 'Venda do dia', icone: 'calendar' as const, onPress: () => setTela('vendaDia'), somenteDono: true },
             ...(ehDono ? [{ label: 'Relatório mensal', icone: 'file-text' as const, onPress: () => setTela('relatorioMensal') }] : []),
             ...(ehDono ? [{ label: 'Conferência folheto', icone: 'clipboard' as const, onPress: () => setTela('conferenciaFolheto') }] : []),
+            ...(ehDono ? [{ label: 'Itens Foco', icone: 'target' as const, onPress: () => setTela('itensFoco') }] : []),
             { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },
             // Produtos sem venda / parados, por setor → subcategoria.
             // Por enquanto só Lucas e Rodrigo (MATRICULAS_GIRO) — pra liberar
