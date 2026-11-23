@@ -858,6 +858,7 @@
       <div class="nav-gaveta-itens">
         <button class="nav-item" data-pagina="equipe" onclick="irPara('equipe')"><span class="dot"></span>Equipe</button>
         <button class="nav-item" data-pagina="escala-5x2" onclick="irPara('escala-5x2')"><span class="dot"></span>Escala 5x2</button>
+        <button class="nav-item" data-pagina="escala-outras-lojas" onclick="irPara('escala-outras-lojas')"><span class="dot"></span>Escala de outras lojas</button>
         <button class="nav-item" data-pagina="escala" onclick="irPara('escala')"><span class="dot"></span>Faltas e Atestados</button>
         <button class="nav-item" data-pagina="historico-faltas" onclick="irPara('historico-faltas')"><span class="dot"></span>Histórico de faltas</button>
       </div>
@@ -1182,7 +1183,7 @@ function iniciais(nome) {
 // independente (não fecha as outras) e abre sozinha quando a página ativa
 // está dentro dela, pra sempre mostrar onde o admin está.
 const GAVETA_POR_PAGINA = {
-  equipe: 'colaboradores', escala: 'colaboradores', 'escala-5x2': 'colaboradores', 'historico-faltas': 'colaboradores',
+  equipe: 'colaboradores', escala: 'colaboradores', 'escala-5x2': 'colaboradores', 'escala-outras-lojas': 'colaboradores', 'historico-faltas': 'colaboradores',
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'venda-dia': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'resultados-inventario': 'indicadores', 'visitas-site': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
@@ -1261,6 +1262,7 @@ async function irPara(pagina) {
     else if (pagina === 'visita-tecnica') await paginaVisitaTecnica();
     else if (pagina === 'escala') await paginaEscala();
     else if (pagina === 'escala-5x2') await paginaEscala5x2();
+    else if (pagina === 'escala-outras-lojas') await paginaEscalaOutrasLojas();
     else if (pagina === 'historico-faltas') await paginaHistoricoFaltas();
     else if (pagina === 'historico-exclusoes') await paginaHistoricoExclusoes();
     else if (pagina === 'inventario') await paginaInventario();
@@ -12549,6 +12551,446 @@ function e5Imprimir() {
   setTimeout(() => w.print(), 400);
 }
 
+
+// =============================================================================
+// Escala de outras lojas — sobe o relatório "Colaboradores por Cargo" do RH
+// (HRCL021, PDF da Senior) de qualquer loja e o portal monta a escala 5x2
+// por grupos, setor por setor, com as mesmas regras da Loja 327:
+//   · domingo 1x1 (metade dos grupos folga em cada domingo);
+//   · semana que trabalha domingo → folga em dia_1 e dia_2;
+//     semana que folga domingo    → folga no domingo e em dia_2;
+//   · folgas concentradas de segunda a quarta (qui/sex/sáb com mais gente);
+//   · FLV evita terça, quinta e sábado (dias de entrega);
+//   · feriado com loja fechada não conta como folga (FER); dia de pico
+//     empurra a folga para outro dia (feriados em Escala 5x2 → Feriados).
+// Tudo fica numa linha por loja em escala_outras_lojas (dados em JSON), fora
+// das tabelas da Loja 327. Precisa de supabase/escala_outras_lojas.sql.
+// =============================================================================
+const EO_SETORES = [
+  ['frente-caixa', 'Frente de caixa'], ['repositores', 'Repositores'], ['acougue', 'Açougue'], ['fiscais', 'Fiscais'],
+  ['flv', 'FLV'], ['deposito', 'Depósito'], ['padaria', 'Padaria'], ['frios', 'Frios'], ['faxina', 'Faxina'],
+  ['estacionamento', 'Estacionamento'], ['auxiliares', 'Auxiliares de loja'], ['outros', 'Outros'],
+];
+const EO_COM_TURNO = ['frente-caixa', 'acougue', 'fiscais', 'flv', 'padaria', 'frios', 'faxina'];
+const EO_PAL = [['#DCE9F7', '#9DC3E6'], ['#E2F0D9', '#A9D18E'], ['#FFF2CC', '#FFD966'], ['#FCE4D6', '#F4B183'], ['#E8E0F0', '#C9B3E0'], ['#F8DDE8', '#EBA3C1'], ['#DDF2F4', '#9ED8DE'], ['#EDEDED', '#C9C9C9']];
+// [fase, dia_1, dia_2] — 1 = segunda … 6 = sábado
+const EO_PADROES = [[0, 1, 3], [1, 1, 2], [0, 2, 4], [1, 1, 3], [0, 1, 2], [1, 2, 4], [0, 3, 5], [1, 1, 5]];
+const EO_PADROES_FLV = [[0, 1, 3], [1, 1, 3], [0, 3, 5], [1, 1, 5], [0, 1, 5], [1, 3, 5], [0, 1, 3], [1, 1, 3]];
+
+function eoNomeSetor(k) { const s = EO_SETORES.find((x) => x[0] === k); return s ? s[1] : k; }
+function eoNorm(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase(); }
+function eoSetorDoCargo(cargo) {
+  const c = eoNorm(cargo);
+  if (/GERENTE/.test(c)) return null; // gerente fica fora da escala
+  if (/CAIXA|EMBALAD|EMPACOT/.test(c)) return 'frente-caixa';
+  if (/REPOSI/.test(c)) return 'repositores';
+  if (/ACOUG/.test(c)) return 'acougue';
+  if (/FISCAL/.test(c)) return 'fiscais';
+  if (/HORTI|FLV|FRUT|VERDUR/.test(c)) return 'flv';
+  if (/DEPOSITO|ESTOQUIST|CONFERENTE/.test(c)) return 'deposito';
+  if (/PADARIA|PADEIR|CONFEIT/.test(c)) return 'padaria';
+  if (/FRIOS|LATIC/.test(c)) return 'frios';
+  if (/FAXIN|LIMPEZA|SERVICOS GERAIS/.test(c)) return 'faxina';
+  if (/ESTACIONAMENTO|TRAF/.test(c)) return 'estacionamento';
+  if (/AUXILIAR DE LOJA/.test(c)) return 'auxiliares';
+  return 'outros';
+}
+function eoFuncaoDoCargo(cargo) {
+  const c = eoNorm(cargo);
+  if (/ENCARREGAD|FRENTE DE CAIXA|LIDER|SUPERVISOR/.test(c)) return 'encarregada';
+  if (/EMBALAD|EMPACOT/.test(c)) return 'embaladora';
+  return 'colaborador';
+}
+
+// ---------- leitura do PDF do RH ----------
+function eoLerLinhasRH(paginas) {
+  const pessoas = [];
+  let cargo = '', loja = '';
+  paginas.flat().forEach((l) => {
+    const linha = l.replace(/\s+/g, ' ').trim();
+    const mLoja = eoNorm(linha).match(/\bLOJA\s*(?:N[O.]?\s*)?0*(\d{1,4})\b/);
+    if (mLoja && !loja) loja = mLoja[1];
+    const p = linha.match(/^(?:\d{1,2}\s+)?(\d{5,})\s+(.+?)\s+(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (p) { pessoas.push({ mat: p[1], nome: p[2].trim(), cargo, adm: p[5] + '-' + p[4] + '-' + p[3] }); return; }
+    const c = linha.match(/^(\d{3})\s+([A-ZÀ-Ú(][^0-9]*)$/i);
+    if (c) cargo = c[2].trim();
+  });
+  return { pessoas, loja };
+}
+
+// ---------- montar grupos ----------
+function eoTurnoPadrao(setor, i, n) {
+  if (setor === 'deposito') return 'M';
+  if (!EO_COM_TURNO.includes(setor)) return 'U';
+  if (setor === 'frente-caixa') return i < Math.round(n / 3) ? 'M' : 'T'; // caixa: mais gente à tarde
+  return i % 2 === 0 ? 'T' : 'M';
+}
+function eoQtdGrupos(n) { return n <= 1 ? 1 : n <= 5 ? 2 : n <= 11 ? 4 : 6; }
+function eoMontarSetor(loja, setor) {
+  const ps = loja.pessoas.filter((p) => p.setor === setor && !p.fora);
+  const k = eoQtdGrupos(ps.length);
+  const pool = setor === 'flv' ? EO_PADROES_FLV : EO_PADROES;
+  loja.grupos[setor] = Array.from({ length: k }, (_, i) => ({ letra: String.fromCharCode(65 + i), fase: pool[i][0], d1: pool[i][1], d2: pool[i][2], todoDom: false }));
+  // reparte cada turno entre os grupos, alternando a fase (metade trabalha cada domingo)
+  const ordemGrupos = loja.grupos[setor].map((g, i) => i).sort((a, b) => loja.grupos[setor][a].fase - loja.grupos[setor][b].fase || a - b);
+  const intercalado = [];
+  const f0 = ordemGrupos.filter((i) => loja.grupos[setor][i].fase === 0), f1 = ordemGrupos.filter((i) => loja.grupos[setor][i].fase === 1);
+  for (let i = 0; i < Math.max(f0.length, f1.length); i++) { if (f0[i] != null) intercalado.push(f0[i]); if (f1[i] != null) intercalado.push(f1[i]); }
+  let pos = 0;
+  ['encarregada', 'outras'].forEach((tipo) => {
+    ['M', 'T', 'U'].forEach((t) => {
+      ps.filter((p) => p.turno === t && (tipo === 'encarregada' ? p.funcao === 'encarregada' : p.funcao !== 'encarregada'))
+        .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'))
+        .forEach((p) => { p.grupo = loja.grupos[setor][intercalado[pos % k]].letra; pos++; });
+    });
+  });
+}
+function eoGrupoSugerido(loja, setor, turno) {
+  const gs = loja.grupos[setor] || [];
+  if (!gs.length) { eoMontarSetor(loja, setor); return (loja.grupos[setor][0] || {}).letra; }
+  const conta = (g) => loja.pessoas.filter((p) => p.setor === setor && !p.fora && p.grupo === g.letra && (turno === 'U' || p.turno === turno)).length;
+  return gs.slice().sort((a, b) => conta(a) - conta(b) || a.letra.localeCompare(b.letra))[0].letra;
+}
+
+// ---------- folgas ----------
+function eoCfg(loja) { return { domingo_ref: loja.ref || '2026-11-29' }; }
+function eoGrupoE5(g) { return { fase: g.fase, dia_1: g.d1, dia_2: g.d2, folga_todo_domingo: !!g.todoDom }; }
+function eoMarcas(loja, p, ini, fim) {
+  // devolve { data: 'folga' | 'folga_feriado' } já com os ajustes feitos à mão
+  const out = {};
+  const g = (loja.grupos[p.setor] || []).find((x) => x.letra === p.grupo);
+  if (g && !p.fora) e5FolgasPeriodo(eoGrupoE5(g), eoCfg(loja), ini, fim, estado.eo.feriados).forEach((d) => { out[d] = 'folga'; });
+  const aj = (loja.ajustes || {})[p.mat] || {};
+  Object.keys(aj).forEach((d) => { if (d >= ini && d <= fim) { if (aj[d] === 'trab') delete out[d]; else out[d] = aj[d]; } });
+  return out;
+}
+
+// ---------- carga / gravação ----------
+async function paginaEscalaOutrasLojas() {
+  if (!estado.eo) { const h = new Date(); estado.eo = { ano: h.getFullYear(), mes: h.getMonth() + 1, setor: 'frente-caixa', lojaAtual: null }; }
+  const e = estado.eo;
+  const [l, f] = await Promise.all([
+    sb.from('escala_outras_lojas').select('loja,nome,dados,atualizado_em').order('loja'),
+    sb.from('escala_feriados').select('*').order('data'),
+  ]);
+  e.semTabela = !!l.error;
+  e.lojas = l.error ? (e.lojas || []) : (l.data || []).map((r) => Object.assign({ loja: r.loja, nome: r.nome }, r.dados || {}));
+  e.feriados = f.error ? [] : (f.data || []);
+  if (!e.lojaAtual && e.lojas.length) e.lojaAtual = e.lojas[0].loja;
+  eoRender();
+}
+function eoLoja() { const e = estado.eo; return (e.lojas || []).find((x) => x.loja === e.lojaAtual) || null; }
+async function eoSalvar(silencioso) {
+  const loja = eoLoja();
+  if (!loja) return;
+  const dados = { ref: loja.ref, pessoas: loja.pessoas, grupos: loja.grupos, ajustes: loja.ajustes || {}, arquivo: loja.arquivo, importado_em: loja.importado_em };
+  const r = await sb.from('escala_outras_lojas').upsert({ loja: loja.loja, nome: loja.nome || null, dados, atualizado_em: new Date().toISOString(), atualizado_por: e5Autor() });
+  if (r.error) {
+    estado.eo.semTabela = true;
+    mostrarToast('Não consegui salvar no banco (' + r.error.message + '). Rode supabase/escala_outras_lojas.sql no Supabase. Enquanto isso, baixe o Excel para não perder.', 'erro');
+    return;
+  }
+  estado.eo.semTabela = false;
+  if (!silencioso) mostrarToast('Escala da loja ' + loja.loja + ' salva.');
+}
+
+// ---------- subir relatório ----------
+function eoSubirRelatorio() {
+  abrirModal('Subir relatório de outra loja',
+    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">Use o relatório do RH "Colaboradores por Cargo" (HRCL021) em PDF. O portal separa as pessoas por setor pelo cargo, divide em grupos e monta a escala 5x2. Se a loja já existe, quem continua mantém grupo e turno, quem é novo entra no grupo com menos gente e quem saiu do relatório sai da escala.</p>' +
+    zonaArrastarSoltarHtml('eo-arquivo', 'Relatório de colaboradores (PDF)') +
+    '<label class="campo-label">Número da loja</label><input class="campo-input" id="eo-loja" placeholder="Ex.: 215">' +
+    '<label class="campo-label">Nome da loja (opcional)</label><input class="campo-input" id="eo-nome" placeholder="Ex.: Betim Centro">' +
+    '<div id="eo-previa" style="margin-top:10px;font-size:13px;"></div>',
+    'Montar escala', async () => {
+      const lido = estado.eo.lido;
+      const numero = document.getElementById('eo-loja').value.trim().replace(/^0+/, '');
+      if (!lido || !lido.pessoas.length) { mostrarToast('Escolha o PDF do relatório primeiro.', 'erro'); return; }
+      if (!numero) { mostrarToast('Informe o número da loja.', 'erro'); return; }
+      const nome = document.getElementById('eo-nome').value.trim();
+      eoImportar(numero, nome, lido);
+      fecharModal();
+      await eoSalvar(true);
+      eoRender();
+    });
+  ligarZonaArrastarSoltar('eo-arquivo', async (file) => {
+    const prev = document.getElementById('eo-previa');
+    if (!window.pdfjsLib) { mostrarToast('O leitor de PDF não carregou. Recarregue a página e tente de novo.', 'erro'); return; }
+    prev.textContent = 'Lendo o PDF…';
+    try {
+      const lido = eoLerLinhasRH(await extrairLinhasPDF(file));
+      lido.arquivo = file.name;
+      estado.eo.lido = lido;
+      if (!lido.pessoas.length) { prev.innerHTML = '<span style="color:var(--red)">Não achei colaboradores nesse PDF. Confira se é o relatório "Colaboradores por Cargo".</span>'; return; }
+      if (lido.loja && !document.getElementById('eo-loja').value) document.getElementById('eo-loja').value = lido.loja;
+      const cont = {};
+      lido.pessoas.forEach((p) => { const s = eoSetorDoCargo(p.cargo); const k = s ? eoNomeSetor(s) : 'Fora (gerência)'; cont[k] = (cont[k] || 0) + 1; });
+      prev.innerHTML = '<b>' + lido.pessoas.length + ' colaboradores lidos.</b> ' + Object.entries(cont).map(([k, n]) => rupEsc(k) + ': ' + n).join(' · ');
+    } catch (err) { prev.innerHTML = '<span style="color:var(--red)">Não consegui ler o PDF: ' + rupEsc(err.message) + '</span>'; }
+  });
+}
+function eoImportar(numero, nome, lido) {
+  const e = estado.eo;
+  let loja = e.lojas.find((x) => x.loja === numero);
+  const nova = !loja;
+  if (!loja) { loja = { loja: numero, nome, ref: '2026-11-29', pessoas: [], grupos: {}, ajustes: {} }; e.lojas.push(loja); }
+  if (nome) loja.nome = nome;
+  const antes = {};
+  loja.pessoas.forEach((p) => { antes[p.mat] = p; });
+  const entraram = [], sairam = [];
+  const pessoas = [];
+  lido.pessoas.forEach((r) => {
+    const setor = eoSetorDoCargo(r.cargo);
+    if (!setor) return;
+    const ant = antes[r.mat];
+    if (ant) { pessoas.push(Object.assign({}, ant, { nome: r.nome, cargo: r.cargo, adm: r.adm })); delete antes[r.mat]; }
+    else { pessoas.push({ mat: r.mat, nome: r.nome, cargo: r.cargo, adm: r.adm, setor, funcao: eoFuncaoDoCargo(r.cargo), turno: null, grupo: null, novo: !nova }); entraram.push(r.nome); }
+  });
+  Object.values(antes).forEach((p) => sairam.push(p.nome));
+  loja.pessoas = pessoas;
+  loja.arquivo = lido.arquivo;
+  loja.importado_em = new Date().toISOString();
+  // turnos padrão para quem chegou agora
+  EO_SETORES.forEach(([s]) => {
+    const sem = loja.pessoas.filter((p) => p.setor === s && !p.turno);
+    const total = loja.pessoas.filter((p) => p.setor === s).length;
+    sem.forEach((p, i) => { p.turno = eoTurnoPadrao(s, i, sem.length || total); });
+  });
+  if (nova) {
+    EO_SETORES.forEach(([s]) => { if (loja.pessoas.some((p) => p.setor === s)) eoMontarSetor(loja, s); });
+  } else {
+    loja.pessoas.filter((p) => !p.grupo).forEach((p) => { p.grupo = eoGrupoSugerido(loja, p.setor, p.turno); });
+  }
+  e.lojaAtual = numero;
+  const primeiro = EO_SETORES.find(([s]) => loja.pessoas.some((p) => p.setor === s));
+  if (primeiro && !loja.pessoas.some((p) => p.setor === e.setor)) e.setor = primeiro[0];
+  e.resumoImport = nova ? 'Loja ' + numero + ' criada com ' + loja.pessoas.length + ' colaboradores. Confira os turnos (vieram por padrão) clicando nos nomes.'
+    : 'Loja ' + numero + ' atualizada. Entraram ' + entraram.length + (entraram.length ? ' (' + entraram.map(e5Curto).join(', ') + ')' : '') + ' · saíram ' + sairam.length + (sairam.length ? ' (' + sairam.map(e5Curto).join(', ') + ')' : '') + '.';
+}
+
+// ---------- tela ----------
+function eoRender() {
+  const e = estado.eo;
+  const el = document.getElementById('conteudo-principal');
+  const loja = eoLoja();
+  const chipsLojas = (e.lojas || []).map((l) => '<button class="chip' + (l.loja === e.lojaAtual ? ' ativo' : '') + '" onclick="eoTrocarLoja(\'' + rupEsc(l.loja) + '\')">Loja ' + rupEsc(l.loja) + (l.nome ? ' · ' + rupEsc(l.nome) : '') + '</button>').join('');
+  let corpo = '';
+  if (!loja) {
+    corpo = '<div class="pq-card">Nenhuma loja ainda. Clique em <b>Subir relatório de outra loja</b> e escolha o PDF "Colaboradores por Cargo" do RH.</div>';
+  } else {
+    const setoresDaLoja = EO_SETORES.filter(([s]) => loja.pessoas.some((p) => p.setor === s));
+    if (!setoresDaLoja.some(([s]) => s === e.setor) && setoresDaLoja.length) e.setor = setoresDaLoja[0][0];
+    const chipsSetor = setoresDaLoja.map(([s, n]) => '<button class="chip' + (s === e.setor ? ' ativo' : '') + '" onclick="eoTrocarSetor(\'' + s + '\')">' + n + ' (' + loja.pessoas.filter((p) => p.setor === s && !p.fora).length + ')</button>').join('');
+    corpo = '<div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0;">' + chipsSetor + '</div>' +
+      '<div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center;">' +
+        '<button class="chip" onclick="eoMes(-1)">‹</button><b style="min-width:150px;text-align:center;">' + E5_MESES[e.mes - 1] + ' de ' + e.ano + '</b><button class="chip" onclick="eoMes(1)">›</button>' +
+        '<span style="flex:1"></span>' +
+        '<button class="btn-acao" onclick="eoSalvar()">Salvar</button>' +
+        '<button class="btn-acao secundario" onclick="eoExcel()">Baixar Excel</button>' +
+        '<button class="btn-acao secundario" onclick="eoImprimir()">Imprimir</button>' +
+        '<button class="btn-acao secundario" onclick="eoRemontar()">Remontar grupos do setor</button>' +
+        '<button class="btn-acao secundario" onclick="eoExcluirLoja()">Excluir loja</button>' +
+      '</div>' + eoGrade(loja);
+  }
+  el.innerHTML = cabecalho('Escala de outras lojas', 'Suba o relatório de colaboradores do RH de qualquer loja e o portal monta a escala 5x2 por grupos') +
+    (e.semTabela ? '<div class="pq-card" style="border-color:#E9C88F;background:#FFF7EA;margin-bottom:12px;">Para guardar as escalas das outras lojas, rode <b>supabase/escala_outras_lojas.sql</b> no Supabase (uma vez só). Sem isso dá para montar, imprimir e baixar o Excel, mas não fica salvo.</div>' : '') +
+    (e.resumoImport ? '<div class="pq-card" style="border-color:#B9DFC9;background:#E8F4EE;margin-bottom:12px;">' + rupEsc(e.resumoImport) + '</div>' : '') +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">' + chipsLojas +
+      '<button class="btn-acao" onclick="eoSubirRelatorio()">⬆ Subir relatório de outra loja</button></div>' + corpo;
+}
+function eoGrade(loja) {
+  const e = estado.eo;
+  const dias = e5DiasMes(e.ano, e.mes);
+  const fechado = new Set(e.feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
+  const gs = loja.grupos[e.setor] || [];
+  const pessoas = loja.pessoas.filter((p) => p.setor === e.setor && !p.fora);
+  const fora = loja.pessoas.filter((p) => p.setor === e.setor && p.fora);
+  const temTurno = pessoas.some((p) => p.turno === 'M') && pessoas.some((p) => p.turno === 'T');
+  const marcas = {};
+  pessoas.forEach((p) => { marcas[p.mat] = eoMarcas(loja, p, e5Soma(dias[0], -7), dias[dias.length - 1]); });
+  // conferência
+  const problemas = [];
+  pessoas.forEach((p) => {
+    const m = marcas[p.mat];
+    let seq = 0, maior = 0;
+    for (let d = e5Soma(dias[0], -7); d <= dias[dias.length - 1]; d = e5Soma(d, 1)) { if (m[d] || fechado.has(d)) seq = 0; else { seq++; if (d >= dias[0]) maior = Math.max(maior, seq); } }
+    const msgs = [];
+    if (maior > 6) msgs.push(maior + ' dias seguidos');
+    for (let dom = e5Soma(dias[0], -e5Dow(dias[0])); dom <= dias[dias.length - 1]; dom = e5Soma(dom, 7)) {
+      if (dom < dias[0] || e5Soma(dom, 6) > dias[dias.length - 1]) continue;
+      const n = Array.from({ length: 7 }, (_, i) => e5Soma(dom, i)).filter((d) => m[d] === 'folga').length;
+      if (n !== 2) msgs.push('semana de ' + e5Ddmm(dom) + ' com ' + n + ' folga(s)');
+    }
+    if (!p.grupo) msgs.push('sem grupo');
+    if (msgs.length) problemas.push('<b>' + rupEsc(e5Curto(p.nome)) + '</b>: ' + msgs.join('; '));
+  });
+  const cab = dias.map((d) => { const w = e5Dow(d), fer = fechado.has(d); return '<th class="e5-dia" style="background:' + (fer ? '#BFBFBF' : w === 0 ? '#FFD54F' : '#FFFF99') + '">' + Number(d.slice(8)) + '<br><span>' + (fer ? 'FER' : E5_LETRA[w]) + '</span></th>'; }).join('');
+  const linhas = gs.map((g, gi) => {
+    const cor = EO_PAL[gi % 8];
+    const ps = pessoas.filter((p) => p.grupo === g.letra).sort((a, b) => (a.turno || '').localeCompare(b.turno || '') || a.nome.localeCompare(b.nome, 'pt-BR'));
+    const doms = dias.filter((d) => e5Dow(d) === 0 && e5FolgaDomingo(eoGrupoE5(g), eoCfg(loja), d)).map(e5Ddmm).join(', ');
+    const regra = g.todoDom ? 'folga todo domingo + ' + E5_DIAS[g.d2] : E5_DIAS[g.d1] + ' + ' + E5_DIAS[g.d2] + ' | Dom + ' + E5_DIAS[g.d2];
+    return '<tr><td colspan="' + (dias.length + 1) + '" class="e5-grupo" style="background:' + e5Escuro(cor[1]) + '"><b>Grupo ' + g.letra + '</b> · ' + regra + (doms ? ' · domingos de folga: ' + doms : '') +
+      ' <button class="e5-mini" onclick="eoEditarGrupo(' + gi + ')">editar grupo</button><span class="e5-quadro">' + ps.length + ' pessoa(s)</span></td></tr>' +
+      ps.map((p) => {
+        const m = marcas[p.mat];
+        const cel = dias.map((d) => {
+          const fer = fechado.has(d), t = m[d];
+          const bg = fer ? '#D9D9D9' : t === 'folga' ? cor[1] : t === 'folga_feriado' ? '#ECE7FB' : cor[0];
+          return '<td class="e5-cel' + (fer ? '' : ' clic') + '" style="background:' + bg + '"' + (fer ? '' : ' onclick="eoAlternar(\'' + p.mat + '\',\'' + d + '\')"') + '>' +
+            (fer ? '' : t === 'folga' ? '<b>X</b>' : t === 'folga_feriado' ? '<b style="color:#5B3FC4">F</b>' : '') + '</td>';
+        }).join('');
+        const sub = [p.turno && p.turno !== 'U' ? (p.turno === 'M' ? 'manhã' : 'tarde') : '', p.funcao !== 'colaborador' ? p.funcao : '', rupEsc(p.cargo.toLowerCase())].filter(Boolean).join(' · ');
+        return '<tr><td class="e5-nome" style="background:' + cor[0] + '" onclick="eoEditarPessoa(\'' + p.mat + '\')" title="Mudar setor, turno ou grupo">' + (p.novo ? '🆕 ' : '') + rupEsc(p.nome) + '<div class="e5-sub">' + sub + '</div></td>' + cel + '</tr>';
+      }).join('');
+  }).join('');
+  const semGrupo = pessoas.filter((p) => !gs.some((g) => g.letra === p.grupo));
+  const trab = (t) => dias.map((d) => fechado.has(d) ? '<td class="e5-tot"></td>' : '<td class="e5-tot">' + pessoas.filter((p) => (!t || p.turno === t) && !marcas[p.mat][d]).length + '</td>').join('');
+  const totais = (temTurno ? [['M', 'Trabalhando manhã'], ['T', 'Trabalhando tarde']] : [[null, 'Trabalhando']]).map(([t, r]) => '<tr><td class="e5-nome e5-tot" style="text-align:left;cursor:default">' + r + '</td>' + trab(t) + '</tr>').join('');
+  return '<style>.e5-tab{border-collapse:collapse;font-size:11px}.e5-tab td,.e5-tab th{border:1px solid #c9ced6;padding:0;text-align:center}.e5-dia{width:28px;font-size:11px;font-weight:800;line-height:1.15;padding:2px 0!important}.e5-dia span{color:#C00000;font-size:9px}.e5-cel{width:28px;height:26px;font-size:10px}.e5-cel.clic{cursor:pointer}.e5-cel.clic:hover{outline:2px solid #2F7BFF;outline-offset:-2px}.e5-nome{min-width:230px;max-width:260px;text-align:left!important;padding:3px 6px!important;cursor:pointer;font-size:11.5px}.e5-sub{font-size:10px;color:#5b6878}.e5-grupo{color:#fff;text-align:left!important;padding:6px 8px!important;font-size:12px}.e5-quadro{float:right;font-weight:800}.e5-mini{margin-left:8px;font-size:11px;border:1px solid rgba(255,255,255,.6);background:transparent;color:#fff;border-radius:6px;padding:1px 8px;cursor:pointer}.e5-tot{background:#E2EFDA;font-weight:800;font-size:11px;height:24px}</style>' +
+    '<div class="pq-card" style="margin:12px 0;' + (problemas.length ? 'border-color:#E9C88F;background:#FFF7EA;' : 'border-color:#B9DFC9;background:#E8F4EE;') + '"><b>' + (problemas.length ? 'Conferência com pontos para revisar' : 'Conferência OK') + '</b>' +
+      (problemas.length ? '<ul style="margin:6px 0 0;">' + problemas.map((x) => '<li>' + x + '</li>').join('') + '</ul>' : '') +
+      '<div style="margin-top:6px;font-size:12.5px;color:var(--text-muted);">Clique no dia: X (folga) → F (folga de feriado) → sem folga. Clique no nome para mudar setor, turno ou grupo. Os turnos vieram por padrão: confira. Lembre de clicar em <b>Salvar</b>.' +
+      (fora.length ? ' Fora da escala neste setor: ' + fora.map((p) => '<a href="#" onclick="eoEditarPessoa(\'' + p.mat + '\');return false;">' + rupEsc(e5Curto(p.nome)) + '</a>').join(', ') + '.' : '') + '</div></div>' +
+    (semGrupo.length ? '<div class="pq-card" style="margin-bottom:12px;">Sem grupo: ' + semGrupo.map((p) => '<a href="#" onclick="eoEditarPessoa(\'' + p.mat + '\');return false;">' + rupEsc(e5Curto(p.nome)) + '</a>').join(', ') + '</div>' : '') +
+    '<div class="tabela-wrap"><table class="e5-tab"><thead><tr><th class="e5-nome" style="cursor:default">Nome</th>' + cab + '</tr></thead><tbody>' + linhas + totais + '</tbody></table></div>';
+}
+function eoTrocarLoja(l) { estado.eo.lojaAtual = l; estado.eo.resumoImport = ''; eoRender(); }
+function eoTrocarSetor(s) { estado.eo.setor = s; eoRender(); }
+function eoMes(delta) { const e = estado.eo; let m = e.mes + delta, a = e.ano; if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; } e.mes = m; e.ano = a; eoRender(); }
+function eoAlternar(mat, data) {
+  const loja = eoLoja();
+  const p = loja.pessoas.find((x) => x.mat === mat);
+  loja.ajustes = loja.ajustes || {};
+  const aj = (loja.ajustes[mat] = loja.ajustes[mat] || {});
+  const atual = eoMarcas(loja, p, data, data)[data] || null;
+  delete aj[data];
+  const base = eoMarcas(loja, p, data, data)[data] || null;
+  const prox = atual === null ? 'folga' : atual === 'folga' ? 'folga_feriado' : null;
+  if (prox !== base) aj[data] = prox === null ? 'trab' : prox;
+  if (!Object.keys(aj).length) delete loja.ajustes[mat];
+  eoRender();
+}
+function eoEditarPessoa(mat) {
+  const loja = eoLoja();
+  const p = loja.pessoas.find((x) => x.mat === mat);
+  const opSetor = EO_SETORES.map(([k, n]) => '<option value="' + k + '"' + (k === p.setor ? ' selected' : '') + '>' + n + '</option>').join('');
+  const opGrupo = (s) => (loja.grupos[s] || []).map((g) => '<option value="' + g.letra + '"' + (g.letra === p.grupo && s === p.setor ? ' selected' : '') + '>Grupo ' + g.letra + '</option>').join('') + '<option value="">(novo grupo / sugerir)</option>';
+  abrirModal(rupEsc(p.nome),
+    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">' + rupEsc(p.cargo) + ' · matrícula ' + rupEsc(p.mat) + ' · admissão ' + e5Ddmm(p.adm) + '/' + p.adm.slice(0, 4) + '</p>' +
+    '<label class="campo-label">Setor</label><select class="campo-input" id="eo-setor">' + opSetor + '</select>' +
+    '<label class="campo-label">Turno</label><select class="campo-input" id="eo-turno">' + [['M', 'Manhã'], ['T', 'Tarde'], ['U', 'Sem turno definido']].map(([k, n]) => '<option value="' + k + '"' + (k === p.turno ? ' selected' : '') + '>' + n + '</option>').join('') + '</select>' +
+    '<label class="campo-label">Grupo</label><select class="campo-input" id="eo-grupo">' + opGrupo(p.setor) + '</select>' +
+    '<label class="campo-label">Função</label><select class="campo-input" id="eo-funcao">' + Object.entries(E5_FUNCOES).map(([k, n]) => '<option value="' + k + '"' + (k === p.funcao ? ' selected' : '') + '>' + n + '</option>').join('') + '</select>' +
+    '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13.5px;"><input type="checkbox" id="eo-fora"' + (p.fora ? ' checked' : '') + '> Fora da escala (afastado, férias longas, não entra na escala)</label>',
+    'Salvar', () => {
+      const setor = document.getElementById('eo-setor').value;
+      p.turno = document.getElementById('eo-turno').value;
+      p.funcao = document.getElementById('eo-funcao').value;
+      p.fora = document.getElementById('eo-fora').checked;
+      let grupo = setor === p.setor ? document.getElementById('eo-grupo').value : '';
+      p.setor = setor;
+      if (!grupo || !(loja.grupos[setor] || []).some((g) => g.letra === grupo)) grupo = eoGrupoSugerido(loja, setor, p.turno);
+      p.grupo = grupo;
+      p.novo = false;
+      fecharModal();
+      eoRender();
+    });
+  document.getElementById('eo-setor').addEventListener('change', (ev) => { document.getElementById('eo-grupo').innerHTML = opGrupo(ev.target.value); });
+}
+function eoEditarGrupo(i) {
+  const loja = eoLoja();
+  const g = loja.grupos[estado.eo.setor][i];
+  const opDia = (sel) => [1, 2, 3, 4, 5, 6].map((n) => '<option value="' + n + '"' + (n === sel ? ' selected' : '') + '>' + E5_DIAS[n] + '</option>').join('');
+  const ref = loja.ref || '2026-11-29';
+  abrirModal('Grupo ' + g.letra + ' · ' + eoNomeSetor(estado.eo.setor),
+    '<label class="campo-label">1ª folga (semana em que trabalha domingo)</label><select class="campo-input" id="eo-d1">' + opDia(g.d1) + '</select>' +
+    '<label class="campo-label">2ª folga (toda semana)</label><select class="campo-input" id="eo-d2">' + opDia(g.d2) + '</select>' +
+    '<label class="campo-label">Domingos de folga</label><select class="campo-input" id="eo-fase">' +
+      '<option value="0"' + (g.fase === 0 ? ' selected' : '') + '>' + [0, 2].map((k) => e5Ddmm(e5Soma(ref, 7 * k))).join(', ') + '… (de 2 em 2)</option>' +
+      '<option value="1"' + (g.fase === 1 ? ' selected' : '') + '>' + [1, 3].map((k) => e5Ddmm(e5Soma(ref, 7 * k))).join(', ') + '… (de 2 em 2)</option></select>' +
+    '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13.5px;"><input type="checkbox" id="eo-todo"' + (g.todoDom ? ' checked' : '') + '> Folga todo domingo</label>',
+    'Salvar', () => {
+      const d1 = Number(document.getElementById('eo-d1').value), d2 = Number(document.getElementById('eo-d2').value), todo = document.getElementById('eo-todo').checked;
+      if (!todo && d1 >= d2) { mostrarToast('A 2ª folga precisa vir depois da 1ª na semana.', 'erro'); return; }
+      Object.assign(g, { d1: todo ? d2 : d1, d2, fase: Number(document.getElementById('eo-fase').value), todoDom: todo });
+      fecharModal(); eoRender();
+    });
+}
+function eoRemontar() {
+  const e = estado.eo, loja = eoLoja();
+  if (!confirm('Remontar os grupos de ' + eoNomeSetor(e.setor) + '? As pessoas serão redistribuídas e os ajustes de dias feitos à mão neste setor serão apagados.')) return;
+  eoMontarSetor(loja, e.setor);
+  loja.pessoas.filter((p) => p.setor === e.setor).forEach((p) => { if (loja.ajustes) delete loja.ajustes[p.mat]; });
+  eoRender();
+}
+async function eoExcluirLoja() {
+  const e = estado.eo, loja = eoLoja();
+  if (!confirm('Excluir a escala da loja ' + loja.loja + '? Isso não mexe na Loja 327.')) return;
+  const r = await sb.from('escala_outras_lojas').delete().eq('loja', loja.loja);
+  if (r.error && !e.semTabela) { mostrarToast('Não consegui excluir: ' + r.error.message, 'erro'); return; }
+  e.lojas = e.lojas.filter((x) => x !== loja);
+  e.lojaAtual = e.lojas.length ? e.lojas[0].loja : null;
+  e.resumoImport = '';
+  eoRender();
+}
+
+// ---------- Excel e impressão (todos os setores da loja) ----------
+function eoTabelaSetor(loja, setor, dias) {
+  const fechado = new Set(estado.eo.feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
+  const linhas = [];
+  (loja.grupos[setor] || []).forEach((g) => {
+    loja.pessoas.filter((p) => p.setor === setor && !p.fora && p.grupo === g.letra).sort((a, b) => (a.turno || '').localeCompare(b.turno || '') || a.nome.localeCompare(b.nome, 'pt-BR')).forEach((p) => {
+      const m = eoMarcas(loja, p, dias[0], dias[dias.length - 1]);
+      linhas.push({ g, p, cels: dias.map((d) => fechado.has(d) ? 'FER' : m[d] === 'folga' ? 'X' : m[d] === 'folga_feriado' ? 'F' : '') });
+    });
+  });
+  return linhas;
+}
+function eoExcel() {
+  const e = estado.eo, loja = eoLoja();
+  const dias = e5DiasMes(e.ano, e.mes);
+  const wb = XLSX.utils.book_new();
+  EO_SETORES.filter(([s]) => loja.pessoas.some((p) => p.setor === s && !p.fora)).forEach(([s, nome]) => {
+    const linhas = eoTabelaSetor(loja, s, dias);
+    const aoa = [['LOJA ' + loja.loja + (loja.nome ? ' · ' + loja.nome : '') + ' · ESCALA ' + nome.toUpperCase() + ' · ' + E5_MESES[e.mes - 1].toUpperCase() + ' ' + e.ano],
+      ['X = folga · F = folga de feriado · FER = feriado, loja fechada · cada grupo folga junto'],
+      ['GRUPO', 'TURNO', 'NOME', 'MATRÍCULA', 'CARGO'].concat(dias.map((d) => Number(d.slice(8)) + ' ' + E5_LETRA[e5Dow(d)]))];
+    linhas.forEach(({ g, p, cels }) => aoa.push([g.letra, p.turno === 'U' ? '' : p.turno, p.nome, p.mat, p.cargo].concat(cels)));
+    aoa.push([]); aoa.push(['by Lucas Alberto · ULVA']);
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    ws['!cols'] = [{ wch: 6 }, { wch: 6 }, { wch: 34 }, { wch: 10 }, { wch: 22 }].concat(dias.map(() => ({ wch: 4 })));
+    XLSX.utils.book_append_sheet(wb, ws, nome.slice(0, 31));
+  });
+  XLSX.writeFile(wb, 'escala-loja-' + loja.loja + '-' + E5_MESES[e.mes - 1].toLowerCase() + '-' + e.ano + '.xlsx');
+}
+function eoImprimir() {
+  const e = estado.eo, loja = eoLoja();
+  const dias = e5DiasMes(e.ano, e.mes);
+  const fechado = new Set(e.feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
+  const cab = dias.map((d) => { const w = e5Dow(d), fer = fechado.has(d); return '<th style="background:' + (fer ? '#BFBFBF' : w === 0 ? '#FFD54F' : '#FFFF99') + '">' + Number(d.slice(8)) + '<br><span style="color:#C00000">' + (fer ? 'FER' : E5_LETRA[w]) + '</span></th>'; }).join('');
+  const paginas = EO_SETORES.filter(([s]) => loja.pessoas.some((p) => p.setor === s && !p.fora)).map(([s, nome]) => {
+    const gs = loja.grupos[s] || [];
+    const linhas = eoTabelaSetor(loja, s, dias);
+    const corpo = gs.map((g, gi) => {
+      const cor = EO_PAL[gi % 8];
+      const ls = linhas.filter((l) => l.g === g);
+      if (!ls.length) return '';
+      const regra = g.todoDom ? 'folga todo domingo + ' + E5_DIAS[g.d2] : E5_DIAS[g.d1] + ' + ' + E5_DIAS[g.d2] + ' | Dom + ' + E5_DIAS[g.d2];
+      return '<tr><td colspan="' + (dias.length + 2) + '" style="background:' + e5Escuro(cor[1]) + ';color:#fff;text-align:left;font-weight:700">GRUPO ' + g.letra + ' · ' + regra + '</td></tr>' +
+        ls.map(({ p, cels }) => '<tr><td style="background:' + cor[0] + '">' + (p.turno === 'U' ? '' : p.turno) + '</td><td style="background:' + cor[0] + ';text-align:left;font-weight:700">' + rupEsc(p.nome) + '</td>' +
+          cels.map((c) => '<td style="background:' + (c === 'FER' ? '#D9D9D9' : c === 'X' ? cor[1] : c === 'F' ? '#ECE7FB' : cor[0]) + ';font-weight:700">' + c + '</td>').join('') + '</tr>').join('');
+    }).join('');
+    return '<div class="pg"><h1>SUPERMERCADOS BH · LOJA ' + rupEsc(loja.loja) + (loja.nome ? ' · ' + rupEsc(loja.nome.toUpperCase()) : '') + ' · ESCALA ' + nome.toUpperCase() + ' · ' + E5_MESES[e.mes - 1].toUpperCase() + ' ' + e.ano + '</h1>' +
+      '<p>X = folga · F = folga de feriado · FER = feriado, loja fechada · cada cor é um grupo e o grupo folga junto.</p>' +
+      '<table><tr><th>T</th><th style="width:170px">NOME</th>' + cab + '</tr>' + corpo + '</table><div class="ass">Gerente: _______________________________</div><div class="rod">ULVA · by Lucas Alberto</div></div>';
+  }).join('');
+  const w = window.open('', '_blank');
+  if (!w) { mostrarToast('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.', 'erro'); return; }
+  w.document.write('<html><head><meta charset="utf-8"><title>Escala loja ' + rupEsc(loja.loja) + '</title><style>@page{size:A4 landscape;margin:8mm}body{font-family:Arial,sans-serif;margin:0}.pg{page-break-after:always}.pg:last-child{page-break-after:auto}h1{font-size:14px;margin:0 0 4px}p{font-size:9.5px;margin:0 0 6px;color:#444}' +
+    'table{border-collapse:collapse;width:100%;font-size:7.5px}td,th{border:1px solid #999;padding:1px;text-align:center}.ass{margin-top:16px;font-size:10px}.rod{font-size:8px;color:#888;text-align:right;margin-top:6px}</style></head><body>' + paginas + '</body></html>');
+  w.document.close(); w.focus(); setTimeout(() => w.print(), 400);
+}
 
 function abrirModal(titulo, corpoHtml, textoBotao, aoSalvar) {
   fecharModal();
