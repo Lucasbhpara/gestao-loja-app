@@ -293,10 +293,21 @@ async function gravarFolgasDoColaborador(
     .from('escala_folgas')
     .delete()
     .eq('colaborador_loja_id', colaboradorId)
-    .in('tipo', ['folga', 'folga_feriado'])
+    .eq('tipo', 'folga')
     .gte('data', desde)
     .lte('data', fim);
   if (del.error) throw del.error;
+  // folga de feriado (F) lançada à mão fica; só refaz a dos dias de loja fechada
+  const datasFechadas = fechados.filter((f) => f.data >= desde && f.data <= fim).map((f) => f.data);
+  if (datasFechadas.length) {
+    const delF = await supabase
+      .from('escala_folgas')
+      .delete()
+      .eq('colaborador_loja_id', colaboradorId)
+      .eq('tipo', 'folga_feriado')
+      .in('data', datasFechadas);
+    if (delF.error) throw delF.error;
+  }
   const linhas = [
     ...folgasGrupo
       .filter((d) => d >= desde && d <= fim)

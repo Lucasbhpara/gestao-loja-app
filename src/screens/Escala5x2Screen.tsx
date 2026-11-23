@@ -54,7 +54,7 @@ const FUNCOES: { k: FuncaoVaga; nome: string }[] = [
   { k: 'encarregada', nome: 'Encarregada' },
   { k: 'embaladora', nome: 'Embaladora' },
 ];
-const SIGLA: Record<TipoEscala, string> = { folga: 'X', folga_feriado: 'FER', ferias_licenca_inss: 'FÉR', falta: 'FA', atestado: 'AT' };
+const SIGLA: Record<TipoEscala, string> = { folga: 'X', folga_feriado: 'F', ferias_licenca_inss: 'FÉR', falta: 'FA', atestado: 'AT' };
 const DIAS_NOME = ['', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex'];
 
 function corEscura(hex: string): string {
