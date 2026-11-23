@@ -857,6 +857,7 @@
       </button>
       <div class="nav-gaveta-itens">
         <button class="nav-item" data-pagina="equipe" onclick="irPara('equipe')"><span class="dot"></span>Equipe</button>
+        <button class="nav-item" data-pagina="escala-5x2" onclick="irPara('escala-5x2')"><span class="dot"></span>Escala 5x2</button>
         <button class="nav-item" data-pagina="escala" onclick="irPara('escala')"><span class="dot"></span>Faltas e Atestados</button>
         <button class="nav-item" data-pagina="historico-faltas" onclick="irPara('historico-faltas')"><span class="dot"></span>Histórico de faltas</button>
       </div>
@@ -1181,7 +1182,7 @@ function iniciais(nome) {
 // independente (não fecha as outras) e abre sozinha quando a página ativa
 // está dentro dela, pra sempre mostrar onde o admin está.
 const GAVETA_POR_PAGINA = {
-  equipe: 'colaboradores', escala: 'colaboradores', 'historico-faltas': 'colaboradores',
+  equipe: 'colaboradores', escala: 'colaboradores', 'escala-5x2': 'colaboradores', 'historico-faltas': 'colaboradores',
   avisos: 'avisos', ocorrencias: 'avisos',
   perdas: 'indicadores', validade: 'indicadores', vendas: 'indicadores', 'vendas-loja': 'indicadores', 'venda-dia': 'indicadores', 'vendas-comparativo': 'indicadores', 'giro-produtos': 'indicadores', 'importar-vendas': 'indicadores', 'painel-resultados': 'indicadores', 'resultados-inventario': 'indicadores', 'visitas-site': 'indicadores',
   conferencias: 'indicadores', inventario: 'indicadores', 'historico-exclusoes': 'indicadores',
@@ -1259,6 +1260,7 @@ async function irPara(pagina) {
     else if (pagina === 'checklist-setor') await paginaChecklistSetor();
     else if (pagina === 'visita-tecnica') await paginaVisitaTecnica();
     else if (pagina === 'escala') await paginaEscala();
+    else if (pagina === 'escala-5x2') await paginaEscala5x2();
     else if (pagina === 'historico-faltas') await paginaHistoricoFaltas();
     else if (pagina === 'historico-exclusoes') await paginaHistoricoExclusoes();
     else if (pagina === 'inventario') await paginaInventario();
@@ -12003,6 +12005,539 @@ async function alternarAtivoPerguntaVisita(id, ativo) {
   mostrarToast(ativo ? 'Pergunta reativada.' : 'Pergunta desativada.');
   renderizarVisitaTecnica();
 }
+
+// =============================================================================
+// Escala 5x2 por grupos — todos os setores (mesmas tabelas do app: ver
+// supabase/escala_5x2.sql, escala_5x2_setores.sql e src/data/escala5x2Api.ts).
+// Cada grupo folga junto, num ciclo de 2 semanas:
+//   · semana em que o grupo TRABALHA no domingo → folga em dia_1 e dia_2;
+//   · semana em que o grupo FOLGA no domingo    → folga no domingo e em dia_2;
+//   · grupo "folga todo domingo" (ex.: faxina da manhã) → domingo + dia_2.
+// Feriado com loja fechada vira "folga_feriado" para todos e não conta como
+// folga. As folgas ficam em escala_folgas (a mesma tabela de Faltas e
+// Atestados): aqui dá para clicar no dia para pôr/tirar uma folga à mão.
+// =============================================================================
+const E5_DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+const E5_LETRA = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
+const E5_MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'];
+const E5_SIGLA = { folga: 'X', folga_feriado: 'FER', ferias_licenca_inss: 'FÉR', falta: 'FA', atestado: 'AT' };
+const E5_FUNCOES = { colaborador: 'Colaborador', operadora: 'Operadora', encarregada: 'Encarregada', embaladora: 'Embaladora' };
+const E5_HOR = {
+  'frente-caixa': 'Manhã 07:20–17:20 · Tarde 11:30–21:30 · Domingo: manhã 07:20–13:35, tarde 08:30–14:45',
+};
+
+function e5Iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
+function e5Data(s) { const [a, m, d] = s.split('-').map(Number); return new Date(a, m - 1, d); }
+function e5Soma(s, n) { const d = e5Data(s); d.setDate(d.getDate() + n); return e5Iso(d); }
+function e5Dow(s) { return e5Data(s).getDay(); }
+function e5Diff(a, b) { return Math.round((e5Data(a) - e5Data(b)) / 86400000); }
+function e5Ddmm(s) { return s.slice(8) + '/' + s.slice(5, 7); }
+function e5DiasMes(a, m) { const n = new Date(a, m, 0).getDate(); return Array.from({ length: n }, (_, i) => a + '-' + String(m).padStart(2, '0') + '-' + String(i + 1).padStart(2, '0')); }
+function e5Hoje() { return e5Iso(new Date()); }
+function e5Autor() { return (estado.usuario && estado.usuario.nome) || 'Portal'; }
+function e5Escuro(hex) { const n = parseInt(String(hex).slice(1), 16); const f = (c) => Math.round(c * 0.45); return 'rgb(' + f((n >> 16) & 255) + ',' + f((n >> 8) & 255) + ',' + f(n & 255) + ')'; }
+function e5Curto(n) { const w = String(n || '').trim().split(/\s+/).filter((x) => !['DE', 'DA', 'DO', 'DOS', 'DAS'].includes(x.toUpperCase())); return (w.slice(0, 2).join(' ')).toLowerCase().replace(/(^|\s)\S/g, (m) => m.toUpperCase()); }
+
+// ---------- regra das folgas do grupo ----------
+function e5FolgaDomingo(g, cfg, domingo) {
+  if (g.folga_todo_domingo) return true;
+  const s = Math.round(e5Diff(domingo, cfg.domingo_ref) / 7);
+  const par = ((s % 2) + 2) % 2 === 0;
+  return g.fase === 0 ? par : !par;
+}
+function e5FolgasSemana(g, cfg, domingo, feriados) {
+  const fechado = new Set(feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
+  const pico = new Set(feriados.filter((f) => f.tipo === 'pico').map((f) => f.data));
+  const base = e5FolgaDomingo(g, cfg, domingo) ? [domingo, e5Soma(domingo, g.dia_2)] : [e5Soma(domingo, g.dia_1), e5Soma(domingo, g.dia_2)];
+  const escolhidas = new Set();
+  const ruins = [];
+  base.forEach((d) => { if (fechado.has(d) || pico.has(d)) ruins.push(d); else escolhidas.add(d); });
+  ruins.forEach((d) => {
+    const alt = [1, 2, 3, 5, 4].map((n) => e5Soma(domingo, n)).filter((x) => !escolhidas.has(x) && !fechado.has(x) && !pico.has(x))
+      .sort((a, b) => Math.abs(e5Diff(a, d)) - Math.abs(e5Diff(b, d)) || e5Diff(a, b));
+    if (alt.length) escolhidas.add(alt[0]); else if (!fechado.has(d)) escolhidas.add(d);
+  });
+  return [...escolhidas].sort();
+}
+function e5FolgasPeriodo(g, cfg, inicio, fim, feriados) {
+  let dom = e5Soma(inicio, -e5Dow(inicio));
+  const out = [];
+  while (dom <= fim) { e5FolgasSemana(g, cfg, dom, feriados).forEach((d) => { if (d >= inicio && d <= fim) out.push(d); }); dom = e5Soma(dom, 7); }
+  return out;
+}
+
+// ---------- carga ----------
+async function paginaEscala5x2() {
+  if (!estado.e5) {
+    const h = new Date();
+    estado.e5 = { setor: 'frente-caixa', ano: h.getFullYear(), mes: h.getMonth() + 1 };
+  }
+  await carregarColaboradoresLoja();
+  await e5Carregar();
+  e5Render();
+}
+async function e5Carregar() {
+  const e = estado.e5;
+  const cfgs = await sb.from('escala_config').select('*').order('setor');
+  if (cfgs.error) throw new Error('A Escala 5x2 ainda não foi instalada no banco. Rode supabase/escala_5x2.sql no Supabase. (' + cfgs.error.message + ')');
+  e.configs = cfgs.data || [];
+  if (!e.configs.length) throw new Error('Nenhum setor configurado. Rode supabase/escala_5x2.sql no Supabase.');
+  if (!e.configs.some((c) => c.setor === e.setor)) e.setor = e.configs[0].setor;
+  e.cfg = e.configs.find((c) => c.setor === e.setor);
+  const [g, f, m] = await Promise.all([
+    sb.from('escala_grupos').select('*').eq('setor', e.setor).order('letra'),
+    sb.from('escala_feriados').select('*').order('data'),
+    sb.from('escala_meses').select('mes').eq('setor', e.setor),
+  ]);
+  [g, f, m].forEach((r) => { if (r.error) throw r.error; });
+  e.grupos = g.data || [];
+  e.feriados = f.data || [];
+  e.meses = (m.data || []).map((x) => x.mes);
+  const ids = e.grupos.map((x) => x.id);
+  const v = ids.length ? await sb.from('escala_vagas').select('*').in('grupo_id', ids).order('ordem') : { data: [] };
+  if (v.error) throw v.error;
+  e.vagas = (v.data || []).sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true }));
+  await e5CarregarRegistros();
+}
+async function e5CarregarRegistros() {
+  const e = estado.e5;
+  const dias = e5DiasMes(e.ano, e.mes);
+  const ids = e.vagas.map((v) => v.colaborador_loja_id).filter(Boolean);
+  e.regs = [];
+  for (let i = 0; i < ids.length; i += 150) {
+    const r = await sb.from('escala_folgas').select('id,colaborador_loja_id,data,tipo').in('colaborador_loja_id', ids.slice(i, i + 150))
+      .gte('data', e5Soma(dias[0], -7)).lte('data', dias[dias.length - 1]);
+    if (r.error) throw r.error;
+    e.regs.push(...(r.data || []));
+  }
+}
+function e5Reg() {
+  const m = {};
+  (estado.e5.regs || []).forEach((r) => { const k = String(r.colaborador_loja_id); (m[k] = m[k] || {})[r.data] = r; });
+  return m;
+}
+function e5Nome(id) { const c = (estado.colaboradoresLoja || []).find((x) => String(x.id) === String(id)); return c ? c.nome : ''; }
+
+// ---------- conferência ----------
+function e5Conferir() {
+  const e = estado.e5;
+  const dias = e5DiasMes(e.ano, e.mes);
+  const ini = dias[0], fim = dias[dias.length - 1];
+  const reg = e5Reg();
+  const fechado = new Set(e.feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
+  const problemas = [];
+  e.vagas.filter((v) => v.colaborador_loja_id).forEach((v) => {
+    const r = reg[String(v.colaborador_loja_id)] || {};
+    let seq = 0, maior = 0;
+    for (let d = e5Soma(ini, -7); d <= fim; d = e5Soma(d, 1)) {
+      if (r[d] || fechado.has(d)) seq = 0; else { seq++; if (d >= ini) maior = Math.max(maior, seq); }
+    }
+    const msgs = [];
+    if (maior > 6) msgs.push(maior + ' dias seguidos de trabalho');
+    let dom = e5Soma(ini, -e5Dow(ini));
+    while (dom <= fim) {
+      const sem = Array.from({ length: 7 }, (_, i) => e5Soma(dom, i));
+      if (sem[0] >= ini && sem[6] <= fim && (!v.desde || sem[0] >= v.desde)) {
+        const n = sem.filter((d) => r[d] && r[d].tipo === 'folga').length;
+        const esperado = e.cfg.inicio_5x2 && sem[6] >= e.cfg.inicio_5x2 ? 2 : 1;
+        if (n < esperado) msgs.push('semana de ' + e5Ddmm(dom) + ' com ' + n + ' folga(s)');
+        if (esperado === 2 && n > 2) msgs.push('semana de ' + e5Ddmm(dom) + ' com ' + n + ' folgas');
+      }
+      dom = e5Soma(dom, 7);
+    }
+    if (msgs.length) problemas.push({ v, msgs });
+  });
+  // mesma seção folgando no mesmo dia (repositores)
+  const secoes = {};
+  e.vagas.filter((v) => v.secao && v.colaborador_loja_id).forEach((v) => { (secoes[v.secao] = secoes[v.secao] || []).push(v); });
+  const conflitos = [];
+  Object.entries(secoes).forEach(([s, lista]) => {
+    dias.forEach((d) => {
+      if (e5Dow(d) === 0 || fechado.has(d)) return;
+      const off = lista.filter((v) => { const x = (reg[String(v.colaborador_loja_id)] || {})[d]; return x && x.tipo === 'folga'; });
+      if (off.length > 1) conflitos.push('Seção ' + s + ' em ' + e5Ddmm(d) + ': ' + off.map((v) => e5Curto(e5Nome(v.colaborador_loja_id))).join(' e '));
+    });
+  });
+  // encarregada por turno
+  const encs = e.vagas.filter((v) => v.funcao === 'encarregada' && v.colaborador_loja_id);
+  const semEnc = [];
+  if (encs.length) {
+    const turnos = [...new Set(encs.map((v) => v.turno))];
+    dias.forEach((d) => {
+      if (fechado.has(d)) return;
+      turnos.forEach((t) => { if (!encs.some((v) => v.turno === t && !(reg[String(v.colaborador_loja_id)] || {})[d])) semEnc.push(e5Ddmm(d) + (t === 'U' ? '' : ' (' + (t === 'M' ? 'manhã' : 'tarde') + ')')); });
+    });
+  }
+  return { problemas, conflitos, semEnc };
+}
+
+// ---------- tela ----------
+function e5Render() {
+  const e = estado.e5;
+  const el = document.getElementById('conteudo-principal');
+  const dias = e5DiasMes(e.ano, e.mes);
+  const reg = e5Reg();
+  const fechado = new Set(e.feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
+  const gerado = e.meses.includes(dias[0]);
+  const conf = e5Conferir();
+  const temTurno = e.vagas.some((v) => v.turno === 'M') && e.vagas.some((v) => v.turno === 'T');
+  const nomeDia = (n) => E5_DIAS[n] || '';
+  const cab = dias.map((d) => {
+    const w = e5Dow(d), fer = fechado.has(d);
+    return '<th class="e5-dia" style="background:' + (fer ? '#BFBFBF' : w === 0 ? '#FFD54F' : '#FFFF99') + '">' + Number(d.slice(8)) + '<br><span>' + (fer ? 'FER' : E5_LETRA[w]) + '</span></th>';
+  }).join('');
+  const linhasGrupos = e.grupos.map((g) => {
+    const vs = e.vagas.filter((v) => v.grupo_id === g.id);
+    const ideal = (g.ideal_tarde || 0) + (g.ideal_manha || 0);
+    const n = vs.filter((v) => v.colaborador_loja_id).length;
+    const doms = dias.filter((d) => e5Dow(d) === 0 && e5FolgaDomingo(g, e.cfg, d)).map(e5Ddmm).join(', ');
+    const regra = g.folga_todo_domingo ? 'folga todo domingo + ' + nomeDia(g.dia_2)
+      : nomeDia(g.dia_1) + ' + ' + nomeDia(g.dia_2) + ' (semana que trabalha domingo) | Dom + ' + nomeDia(g.dia_2) + ' (semana que folga domingo)';
+    const cabG = '<tr><td colspan="' + (dias.length + 1) + '" class="e5-grupo" style="background:' + e5Escuro(g.cor_forte) + '">' +
+      '<b>Grupo ' + rupEsc(g.letra) + '</b> · ' + regra + (doms ? ' · domingos de folga: ' + doms : '') +
+      ' <button class="e5-mini" onclick="e5EditarGrupo(\'' + g.id + '\')">editar grupo</button>' +
+      '<span class="e5-quadro' + (n < ideal ? ' ruim' : '') + '">Quadro ' + n + '/' + ideal + (n < ideal ? ' (' + (n - ideal) + ')' : ' OK') + '</span></td></tr>';
+    const linhas = vs.map((v) => {
+      const id = v.colaborador_loja_id ? String(v.colaborador_loja_id) : null;
+      const r = id ? (reg[id] || {}) : {};
+      const celulas = dias.map((d) => {
+        const x = r[d];
+        const fer = fechado.has(d);
+        const t = x ? x.tipo : null;
+        const bg = fer ? '#D9D9D9' : t === 'folga' ? g.cor_forte : t ? '#F4CCCC' : g.cor;
+        const pode = id && !fer && (!t || t === 'folga');
+        return '<td class="e5-cel' + (pode ? ' clic' : '') + '" style="background:' + bg + '"' + (pode ? ' onclick="e5AlternarFolga(\'' + id + '\',\'' + d + '\')" title="Clique para ' + (t ? 'tirar' : 'pôr') + ' folga"' : '') + '>' +
+          (fer ? '' : t ? '<b' + (t !== 'folga' ? ' style="color:var(--red)"' : '') + '>' + E5_SIGLA[t] + '</b>' : '') + '</td>';
+      }).join('');
+      const nome = id ? rupEsc(e5Nome(id) || v.nome_planilha || '?') : '<i style="color:var(--text-muted)">vaga aberta</i>';
+      const extra = [v.turno !== 'U' ? v.turno : '', v.secao ? 'seção ' + v.secao : '', v.funcao === 'encarregada' ? 'encarregada' : v.funcao === 'embaladora' ? 'embaladora' : ''].filter(Boolean).join(' · ');
+      return '<tr><td class="e5-nome" style="background:' + g.cor + '" onclick="e5AbrirVaga(\'' + v.id + '\')" title="Trocar a pessoa da vaga"><b>' + rupEsc(v.codigo) + '</b> ' + nome +
+        (extra ? '<div class="e5-sub">' + extra + '</div>' : '') + '</td>' + celulas + '</tr>';
+    }).join('');
+    return cabG + linhas;
+  }).join('');
+  const trab = (t) => dias.map((d) => fechado.has(d) ? '<td class="e5-tot"></td>' :
+    '<td class="e5-tot">' + e.vagas.filter((v) => v.colaborador_loja_id && (!t || v.turno === t) && !(reg[String(v.colaborador_loja_id)] || {})[d]).length + '</td>').join('');
+  const totais = (temTurno ? [['M', 'Trabalhando manhã'], ['T', 'Trabalhando tarde']] : [[null, 'Trabalhando']])
+    .map(([t, rot]) => '<tr><td class="e5-nome e5-tot" style="text-align:left">' + rot + '</td>' + trab(t) + '</tr>').join('');
+  const setores = e.configs.map((c) => '<button class="chip' + (c.setor === e.setor ? ' ativo' : '') + '" onclick="e5TrocarSetor(\'' + c.setor + '\')">' + rupEsc(c.nome || c.setor) + '</button>').join('');
+  const ferMes = e.feriados.filter((f) => f.data >= dias[0] && f.data <= dias[dias.length - 1]);
+  const okConf = !conf.problemas.length && !conf.conflitos.length && !conf.semEnc.length;
+  el.innerHTML =
+    '<style>.e5-tab{border-collapse:collapse;font-size:11px;min-width:0}.e5-tab td,.e5-tab th{border:1px solid #c9ced6;padding:0;text-align:center}' +
+    '.e5-dia{width:28px;font-size:11px;font-weight:800;line-height:1.15;padding:2px 0!important}.e5-dia span{color:#C00000;font-size:9px}' +
+    '.e5-cel{width:28px;height:26px;font-size:10px}.e5-cel.clic{cursor:pointer}.e5-cel.clic:hover{outline:2px solid #2F7BFF;outline-offset:-2px}' +
+    '.e5-nome{min-width:230px;max-width:260px;text-align:left!important;padding:3px 6px!important;cursor:pointer;font-size:11.5px}.e5-nome:hover{text-decoration:underline}' +
+    '.e5-sub{font-size:10px;color:#5b6878}.e5-grupo{color:#fff;text-align:left!important;padding:6px 8px!important;font-size:12px}' +
+    '.e5-quadro{float:right;font-weight:800}.e5-quadro.ruim{background:#D23C33;padding:0 6px;border-radius:4px}' +
+    '.e5-mini{margin-left:8px;font-size:11px;border:1px solid rgba(255,255,255,.6);background:transparent;color:#fff;border-radius:6px;padding:1px 8px;cursor:pointer}' +
+    '.e5-tot{background:#E2EFDA;font-weight:800;font-size:11px;height:24px}.e5-lista li{margin:2px 0}</style>' +
+    cabecalho('Escala 5x2', 'Grupos de folga por setor. Clique num dia para pôr ou tirar folga; clique no nome para trocar a pessoa da vaga.') +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' + setores + '</div>' +
+    '<div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center;">' +
+      '<button class="chip" onclick="e5Mes(-1)">‹</button><b style="min-width:150px;text-align:center;">' + E5_MESES[e.mes - 1] + ' de ' + e.ano + '</b><button class="chip" onclick="e5Mes(1)">›</button>' +
+      '<span style="flex:1"></span>' +
+      '<button class="btn-acao" onclick="e5Gerar()">' + (gerado ? 'Gerar de novo' : 'Gerar escala do mês') + '</button>' +
+      '<button class="btn-acao secundario" onclick="e5Imprimir()">Imprimir</button>' +
+      '<button class="btn-acao secundario" onclick="e5NovoColaborador()">+ Colaborador novo</button>' +
+      '<button class="btn-acao secundario" onclick="e5Feriados()">Feriados</button>' +
+      '<button class="btn-acao secundario" onclick="e5EditarGrupo(null)">+ Novo grupo</button>' +
+    '</div>' +
+    '<div class="pq-card" style="margin:12px 0;' + (okConf ? 'border-color:#B9DFC9;background:#E8F4EE;' : 'border-color:#E9C88F;background:#FFF7EA;') + '">' +
+      '<b>' + (gerado ? 'Mês gerado' : 'Mês ainda não gerado') + ' · ' + (okConf ? 'conferência OK' : 'conferência com pontos para revisar') + '</b>' +
+      (conf.problemas.length ? '<ul class="e5-lista">' + conf.problemas.map((p) => '<li><b>' + rupEsc(p.v.codigo) + ' · ' + rupEsc(e5Curto(e5Nome(p.v.colaborador_loja_id))) + '</b>: ' + p.msgs.join('; ') + '</li>').join('') + '</ul>' : '') +
+      (conf.conflitos.length ? '<div style="margin-top:6px;"><b>Mesma seção de folga no mesmo dia:</b> ' + conf.conflitos.map(rupEsc).join(' · ') + '</div>' : '') +
+      (conf.semEnc.length ? '<div style="margin-top:6px;color:var(--red);"><b>Sem encarregada:</b> ' + conf.semEnc.join(', ') + '</div>' : '') +
+      '<div style="margin-top:6px;font-size:12.5px;color:var(--text-muted);">Regras: 6x1 → pelo menos 1 folga por semana; 5x2 (a partir de ' + (e.cfg.inicio_5x2 ? e5Ddmm(e.cfg.inicio_5x2) : '—') + ') → 2 folgas; feriado com loja fechada não conta; no máximo 6 dias seguidos.' +
+      (E5_HOR[e.setor] ? ' Horários: ' + E5_HOR[e.setor] + '.' : '') + '</div>' +
+    '</div>' +
+    (e.grupos.length ? '<div class="tabela-wrap"><table class="e5-tab"><thead><tr><th class="e5-nome" style="cursor:default">Vaga · nome</th>' + cab + '</tr></thead><tbody>' + linhasGrupos + totais + '</tbody></table></div>'
+      : '<div class="pq-card">Este setor ainda não tem grupos. Use "+ Novo grupo".</div>') +
+    '<p style="font-size:12.5px;color:var(--text-muted);margin-top:8px;">X = folga · FER = feriado com loja fechada · FA = falta · AT = atestado · FÉR = férias/licença/INSS. Faltas e atestados se lançam em Colaboradores → Faltas e Atestados.' +
+    (ferMes.length ? ' Feriados/picos do mês: ' + ferMes.map((f) => e5Ddmm(f.data) + ' (' + (f.tipo === 'fechada' ? 'loja fechada' : f.tipo === 'aberta' ? 'loja aberta' : 'pico') + ')').join(', ') + '.' : '') + '</p>';
+}
+async function e5Atualizar() {
+  try { await e5Carregar(); e5Render(); } catch (err) { mostrarToast('Não consegui carregar: ' + err.message, 'erro'); }
+}
+function e5TrocarSetor(s) { estado.e5.setor = s; e5Atualizar(); }
+function e5Mes(delta) {
+  const e = estado.e5;
+  let m = e.mes + delta, a = e.ano;
+  if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; }
+  e.mes = m; e.ano = a;
+  e5CarregarRegistros().then(e5Render).catch((err) => mostrarToast('Não consegui carregar: ' + err.message, 'erro'));
+}
+
+// ---------- pôr / tirar folga à mão ----------
+async function e5AlternarFolga(colabId, data) {
+  const e = estado.e5;
+  const atual = e.regs.find((r) => String(r.colaborador_loja_id) === String(colabId) && r.data === data);
+  try {
+    if (atual) {
+      if (atual.tipo !== 'folga') return;
+      const r = await sb.from('escala_folgas').delete().eq('id', atual.id);
+      if (r.error) throw r.error;
+      e.regs = e.regs.filter((x) => x !== atual);
+    } else {
+      const r = await sb.from('escala_folgas').insert({ colaborador_loja_id: colabId, data, tipo: 'folga', observacao: 'Ajuste manual (portal)', registrado_por_nome: e5Autor() }).select('id,colaborador_loja_id,data,tipo').single();
+      if (r.error) throw r.error;
+      e.regs.push(r.data);
+    }
+    e5Render();
+  } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
+}
+
+// ---------- gerar mês ----------
+async function e5GravarFolgas(colabId, folgas, fechados, desde, fim) {
+  let r = await sb.from('escala_folgas').delete().eq('colaborador_loja_id', colabId).in('tipo', ['folga', 'folga_feriado']).gte('data', desde).lte('data', fim);
+  if (r.error) throw r.error;
+  const linhas = folgas.filter((d) => d >= desde && d <= fim).map((data) => ({ colaborador_loja_id: colabId, data, tipo: 'folga', observacao: 'Escala 5x2 por grupos', registrado_por_nome: e5Autor() }))
+    .concat(fechados.filter((f) => f.data >= desde && f.data <= fim).map((f) => ({ colaborador_loja_id: colabId, data: f.data, tipo: 'folga_feriado', observacao: f.descricao, registrado_por_nome: e5Autor() })));
+  if (!linhas.length) return 0;
+  r = await sb.from('escala_folgas').upsert(linhas, { onConflict: 'colaborador_loja_id,data', ignoreDuplicates: true });
+  if (r.error) throw r.error;
+  return linhas.length;
+}
+async function e5Gerar() {
+  const e = estado.e5;
+  const dias = e5DiasMes(e.ano, e.mes);
+  const fim = dias[dias.length - 1];
+  // o período 6x1 (antes do início do 5x2) foi montado à parte e não é refeito aqui
+  const ini = e.cfg.inicio_5x2 && e.cfg.inicio_5x2 > dias[0] ? e.cfg.inicio_5x2 : dias[0];
+  if (ini > fim) { mostrarToast('Este mês é todo do período 6x1, que já está montado. Ajuste as folgas clicando nos dias.', 'erro'); return; }
+  const gerado = e.meses.includes(dias[0]);
+  if (!confirm((gerado ? 'Gerar de novo ' : 'Gerar ') + E5_MESES[e.mes - 1] + ' de ' + e.ano + ' para ' + (e.cfg.nome || e.setor) + (ini > dias[0] ? ' (a partir de ' + e5Ddmm(ini) + ', início do 5x2)' : '') + '?\n\nAs folgas do período serão refeitas pela regra dos grupos (inclusive os ajustes feitos à mão). Faltas, atestados e férias ficam como estão.')) return;
+  try {
+    const fechados = e.feriados.filter((f) => f.tipo === 'fechada' && f.data >= ini && f.data <= fim);
+    let total = 0;
+    for (const g of e.grupos) {
+      const folgas = e5FolgasPeriodo(g, e.cfg, ini, fim, e.feriados);
+      let r = await sb.from('escala_grupo_folgas').delete().eq('grupo_id', g.id).gte('data', ini).lte('data', fim);
+      if (r.error) throw r.error;
+      if (folgas.length) { r = await sb.from('escala_grupo_folgas').insert(folgas.map((data) => ({ grupo_id: g.id, data }))); if (r.error) throw r.error; }
+      for (const v of e.vagas.filter((x) => x.grupo_id === g.id && x.colaborador_loja_id)) {
+        total += await e5GravarFolgas(v.colaborador_loja_id, folgas, fechados, v.desde && v.desde > ini ? v.desde : ini, fim);
+      }
+    }
+    const m = await sb.from('escala_meses').upsert({ setor: e.setor, mes: dias[0], gerado_por: e5Autor(), gerado_em: new Date().toISOString() });
+    if (m.error) throw m.error;
+    mostrarToast('Escala gerada: ' + total + ' folgas gravadas.');
+    await e5Atualizar();
+  } catch (err) { mostrarToast('Não consegui gerar: ' + err.message, 'erro'); }
+}
+
+// ---------- vagas ----------
+function e5OpcoesColaboradores(atual) {
+  const e = estado.e5;
+  const ocupados = new Set(e.vagas.map((v) => String(v.colaborador_loja_id || '')));
+  const lista = (estado.colaboradoresLoja || []).filter((c) => c.ativo !== false && (String(c.id) === String(atual) || !ocupados.has(String(c.id))))
+    .sort((a, b) => a.nome.localeCompare(b.nome, 'pt-BR'));
+  return '<option value="">(vaga aberta)</option>' + lista.map((c) => '<option value="' + c.id + '"' + (String(c.id) === String(atual) ? ' selected' : '') + '>' + rupEsc(c.nome) + (c.matricula ? ' · ' + rupEsc(c.matricula) : '') + '</option>').join('');
+}
+function e5CamposVaga(v) {
+  const turno = v ? v.turno : 'T', funcao = v ? v.funcao : 'colaborador';
+  return '<label class="campo-label">Colaborador</label><select class="campo-input" id="e5-colab">' + e5OpcoesColaboradores(v ? v.colaborador_loja_id : null) + '</select>' +
+    '<label class="campo-label">A partir de</label><input class="campo-input" type="date" id="e5-desde" value="' + e5Hoje() + '">' +
+    '<label class="campo-label">Turno</label><select class="campo-input" id="e5-turno">' + [['M', 'Manhã'], ['T', 'Tarde'], ['U', 'Sem turno definido']].map(([k, n]) => '<option value="' + k + '"' + (k === turno ? ' selected' : '') + '>' + n + '</option>').join('') + '</select>' +
+    '<label class="campo-label">Função</label><select class="campo-input" id="e5-funcao">' + Object.entries(E5_FUNCOES).map(([k, n]) => '<option value="' + k + '"' + (k === funcao ? ' selected' : '') + '>' + n + '</option>').join('') + '</select>' +
+    '<label class="campo-label">Seção (repositores; deixe vazio se não tiver)</label><input class="campo-input" type="number" min="0" id="e5-secao" value="' + (v && v.secao ? v.secao : '') + '">';
+}
+async function e5Ocupar(vaga, grupo, codigo, colabId, desde, turno, funcao, secao) {
+  const e = estado.e5;
+  const antiga = e.vagas.find((v) => String(v.colaborador_loja_id) === String(colabId) && (!vaga || v.id !== vaga.id));
+  if (antiga) { const r = await sb.from('escala_vagas').update({ colaborador_loja_id: null }).eq('id', antiga.id); if (r.error) throw r.error; }
+  if (vaga) {
+    const r = await sb.from('escala_vagas').update({ colaborador_loja_id: String(colabId), desde, turno, funcao, secao }).eq('id', vaga.id);
+    if (r.error) throw r.error;
+  } else {
+    const r = await sb.from('escala_vagas').insert({ grupo_id: grupo.id, codigo, turno, funcao, secao, colaborador_loja_id: String(colabId), desde, ordem: e.vagas.filter((v) => v.grupo_id === grupo.id).length + 1 });
+    if (r.error) throw r.error;
+  }
+  // folgas do grupo nos meses já gerados, a partir de `desde`
+  const gerados = e.meses.slice().sort();
+  if (!gerados.length) return;
+  const ult = gerados[gerados.length - 1];
+  const fim = e5DiasMes(Number(ult.slice(0, 4)), Number(ult.slice(5, 7))).slice(-1)[0];
+  if (desde > fim) return;
+  const gf = await sb.from('escala_grupo_folgas').select('data').eq('grupo_id', grupo.id).gte('data', desde).lte('data', fim);
+  if (gf.error) throw gf.error;
+  await e5GravarFolgas(String(colabId), (gf.data || []).map((x) => x.data), e.feriados.filter((f) => f.tipo === 'fechada'), desde, fim);
+}
+async function e5Liberar(v, desde) {
+  if (v.colaborador_loja_id) {
+    const r = await sb.from('escala_folgas').delete().eq('colaborador_loja_id', v.colaborador_loja_id).in('tipo', ['folga', 'folga_feriado']).gte('data', desde);
+    if (r.error) throw r.error;
+  }
+  const r = await sb.from('escala_vagas').update({ colaborador_loja_id: null, desde: null }).eq('id', v.id);
+  if (r.error) throw r.error;
+}
+function e5LerCampos() {
+  const secao = document.getElementById('e5-secao').value;
+  return {
+    colab: document.getElementById('e5-colab').value || null,
+    desde: document.getElementById('e5-desde').value || e5Hoje(),
+    turno: document.getElementById('e5-turno').value,
+    funcao: document.getElementById('e5-funcao').value,
+    secao: secao === '' ? null : Number(secao),
+  };
+}
+function e5AbrirVaga(vagaId) {
+  const e = estado.e5;
+  const v = e.vagas.find((x) => x.id === vagaId);
+  if (!v) return;
+  const g = e.grupos.find((x) => x.id === v.grupo_id);
+  abrirModal('Vaga ' + rupEsc(v.codigo) + ' · grupo ' + rupEsc(g.letra),
+    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">Trocar a pessoa grava as folgas do grupo para quem entra a partir da data escolhida e apaga as de quem sai. Deixar "(vaga aberta)" libera a vaga: o grupo passa a mostrar "-1".</p>' + e5CamposVaga(v),
+    'Salvar', async () => {
+      const c = e5LerCampos();
+      try {
+        if (!c.colab && v.colaborador_loja_id) await e5Liberar(v, c.desde);
+        else if (c.colab && String(c.colab) !== String(v.colaborador_loja_id)) {
+          if (v.colaborador_loja_id) await e5Liberar(v, c.desde);
+          await e5Ocupar(v, g, v.codigo, c.colab, c.desde, c.turno, c.funcao, c.secao);
+        }
+        const r = await sb.from('escala_vagas').update({ turno: c.turno, funcao: c.funcao, secao: c.secao }).eq('id', v.id);
+        if (r.error) throw r.error;
+        fecharModal(); mostrarToast('Vaga salva.'); await e5Atualizar();
+      } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
+    });
+}
+function e5Sugestao(turno) {
+  const e = estado.e5;
+  const mesmo = (v) => turno === 'U' || v.turno === turno || v.turno === 'U';
+  const vazias = e.vagas.filter((v) => !v.colaborador_loja_id && mesmo(v)).sort((a, b) => a.codigo.localeCompare(b.codigo, 'pt-BR', { numeric: true }));
+  if (vazias.length) { const v = vazias[0]; const g = e.grupos.find((x) => x.id === v.grupo_id); return { g, v, codigo: v.codigo, motivo: 'O grupo ' + g.letra + ' tem a vaga ' + v.codigo + ' aberta.' }; }
+  if (!e.grupos.length) return null;
+  const conta = (g) => e.vagas.filter((v) => v.grupo_id === g.id && v.colaborador_loja_id && mesmo(v)).length;
+  const ideal = (g) => turno === 'M' ? g.ideal_manha : turno === 'T' ? g.ideal_tarde : g.ideal_manha + g.ideal_tarde;
+  const g = e.grupos.slice().sort((a, b) => (ideal(b) - conta(b)) - (ideal(a) - conta(a)) || conta(a) - conta(b) || a.letra.localeCompare(b.letra))[0];
+  const nums = e.vagas.filter((v) => v.grupo_id === g.id).map((v) => Number(String(v.codigo).replace(/\D/g, '')) || 0);
+  const codigo = g.letra + (Math.max(0, ...nums) + 1);
+  const falta = ideal(g) - conta(g);
+  return { g, v: null, codigo, motivo: falta > 0 ? 'O grupo ' + g.letra + ' está com ' + falta + ' a menos.' : 'Todos os grupos estão completos; o ' + g.letra + ' é o que tem menos gente.' };
+}
+function e5NovoColaborador() {
+  const html = e5CamposVaga(null) + '<div id="e5-sug" class="pq-card" style="margin-top:12px;"></div>';
+  abrirModal('Colaborador novo', html, 'Colocar na vaga', async () => {
+    const c = e5LerCampos();
+    const s = e5Sugestao(c.turno);
+    if (!c.colab) { mostrarToast('Escolha o colaborador.', 'erro'); return; }
+    if (!s) { mostrarToast('Crie um grupo primeiro.', 'erro'); return; }
+    try {
+      await e5Ocupar(s.v, s.g, s.codigo, c.colab, c.desde, c.turno, c.funcao, c.secao);
+      fecharModal(); mostrarToast('Entrou no grupo ' + s.g.letra + ', vaga ' + s.codigo + '.'); await e5Atualizar();
+    } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
+  });
+  const mostrar = () => {
+    const s = e5Sugestao(document.getElementById('e5-turno').value);
+    const box = document.getElementById('e5-sug');
+    if (!box) return;
+    if (!s) { box.innerHTML = 'Este setor ainda não tem grupos.'; return; }
+    const g = s.g;
+    box.style.background = g.cor; box.style.borderColor = g.cor_forte;
+    box.innerHTML = '<b>Sugestão: grupo ' + rupEsc(g.letra) + ', vaga ' + rupEsc(s.codigo) + '</b><div style="font-size:13px;">' +
+      (g.folga_todo_domingo ? 'Folga todo domingo + ' + E5_DIAS[g.dia_2] : 'Folgas ' + E5_DIAS[g.dia_1] + ' + ' + E5_DIAS[g.dia_2] + ' | Dom + ' + E5_DIAS[g.dia_2]) + '</div><div style="font-size:12.5px;color:var(--text-muted);">' + rupEsc(s.motivo) + '</div>';
+  };
+  document.getElementById('e5-turno').value = estado.e5.vagas.some((v) => v.turno !== 'U') ? 'T' : 'U';
+  document.getElementById('e5-turno').addEventListener('change', mostrar);
+  mostrar();
+}
+
+// ---------- grupos ----------
+function e5EditarGrupo(grupoId) {
+  const e = estado.e5;
+  const g = grupoId ? e.grupos.find((x) => x.id === grupoId) : null;
+  const letra = g ? g.letra : String.fromCharCode(65 + e.grupos.length);
+  const prox = e.cfg.domingo_ref;
+  const opDia = (sel) => [1, 2, 3, 4, 5, 6].map((n) => '<option value="' + n + '"' + (n === sel ? ' selected' : '') + '>' + E5_DIAS[n] + '</option>').join('');
+  const domA = [0, 2].map((k) => e5Ddmm(e5Soma(prox, 7 * k))).join(', ');
+  const domB = [1, 3].map((k) => e5Ddmm(e5Soma(prox, 7 * k))).join(', ');
+  abrirModal(g ? 'Editar grupo ' + rupEsc(g.letra) : 'Novo grupo ' + letra,
+    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">A 2ª folga deve vir depois da 1ª na semana, para ninguém passar de 6 dias seguidos. Mudanças valem quando você gerar o mês (de novo).</p>' +
+    '<label class="campo-label">1ª folga (semana em que trabalha domingo)</label><select class="campo-input" id="e5-d1">' + opDia(g ? g.dia_1 : 1) + '</select>' +
+    '<label class="campo-label">2ª folga (toda semana)</label><select class="campo-input" id="e5-d2">' + opDia(g ? g.dia_2 : 2) + '</select>' +
+    '<label class="campo-label">Domingos de folga</label><select class="campo-input" id="e5-fase">' +
+      '<option value="0"' + (g && g.fase === 0 ? ' selected' : '') + '>Folga nos domingos ' + domA + '… (de 2 em 2)</option>' +
+      '<option value="1"' + (!g || g.fase === 1 ? ' selected' : '') + '>Folga nos domingos ' + domB + '… (de 2 em 2)</option></select>' +
+    '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13.5px;"><input type="checkbox" id="e5-tododom"' + (g && g.folga_todo_domingo ? ' checked' : '') + '> Folga todo domingo (não trabalha domingo)</label>' +
+    '<label class="campo-label">Quadro ideal · tarde (ou sem turno)</label><input class="campo-input" type="number" min="0" id="e5-it" value="' + (g ? g.ideal_tarde : 0) + '">' +
+    '<label class="campo-label">Quadro ideal · manhã</label><input class="campo-input" type="number" min="0" id="e5-im" value="' + (g ? g.ideal_manha : 0) + '">',
+    g ? 'Salvar' : 'Criar grupo', async () => {
+      const d1 = Number(document.getElementById('e5-d1').value), d2 = Number(document.getElementById('e5-d2').value);
+      const todo = document.getElementById('e5-tododom').checked;
+      if (!todo && d1 >= d2) { mostrarToast('A 2ª folga precisa vir depois da 1ª na semana.', 'erro'); return; }
+      const PAL = [['#DCE9F7', '#9DC3E6'], ['#E2F0D9', '#A9D18E'], ['#FFF2CC', '#FFD966'], ['#FCE4D6', '#F4B183'], ['#E8E0F0', '#C9B3E0'], ['#F8DDE8', '#EBA3C1'], ['#DDF2F4', '#9ED8DE'], ['#EDEDED', '#C9C9C9']];
+      const dados = { dia_1: todo ? d2 : d1, dia_2: d2, fase: Number(document.getElementById('e5-fase').value), folga_todo_domingo: todo,
+        ideal_tarde: Number(document.getElementById('e5-it').value) || 0, ideal_manha: Number(document.getElementById('e5-im').value) || 0 };
+      try {
+        const r = g ? await sb.from('escala_grupos').update(dados).eq('id', g.id)
+          : await sb.from('escala_grupos').insert(Object.assign({ setor: e.setor, letra, cor: PAL[e.grupos.length % 8][0], cor_forte: PAL[e.grupos.length % 8][1] }, dados));
+        if (r.error) throw r.error;
+        fecharModal(); mostrarToast(g ? 'Grupo salvo. Gere o mês de novo para as folgas mudarem.' : 'Grupo criado.'); await e5Atualizar();
+      } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
+    });
+}
+
+// ---------- feriados ----------
+function e5Feriados() {
+  const e = estado.e5;
+  const futuros = e.feriados.filter((f) => f.data >= e5Soma(e5Hoje(), -31));
+  abrirModal('Feriados e datas de pico',
+    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">Loja fechada: vira FER para todos e não conta como folga. Loja aberta: se cair na folga do grupo, vale normal. Pico: a folga do grupo vai para outro dia da semana. Valem para todos os setores; gere o mês de novo depois de mudar.</p>' +
+    (futuros.length ? '<div style="margin-bottom:10px;">' + futuros.map((f) => '<div style="display:flex;justify-content:space-between;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);"><span>' + e5Ddmm(f.data) + '/' + f.data.slice(0, 4) + ' · ' + (f.tipo === 'fechada' ? 'loja fechada' : f.tipo === 'aberta' ? 'loja aberta' : 'pico') + (f.descricao ? ' · ' + rupEsc(f.descricao) : '') + '</span><button class="link-remover" onclick="e5RemoverFeriado(\'' + f.data + '\')">Remover</button></div>').join('') + '</div>' : '') +
+    '<label class="campo-label">Dia</label><input class="campo-input" type="date" id="e5-fd" value="' + e5Hoje() + '">' +
+    '<label class="campo-label">Tipo</label><select class="campo-input" id="e5-ft"><option value="fechada">Loja fechada</option><option value="aberta">Feriado, loja aberta</option><option value="pico">Pico (evitar folga)</option></select>' +
+    '<label class="campo-label">Descrição</label><input class="campo-input" id="e5-fdesc" placeholder="Ex.: Carnaval">',
+    'Adicionar', async () => {
+      const data = document.getElementById('e5-fd').value;
+      if (!data) { mostrarToast('Escolha o dia.', 'erro'); return; }
+      try {
+        const r = await sb.from('escala_feriados').upsert({ data, tipo: document.getElementById('e5-ft').value, descricao: document.getElementById('e5-fdesc').value.trim() || null });
+        if (r.error) throw r.error;
+        fecharModal(); mostrarToast('Feriado salvo. Gere o mês de novo para as folgas levarem em conta.'); await e5Atualizar();
+      } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
+    });
+}
+async function e5RemoverFeriado(data) {
+  try {
+    const r = await sb.from('escala_feriados').delete().eq('data', data);
+    if (r.error) throw r.error;
+    fecharModal(); await e5Atualizar(); e5Feriados();
+  } catch (err) { mostrarToast('Não consegui remover: ' + err.message, 'erro'); }
+}
+
+// ---------- imprimir ----------
+function e5Imprimir() {
+  const e = estado.e5;
+  const dias = e5DiasMes(e.ano, e.mes);
+  const reg = e5Reg();
+  const fechado = new Set(e.feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
+  const cab = dias.map((d) => { const w = e5Dow(d), fer = fechado.has(d); return '<th style="background:' + (fer ? '#BFBFBF' : w === 0 ? '#FFD54F' : '#FFFF99') + '">' + Number(d.slice(8)) + '<br><span style="color:#C00000">' + (fer ? 'FER' : E5_LETRA[w]) + '</span></th>'; }).join('');
+  const corpo = e.grupos.map((g) => {
+    const vs = e.vagas.filter((v) => v.grupo_id === g.id);
+    const doms = dias.filter((d) => e5Dow(d) === 0 && e5FolgaDomingo(g, e.cfg, d)).map(e5Ddmm).join(', ');
+    const regra = g.folga_todo_domingo ? 'folga todo domingo + ' + E5_DIAS[g.dia_2] : E5_DIAS[g.dia_1] + ' + ' + E5_DIAS[g.dia_2] + ' | Dom + ' + E5_DIAS[g.dia_2];
+    return '<tr><td colspan="' + (dias.length + 3) + '" style="background:' + e5Escuro(g.cor_forte) + ';color:#fff;text-align:left;font-weight:700">GRUPO ' + rupEsc(g.letra) + ' · ' + regra + (doms ? ' · domingos de folga: ' + doms : '') + '</td></tr>' +
+      vs.map((v) => {
+        const id = v.colaborador_loja_id ? String(v.colaborador_loja_id) : null;
+        const r = id ? (reg[id] || {}) : {};
+        return '<tr><td style="background:' + g.cor + ';font-weight:700">' + rupEsc(v.codigo) + '</td><td style="background:' + g.cor + '">' + (v.turno === 'U' ? '' : v.turno) + '</td><td style="background:' + g.cor + ';text-align:left;font-weight:700">' + (id ? rupEsc(e5Nome(id) || v.nome_planilha || '') : '(vaga aberta)') + '</td>' +
+          dias.map((d) => { const fer = fechado.has(d); const t = r[d] ? r[d].tipo : null; return '<td style="background:' + (fer ? '#D9D9D9' : t === 'folga' ? g.cor_forte : t ? '#F4CCCC' : g.cor) + ';font-weight:700">' + (fer ? 'FER' : t ? E5_SIGLA[t] : '') + '</td>'; }).join('') + '</tr>';
+      }).join('');
+  }).join('');
+  const w = window.open('', '_blank');
+  if (!w) { mostrarToast('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.', 'erro'); return; }
+  w.document.write('<html><head><meta charset="utf-8"><title>Escala ' + rupEsc(e.cfg.nome || e.setor) + '</title><style>@page{size:A4 landscape;margin:8mm}body{font-family:Arial,sans-serif;margin:0}h1{font-size:14px;margin:0 0 4px}p{font-size:9.5px;margin:0 0 6px;color:#444}' +
+    'table{border-collapse:collapse;width:100%;font-size:7.5px}td,th{border:1px solid #999;padding:1px;text-align:center}.ass{margin-top:16px;font-size:10px}.rod{font-size:8px;color:#888;text-align:right;margin-top:6px}</style></head><body>' +
+    '<h1>SUPERMERCADOS BH · LOJA 327 · ESCALA ' + rupEsc((e.cfg.nome || e.setor).toUpperCase()) + ' · ' + E5_MESES[e.mes - 1].toUpperCase() + ' ' + e.ano + '</h1>' +
+    '<p>X = folga · FER = feriado, loja fechada · FA = falta · AT = atestado · FÉR = férias · cada cor é um grupo e o grupo folga junto.' + (E5_HOR[e.setor] ? ' ' + E5_HOR[e.setor] + '.' : '') + '</p>' +
+    '<table><tr><th>VAGA</th><th>T</th><th style="width:160px">NOME</th>' + cab + '</tr>' + corpo + '</table>' +
+    '<div class="ass">Gerente: _______________________________</div><div class="rod">ULVA · by Lucas Alberto</div></body></html>');
+  w.document.close();
+  w.focus();
+  setTimeout(() => w.print(), 400);
+}
+
 
 function abrirModal(titulo, corpoHtml, textoBotao, aoSalvar) {
   fecharModal();

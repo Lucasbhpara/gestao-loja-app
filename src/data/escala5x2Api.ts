@@ -20,8 +20,8 @@ import { TipoEscala } from './escalaApi';
 //    tela Colaboradores · Faltas e Atestados), uma linha por colaborador e dia.
 //    Faltas, atestados e férias nunca são apagados pela geração.
 
-export type Turno = 'M' | 'T';
-export type FuncaoVaga = 'encarregada' | 'operadora' | 'embaladora';
+export type Turno = 'M' | 'T' | 'U'; // U = setor sem turno definido
+export type FuncaoVaga = 'encarregada' | 'operadora' | 'embaladora' | 'colaborador';
 
 export interface ConfigEscala {
   setor: string;
@@ -37,8 +37,9 @@ export interface GrupoEscala {
   cor: string;
   corForte: string;
   fase: 0 | 1;
-  dia1: number; // 1 = segunda … 5 = sexta
+  dia1: number; // 1 = segunda … 6 = sábado
   dia2: number;
+  folgaTodoDomingo: boolean; // ex.: faxina da manhã, que nunca trabalha no domingo
   idealTarde: number;
   idealManha: number;
 }
@@ -149,6 +150,7 @@ export async function carregarModulo(setor = SETOR_CAIXA): Promise<ModuloEscala>
     fase: g.fase,
     dia1: g.dia_1,
     dia2: g.dia_2,
+    folgaTodoDomingo: !!g.folga_todo_domingo,
     idealTarde: g.ideal_tarde,
     idealManha: g.ideal_manha,
   }));
@@ -205,6 +207,7 @@ export async function buscarRegistros(ids: string[], inicio: string, fim: string
 // Regra das folgas do grupo
 // ---------------------------------------------------------------------
 export function grupoFolgaDomingo(g: GrupoEscala, cfg: ConfigEscala, domingo: string): boolean {
+  if (g.folgaTodoDomingo) return true;
   const semanas = Math.round(diffDias(domingo, cfg.domingoRef) / 7);
   const par = ((semanas % 2) + 2) % 2 === 0;
   return g.fase === 0 ? par : !par;
