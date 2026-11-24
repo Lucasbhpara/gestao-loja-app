@@ -522,7 +522,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
                 {c.maiorSequencia > 6 ? `${c.maiorSequencia} dias seguidos` : ''}
                 {c.semanas
                   .filter((s) => s.completa && s.folgas < s.esperado)
-                  .map((s) => ` semana de ${ddmm(s.domingo)} com ${s.folgas} folga(s)`)
+                  .map((s) => ` semana de ${ddmm(s.segunda)} com ${s.folgas} folga(s)`)
                   .join(',')}
               </Text>
             ))

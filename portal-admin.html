@@ -12011,12 +12011,14 @@ async function alternarAtivoPerguntaVisita(id, ativo) {
 // =============================================================================
 // Escala 5x2 por grupos — todos os setores (mesmas tabelas do app: ver
 // supabase/escala_5x2.sql, escala_5x2_setores.sql e src/data/escala5x2Api.ts).
-// Cada grupo folga junto, num ciclo de 2 semanas:
+// Cada grupo folga junto, num ciclo de 2 semanas. A semana vai de SEGUNDA a DOMINGO:
 //   · semana em que o grupo TRABALHA no domingo → folga em dia_1 e dia_2;
-//   · semana em que o grupo FOLGA no domingo    → folga no domingo e em dia_2;
-//   · grupo "folga todo domingo" (ex.: faxina da manhã) → domingo + dia_2.
+//   · semana em que o grupo FOLGA no domingo    → folga em dia_2 e no domingo;
+//   · grupo "folga todo domingo" (ex.: faxina da manhã) → dia_2 + domingo;
+//   · antes de inicio_5x2 (6x1): dia_2 toda semana + o domingo de folga.
 // Feriado com loja fechada vira "folga_feriado" para todos e não conta como
-// folga. As folgas ficam em escala_folgas (a mesma tabela de Faltas e
+// folga; folga que cai nele (ou em dia de pico) vai para o dia da semana com
+// menos gente de folga no setor. As folgas ficam em escala_folgas (a mesma tabela de Faltas e
 // Atestados): aqui dá para clicar no dia para pôr/tirar uma folga à mão.
 // =============================================================================
 const E5_DIAS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
@@ -12040,33 +12042,86 @@ function e5Autor() { return (estado.usuario && estado.usuario.nome) || 'Portal';
 function e5Escuro(hex) { const n = parseInt(String(hex).slice(1), 16); const f = (c) => Math.round(c * 0.45); return 'rgb(' + f((n >> 16) & 255) + ',' + f((n >> 8) & 255) + ',' + f(n & 255) + ')'; }
 function e5Curto(n) { const w = String(n || '').trim().split(/\s+/).filter((x) => !['DE', 'DA', 'DO', 'DOS', 'DAS'].includes(x.toUpperCase())); return (w.slice(0, 2).join(' ')).toLowerCase().replace(/(^|\s)\S/g, (m) => m.toUpperCase()); }
 
-// ---------- regra das folgas do grupo ----------
+// ---------- regra das folgas do grupo (semana de SEGUNDA a DOMINGO) ----------
 function e5FolgaDomingo(g, cfg, domingo) {
   if (g.folga_todo_domingo) return true;
   const s = Math.round(e5Diff(domingo, cfg.domingo_ref) / 7);
   const par = ((s % 2) + 2) % 2 === 0;
   return g.fase === 0 ? par : !par;
 }
-function e5FolgasSemana(g, cfg, domingo, feriados) {
+function e5Segunda(s) { const w = e5Dow(s); return e5Soma(s, w === 0 ? -6 : 1 - w); }
+// antes de inicio_5x2 a escala é 6x1; sem inicio_5x2 (outras lojas), sempre 5x2
+function e5Em5x2(cfg, seg) { return !cfg.inicio_5x2 || seg >= e5Segunda(cfg.inicio_5x2); }
+//   6x1 · semana que folga domingo → dia_2 + domingo · semana que trabalha domingo → dia_2
+//   5x2 · semana que folga domingo → dia_2 + domingo · semana que trabalha domingo → dia_1 + dia_2
+function e5BaseSemana(g, cfg, seg) {
+  const dom = e5Soma(seg, 6);
+  const dia = (n) => e5Soma(seg, n - 1);
+  const x = e5Em5x2(cfg, seg);
+  if (g.folga_todo_domingo) return x ? [dia(g.dia_2), dom] : [dom];
+  const fd = e5FolgaDomingo(g, cfg, dom);
+  if (x) return fd ? [dia(g.dia_2), dom] : [dia(g.dia_1), dia(g.dia_2)];
+  return fd ? [dia(g.dia_2), dom] : [dia(g.dia_2)];
+}
+function e5MaiorSeq(ultimo, descansos, proximo) {
+  const set = new Set(descansos);
+  let seq = 0, maior = 0;
+  for (let d = e5Soma(ultimo, 1); d < proximo; d = e5Soma(d, 1)) { if (set.has(d)) seq = 0; else { seq++; if (seq > maior) maior = seq; } }
+  return maior;
+}
+// Folgas de todos os grupos do setor numa semana. Folga em feriado com a loja fechada ou
+// em dia de pico vai para o dia da semana com menos gente de folga (pico pesa 30% a mais),
+// sem ninguém passar de 6 dias seguidos. pesos = { grupoId: pessoas }.
+function e5SemanaSetor(grupos, cfg, seg, feriados, pesos, prof) {
+  pesos = pesos || {}; prof = prof || 0;
   const fechado = new Set(feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
   const pico = new Set(feriados.filter((f) => f.tipo === 'pico').map((f) => f.data));
-  const base = e5FolgaDomingo(g, cfg, domingo) ? [domingo, e5Soma(domingo, g.dia_2)] : [e5Soma(domingo, g.dia_1), e5Soma(domingo, g.dia_2)];
-  const escolhidas = new Set();
-  const ruins = [];
-  base.forEach((d) => { if (fechado.has(d) || pico.has(d)) ruins.push(d); else escolhidas.add(d); });
-  ruins.forEach((d) => {
-    const alt = [1, 2, 3, 5, 4].map((n) => e5Soma(domingo, n)).filter((x) => !escolhidas.has(x) && !fechado.has(x) && !pico.has(x))
-      .sort((a, b) => Math.abs(e5Diff(a, d)) - Math.abs(e5Diff(b, d)) || e5Diff(a, b));
-    if (alt.length) escolhidas.add(alt[0]); else if (!fechado.has(d)) escolhidas.add(d);
+  const peso = (g) => pesos[g.id] || 1;
+  const out = new Map();
+  const deslocar = [];
+  grupos.forEach((g) => {
+    const base = e5BaseSemana(g, cfg, seg);
+    out.set(g.id, base.filter((d) => !fechado.has(d) && !pico.has(d)));
+    base.filter((d) => fechado.has(d) || pico.has(d)).forEach((d) => deslocar.push({ g, d }));
   });
-  return [...escolhidas].sort();
-}
-function e5FolgasPeriodo(g, cfg, inicio, fim, feriados) {
-  let dom = e5Soma(inicio, -e5Dow(inicio));
-  const out = [];
-  while (dom <= fim) { e5FolgasSemana(g, cfg, dom, feriados).forEach((d) => { if (d >= inicio && d <= fim) out.push(d); }); dom = e5Soma(dom, 7); }
+  if (!deslocar.length) return out;
+  const fim = e5Soma(seg, 6);
+  const dias = [1, 2, 3, 4, 5, 6].map((n) => e5Soma(seg, n - 1)).filter((d) => !fechado.has(d));
+  const antes = prof < 4 ? e5SemanaSetor(grupos, cfg, e5Soma(seg, -7), feriados, pesos, prof + 1) : null;
+  const carga = {}; dias.forEach((d) => { carga[d] = 0; });
+  grupos.forEach((g) => out.get(g.id).forEach((d) => { if (d in carga) carga[d] += peso(g); }));
+  const fechSem = [...fechado].filter((d) => d >= seg && d <= fim);
+  deslocar.sort((a, b) => peso(b.g) - peso(a.g) || String(a.g.letra).localeCompare(String(b.g.letra)) || a.d.localeCompare(b.d));
+  deslocar.forEach(({ g, d }) => {
+    const tem = out.get(g.id);
+    const ant = antes ? antes.get(g.id) : e5BaseSemana(g, cfg, e5Soma(seg, -7));
+    const ultimo = [...ant, ...[...fechado].filter((x) => x < seg && x >= e5Soma(seg, -7))].sort().pop() || e5Soma(seg, -1);
+    const prox = [...e5BaseSemana(g, cfg, e5Soma(seg, 7)), ...[...fechado].filter((x) => x > fim && x <= e5Soma(seg, 13))].sort()[0] || e5Soma(seg, 13);
+    const jaPostas = tem.length - e5BaseSemana(g, cfg, seg).filter((x) => !fechado.has(x) && !pico.has(x)).length;
+    const faltam = deslocar.filter((x) => x.g === g).length - jaPostas;
+    const cand = dias.filter((c) => !tem.includes(c)).map((c) => {
+      const sq = e5MaiorSeq(ultimo, [...tem, c, ...fechSem], prox);
+      return { c, ok: sq <= 6 || (faltam > 1 && sq <= 12), nota: carga[c] * (pico.has(c) ? 1.3 : 1) + Math.abs(e5Diff(c, d)) * 0.01 };
+    }).sort((a, b) => (a.ok === b.ok ? 0 : a.ok ? -1 : 1) || a.nota - b.nota);
+    if (!cand.length) return;
+    tem.push(cand[0].c); tem.sort(); carga[cand[0].c] += peso(g);
+  });
   return out;
 }
+function e5FolgasSetorPeriodo(grupos, cfg, inicio, fim, feriados, pesos) {
+  const out = new Map(grupos.map((g) => [g.id, []]));
+  for (let seg = e5Segunda(inicio); seg <= fim; seg = e5Soma(seg, 7)) {
+    const s = e5SemanaSetor(grupos, cfg, seg, feriados, pesos);
+    grupos.forEach((g) => s.get(g.id).forEach((d) => { if (d >= inicio && d <= fim) out.get(g.id).push(d); }));
+  }
+  return out;
+}
+// folgas de um grupo — passe os grupos do setor (e os pesos) para equilibrar os feriados
+function e5FolgasPeriodo(g, cfg, inicio, fim, feriados, grupos, pesos) {
+  const gs = grupos && grupos.length ? grupos : [g];
+  return e5FolgasSetorPeriodo(gs, cfg, inicio, fim, feriados, pesos).get(g.id) || [];
+}
+function e5Pesos(vagas) { const m = {}; vagas.forEach((v) => { if (v.colaborador_loja_id) m[v.grupo_id] = (m[v.grupo_id] || 0) + 1; }); return m; }
 
 // ---------- carga ----------
 async function paginaEscala5x2() {
@@ -12136,16 +12191,16 @@ function e5Conferir() {
     }
     const msgs = [];
     if (maior > 6) msgs.push(maior + ' dias seguidos de trabalho');
-    let dom = e5Soma(ini, -e5Dow(ini));
-    while (dom <= fim) {
-      const sem = Array.from({ length: 7 }, (_, i) => e5Soma(dom, i));
+    const g = e.grupos.find((x) => x.id === v.grupo_id);
+    // semana de segunda a domingo
+    for (let seg = e5Segunda(ini); seg <= fim; seg = e5Soma(seg, 7)) {
+      const sem = Array.from({ length: 7 }, (_, i) => e5Soma(seg, i));
       if (sem[0] >= ini && sem[6] <= fim && (!v.desde || sem[0] >= v.desde)) {
         const n = sem.filter((d) => r[d] && r[d].tipo === 'folga').length;
-        const esperado = e.cfg.inicio_5x2 && sem[6] >= e.cfg.inicio_5x2 ? 2 : 1;
-        if (n < esperado) msgs.push('semana de ' + e5Ddmm(dom) + ' com ' + n + ' folga(s)');
-        if (esperado === 2 && n > 2) msgs.push('semana de ' + e5Ddmm(dom) + ' com ' + n + ' folgas');
+        const esperado = e5Em5x2(e.cfg, seg) ? 2 : g && !g.folga_todo_domingo && e5FolgaDomingo(g, e.cfg, sem[6]) ? 2 : 1;
+        if (n < esperado) msgs.push('semana de ' + e5Ddmm(seg) + ' com ' + n + ' folga(s)');
+        if (n > esperado) msgs.push('semana de ' + e5Ddmm(seg) + ' com ' + n + ' folgas');
       }
-      dom = e5Soma(dom, 7);
     }
     if (msgs.length) problemas.push({ v, msgs });
   });
@@ -12323,8 +12378,9 @@ async function e5Gerar() {
   try {
     const fechados = e.feriados.filter((f) => f.tipo === 'fechada' && f.data >= ini && f.data <= fim);
     let total = 0;
+    const doSetor = e5FolgasSetorPeriodo(e.grupos, e.cfg, ini, fim, e.feriados, e5Pesos(e.vagas));
     for (const g of e.grupos) {
-      const folgas = e5FolgasPeriodo(g, e.cfg, ini, fim, e.feriados);
+      const folgas = doSetor.get(g.id) || [];
       let r = await sb.from('escala_grupo_folgas').delete().eq('grupo_id', g.id).gte('data', ini).lte('data', fim);
       if (r.error) throw r.error;
       if (folgas.length) { r = await sb.from('escala_grupo_folgas').insert(folgas.map((data) => ({ grupo_id: g.id, data }))); if (r.error) throw r.error; }
@@ -12557,8 +12613,8 @@ function e5Imprimir() {
 // (HRCL021, PDF da Senior) de qualquer loja e o portal monta a escala 5x2
 // por grupos, setor por setor, com as mesmas regras da Loja 327:
 //   · domingo 1x1 (metade dos grupos folga em cada domingo);
-//   · semana que trabalha domingo → folga em dia_1 e dia_2;
-//     semana que folga domingo    → folga no domingo e em dia_2;
+//   · semana de segunda a domingo: semana que trabalha domingo → folga em
+//     dia_1 e dia_2; semana que folga domingo → folga em dia_2 e no domingo;
 //   · folgas concentradas de segunda a quarta (qui/sex/sáb com mais gente);
 //   · FLV evita terça, quinta e sábado (dias de entrega);
 //   · feriado com loja fechada não conta como folga (FER); dia de pico
@@ -12654,12 +12710,16 @@ function eoGrupoSugerido(loja, setor, turno) {
 
 // ---------- folgas ----------
 function eoCfg(loja) { return { domingo_ref: loja.ref || '2026-11-29' }; }
-function eoGrupoE5(g) { return { fase: g.fase, dia_1: g.d1, dia_2: g.d2, folga_todo_domingo: !!g.todoDom }; }
+function eoGrupoE5(g) { return { id: g.letra, letra: g.letra, fase: g.fase, dia_1: g.d1, dia_2: g.d2, folga_todo_domingo: !!g.todoDom }; }
 function eoMarcas(loja, p, ini, fim) {
   // devolve { data: 'folga' | 'folga_feriado' } já com os ajustes feitos à mão
   const out = {};
   const g = (loja.grupos[p.setor] || []).find((x) => x.letra === p.grupo);
-  if (g && !p.fora) e5FolgasPeriodo(eoGrupoE5(g), eoCfg(loja), ini, fim, estado.eo.feriados).forEach((d) => { out[d] = 'folga'; });
+  if (g && !p.fora) {
+    const gs = (loja.grupos[p.setor] || []).map(eoGrupoE5);
+    const pesos = {}; loja.pessoas.forEach((x) => { if (x.setor === p.setor && !x.fora && x.grupo) pesos[x.grupo] = (pesos[x.grupo] || 0) + 1; });
+    e5FolgasPeriodo(eoGrupoE5(g), eoCfg(loja), ini, fim, estado.eo.feriados, gs, pesos).forEach((d) => { out[d] = 'folga'; });
+  }
   const aj = (loja.ajustes || {})[p.mat] || {};
   Object.keys(aj).forEach((d) => { if (d >= ini && d <= fim) { if (aj[d] === 'trab') delete out[d]; else out[d] = aj[d]; } });
   return out;
