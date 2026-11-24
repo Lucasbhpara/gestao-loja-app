@@ -5,16 +5,18 @@ import { TipoEscala } from './escalaApi';
 //
 // Como funciona:
 //  - Cada setor tem grupos (A, B, C…). Todo mundo do grupo folga junto,
-//    sempre nos mesmos dias, num ciclo de 2 semanas:
-//      · semana em que o grupo TRABALHA no domingo → folga em dia_1 e dia_2;
-//      · semana em que o grupo FOLGA no domingo    → folga no domingo e em dia_2.
+//    sempre nos mesmos dias, num ciclo de 2 semanas. A semana vai de SEGUNDA a DOMINGO:
+//      · 5x2, semana em que o grupo TRABALHA no domingo → folga em dia_1 e dia_2;
+//      · 5x2, semana em que o grupo FOLGA no domingo    → folga em dia_2 e no domingo;
+//      · 6x1 (antes de escala_config.inicio_5x2): dia_2 toda semana + o domingo de folga.
 //    dia_2 vem sempre depois de dia_1, o que garante no máximo 6 dias seguidos.
 //  - O revezamento de domingo é 1x1: os grupos de fase 0 folgam no domingo de
 //    referência (escala_config.domingo_ref) e de 2 em 2 semanas; os de fase 1
 //    folgam nos domingos do meio.
 //  - Feriado com a loja FECHADA não conta como folga: vira "folga_feriado"
-//    para todo mundo e, se cair no dia de folga do grupo, a folga é mudada
-//    para outro dia da mesma semana. Feriado com a loja aberta que cair na
+//    para todo mundo e, se cair no dia de folga do grupo (ou num dia de pico),
+//    a folga vai para o dia da mesma semana com menos gente de folga no setor,
+//    sem passar de 6 dias seguidos. Feriado com a loja aberta que cair na
 //    folga do grupo vale como folga normal.
 //  - As folgas continuam sendo gravadas em `escala_folgas` (a mesma tabela da
 //    tela Colaboradores · Faltas e Atestados), uma linha por colaborador e dia.
@@ -204,7 +206,7 @@ export async function buscarRegistros(ids: string[], inicio: string, fim: string
 }
 
 // ---------------------------------------------------------------------
-// Regra das folgas do grupo
+// Regra das folgas do grupo (semana de SEGUNDA a DOMINGO)
 // ---------------------------------------------------------------------
 export function grupoFolgaDomingo(g: GrupoEscala, cfg: ConfigEscala, domingo: string): boolean {
   if (g.folgaTodoDomingo) return true;
@@ -213,56 +215,147 @@ export function grupoFolgaDomingo(g: GrupoEscala, cfg: ConfigEscala, domingo: st
   return g.fase === 0 ? par : !par;
 }
 
-function diaDaSemana(domingo: string, dia: number): string {
-  return somarDias(domingo, dia);
+// Segunda-feira da semana (seg → dom) de uma data.
+export function segundaDaSemana(s: string): string {
+  const w = diaSemana(s);
+  return somarDias(s, w === 0 ? -6 : 1 - w);
 }
 
-// Folgas do grupo numa semana (domingo → sábado), já tirando a folga de cima
-// de feriado com loja fechada e, se possível, de dia de pico.
-export function folgasDoGrupoNaSemana(g: GrupoEscala, cfg: ConfigEscala, domingo: string, feriados: FeriadoEscala[]): string[] {
+// Antes de inicio_5x2 a escala é 6x1; sem inicio_5x2, é sempre 5x2.
+export function semanaEm5x2(cfg: ConfigEscala, segunda: string): boolean {
+  return !cfg.inicio5x2 || segunda >= segundaDaSemana(cfg.inicio5x2);
+}
+
+// Folgas "de regra" do grupo numa semana (segunda → domingo), sem feriados:
+//   6x1 · semana que folga domingo → dia_2 + domingo · semana que trabalha domingo → dia_2
+//   5x2 · semana que folga domingo → dia_2 + domingo · semana que trabalha domingo → dia_1 + dia_2
+// dia_2 toda semana (e dia_1 antes dele) garante no máximo 6 dias seguidos.
+export function folgasBaseDaSemana(g: GrupoEscala, cfg: ConfigEscala, segunda: string): string[] {
+  const dom = somarDias(segunda, 6);
+  const dia = (n: number) => somarDias(segunda, n - 1);
+  const x = semanaEm5x2(cfg, segunda);
+  if (g.folgaTodoDomingo) return x ? [dia(g.dia2), dom] : [dom];
+  const fd = grupoFolgaDomingo(g, cfg, dom);
+  if (x) return fd ? [dia(g.dia2), dom] : [dia(g.dia1), dia(g.dia2)];
+  return fd ? [dia(g.dia2), dom] : [dia(g.dia2)];
+}
+
+function maiorSequencia(ultimo: string, descansos: string[], proximo: string): number {
+  const set = new Set(descansos);
+  let seq = 0;
+  let maior = 0;
+  for (let d = somarDias(ultimo, 1); d < proximo; d = somarDias(d, 1)) {
+    if (set.has(d)) seq = 0;
+    else {
+      seq += 1;
+      if (seq > maior) maior = seq;
+    }
+  }
+  return maior;
+}
+
+// Folgas de todos os grupos do setor numa semana. A folga que cai em feriado com a loja
+// fechada ou em dia de pico vai para o dia da semana com menos gente de folga (dia de pico
+// pesa 30% a mais), sem ninguém passar de 6 dias seguidos. `pesos` = pessoas por grupo.
+export function folgasDoSetorNaSemana(
+  grupos: GrupoEscala[],
+  cfg: ConfigEscala,
+  segunda: string,
+  feriados: FeriadoEscala[],
+  pesos: Map<string, number> = new Map(),
+  prof = 0
+): Map<string, string[]> {
   const fechado = new Set(feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
   const pico = new Set(feriados.filter((f) => f.tipo === 'pico').map((f) => f.data));
-  const folgaDom = grupoFolgaDomingo(g, cfg, domingo);
-  const base = folgaDom ? [domingo, diaDaSemana(domingo, g.dia2)] : [diaDaSemana(domingo, g.dia1), diaDaSemana(domingo, g.dia2)];
-  const escolhidas = new Set<string>();
-  const ruins: string[] = [];
-  for (const d of base) {
-    if (fechado.has(d) || pico.has(d)) ruins.push(d);
-    else escolhidas.add(d);
+  const peso = (g: GrupoEscala) => pesos.get(g.id) || 1;
+  const out = new Map<string, string[]>();
+  const deslocar: { g: GrupoEscala; d: string }[] = [];
+  for (const g of grupos) {
+    const base = folgasBaseDaSemana(g, cfg, segunda);
+    out.set(g.id, base.filter((d) => !fechado.has(d) && !pico.has(d)));
+    base.filter((d) => fechado.has(d) || pico.has(d)).forEach((d) => deslocar.push({ g, d }));
   }
-  for (const d of ruins) {
-    const ordem = [1, 2, 3, 5, 4] // seg, ter, qua, sex, qui — quinta e sexta têm mais movimento
-      .map((n) => diaDaSemana(domingo, n))
-      .filter((x) => !escolhidas.has(x) && !fechado.has(x) && !pico.has(x))
-      // mais perto do dia original, antes de depois (protege os 6 dias seguidos)
-      .sort((a, b) => Math.abs(diffDias(a, d)) - Math.abs(diffDias(b, d)) || diffDias(a, b));
-    if (ordem.length) escolhidas.add(ordem[0]);
-    else if (!fechado.has(d)) escolhidas.add(d); // pico sem alternativa: mantém
-  }
-  return [...escolhidas].sort();
-}
-
-export function folgasDoGrupoNoPeriodo(g: GrupoEscala, cfg: ConfigEscala, inicio: string, fim: string, feriados: FeriadoEscala[]): string[] {
-  let dom = somarDias(inicio, -diaSemana(inicio));
-  const out: string[] = [];
-  while (dom <= fim) {
-    for (const d of folgasDoGrupoNaSemana(g, cfg, dom, feriados)) if (d >= inicio && d <= fim) out.push(d);
-    dom = somarDias(dom, 7);
+  if (!deslocar.length) return out;
+  const fim = somarDias(segunda, 6);
+  const dias = [1, 2, 3, 4, 5, 6].map((n) => somarDias(segunda, n - 1)).filter((d) => !fechado.has(d));
+  const antes = prof < 4 ? folgasDoSetorNaSemana(grupos, cfg, somarDias(segunda, -7), feriados, pesos, prof + 1) : null;
+  const carga: Record<string, number> = {};
+  dias.forEach((d) => {
+    carga[d] = 0;
+  });
+  for (const g of grupos) out.get(g.id)!.forEach((d) => { if (d in carga) carga[d] += peso(g); });
+  const fechSem = [...fechado].filter((d) => d >= segunda && d <= fim);
+  deslocar.sort((a, b) => peso(b.g) - peso(a.g) || a.g.letra.localeCompare(b.g.letra) || a.d.localeCompare(b.d));
+  for (const { g, d } of deslocar) {
+    const tem = out.get(g.id)!;
+    const ant = antes ? antes.get(g.id)! : folgasBaseDaSemana(g, cfg, somarDias(segunda, -7));
+    const ultimo = [...ant, ...[...fechado].filter((x) => x < segunda && x >= somarDias(segunda, -7))].sort().pop() || somarDias(segunda, -1);
+    const prox =
+      [...folgasBaseDaSemana(g, cfg, somarDias(segunda, 7)), ...[...fechado].filter((x) => x > fim && x <= somarDias(segunda, 13))].sort()[0] ||
+      somarDias(segunda, 13);
+    const jaPostas = tem.length - folgasBaseDaSemana(g, cfg, segunda).filter((x) => !fechado.has(x) && !pico.has(x)).length;
+    const faltam = deslocar.filter((x) => x.g === g).length - jaPostas;
+    const cand = dias
+      .filter((c) => !tem.includes(c))
+      .map((c) => {
+        const seq = maiorSequencia(ultimo, [...tem, c, ...fechSem], prox);
+        const ok = seq <= 6 || (faltam > 1 && seq <= 12);
+        return { c, ok, nota: carga[c] * (pico.has(c) ? 1.3 : 1) + Math.abs(diffDias(c, d)) * 0.01 };
+      })
+      .sort((a, b) => (a.ok === b.ok ? 0 : a.ok ? -1 : 1) || a.nota - b.nota);
+    if (!cand.length) continue;
+    const c = cand[0].c;
+    tem.push(c);
+    tem.sort();
+    carga[c] += peso(g);
   }
   return out;
+}
+
+export function folgasDoSetorNoPeriodo(
+  grupos: GrupoEscala[],
+  cfg: ConfigEscala,
+  inicio: string,
+  fim: string,
+  feriados: FeriadoEscala[],
+  pesos: Map<string, number> = new Map()
+): Map<string, string[]> {
+  const out = new Map<string, string[]>(grupos.map((g) => [g.id, []]));
+  for (let seg = segundaDaSemana(inicio); seg <= fim; seg = somarDias(seg, 7)) {
+    const s = folgasDoSetorNaSemana(grupos, cfg, seg, feriados, pesos);
+    for (const g of grupos) s.get(g.id)!.forEach((d) => { if (d >= inicio && d <= fim) out.get(g.id)!.push(d); });
+  }
+  return out;
+}
+
+// Pessoas (vagas ocupadas) por grupo — usado para equilibrar as folgas mudadas.
+export function pesosDosGrupos(mod: ModuloEscala): Map<string, number> {
+  const m = new Map<string, number>();
+  mod.vagas.forEach((v) => {
+    if (v.colaboradorLojaId) m.set(v.grupoId, (m.get(v.grupoId) || 0) + 1);
+  });
+  return m;
+}
+
+export function folgasDoGrupoNoPeriodo(mod: ModuloEscala, grupoId: string, inicio: string, fim: string): string[] {
+  return folgasDoSetorNoPeriodo(mod.grupos, mod.config, inicio, fim, mod.feriados, pesosDosGrupos(mod)).get(grupoId) || [];
 }
 
 // ---------------------------------------------------------------------
 // Gerar um mês
 // ---------------------------------------------------------------------
 export async function gerarMes(mod: ModuloEscala, ano: number, mes: number, autor: string): Promise<{ folgas: number }> {
-  const inicio = primeiroDoMes(ano, mes);
+  const primeiro = primeiroDoMes(ano, mes);
   const dias = diasDoMes(ano, mes);
   const fim = dias[dias.length - 1];
+  // o período 6x1 (antes do início do 5x2) foi montado à parte e não é refeito aqui (igual ao portal)
+  const inicio = mod.config.inicio5x2 && mod.config.inicio5x2 > primeiro ? mod.config.inicio5x2 : primeiro;
+  if (inicio > fim) throw new Error('Este mês é todo do período 6x1, que já está montado. Ajuste as folgas tocando nos dias.');
   const fechados = mod.feriados.filter((f) => f.tipo === 'fechada' && f.data >= inicio && f.data <= fim);
   let total = 0;
+  const doSetor = folgasDoSetorNoPeriodo(mod.grupos, mod.config, inicio, fim, mod.feriados, pesosDosGrupos(mod));
   for (const g of mod.grupos) {
-    const folgas = folgasDoGrupoNoPeriodo(g, mod.config, inicio, fim, mod.feriados);
+    const folgas = doSetor.get(g.id) || [];
     let r = await supabase.from('escala_grupo_folgas').delete().eq('grupo_id', g.id).gte('data', inicio).lte('data', fim);
     if (r.error) throw r.error;
     if (folgas.length) {
@@ -274,7 +367,7 @@ export async function gerarMes(mod: ModuloEscala, ano: number, mes: number, auto
       total += await gravarFolgasDoColaborador(v.colaboradorLojaId as string, folgas, fechados, desde, fim, autor);
     }
   }
-  const m = await supabase.from('escala_meses').upsert({ setor: mod.config.setor, mes: inicio, gerado_por: autor, gerado_em: new Date().toISOString() });
+  const m = await supabase.from('escala_meses').upsert({ setor: mod.config.setor, mes: primeiro, gerado_por: autor, gerado_em: new Date().toISOString() });
   if (m.error) throw m.error;
   return { folgas: total };
 }
@@ -443,7 +536,7 @@ export async function removerFeriado(data: string): Promise<void> {
 // ---------------------------------------------------------------------
 export interface ConferenciaPessoa {
   vaga: VagaEscala;
-  semanas: { domingo: string; folgas: number; esperado: number; completa: boolean }[];
+  semanas: { segunda: string; folgas: number; esperado: number; completa: boolean }[];
   maiorSequencia: number;
   domingosFolga: number;
   ok: boolean;
@@ -466,14 +559,14 @@ export function conferirMes(mod: ModuloEscala, ano: number, mes: number, registr
     if (!v.colaboradorLojaId) continue;
     const reg = porPessoa.get(v.colaboradorLojaId) ?? new Map<string, TipoEscala>();
     const semanas: ConferenciaPessoa['semanas'] = [];
-    let dom = somarDias(inicio, -diaSemana(inicio));
-    while (dom <= fim) {
-      const dd = Array.from({ length: 7 }, (_, i) => somarDias(dom, i));
+    const g = mod.grupos.find((x) => x.id === v.grupoId);
+    // semana de segunda a domingo
+    for (let seg = segundaDaSemana(inicio); seg <= fim; seg = somarDias(seg, 7)) {
+      const dd = Array.from({ length: 7 }, (_, i) => somarDias(seg, i));
       const completa = dd[0] >= inicio && dd[6] <= fim && (!v.desde || dd[0] >= v.desde);
       const folgas = dd.filter((d) => reg.get(d) === 'folga').length;
-      const em5x2 = !!mod.config.inicio5x2 && dd[6] >= mod.config.inicio5x2;
-      semanas.push({ domingo: dom, folgas, esperado: em5x2 ? 2 : 1, completa });
-      dom = somarDias(dom, 7);
+      const esperado = semanaEm5x2(mod.config, seg) ? 2 : g && !g.folgaTodoDomingo && grupoFolgaDomingo(g, mod.config, dd[6]) ? 2 : 1;
+      semanas.push({ segunda: seg, folgas, esperado, completa });
     }
     let seq = 0;
     let maior = 0;
