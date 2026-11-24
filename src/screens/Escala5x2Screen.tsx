@@ -346,7 +346,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
       })
       .join('');
     const totais = (['M', 'T'] as Turno[])
-      .map((t) => `<tr><td colspan="3" style="text-align:left;font-weight:700;background:#E2EFDA">Trabalhando ${t === 'M' ? 'MANHÃ' : 'TARDE'}</td>${dias.map((d) => `<td style="background:#E2EFDA;font-weight:700">${trabalhandoNoDia(d, t)}</td>`).join('')}<td colspan="2" style="background:#E2EFDA"></td></tr>`)
+      .map((t) => `<tr><td colspan="3" style="text-align:left;font-weight:700;background:#E2EFDA">Disponíveis ${t === 'M' ? 'MANHÃ' : 'TARDE'}</td>${dias.map((d) => `<td style="background:#E2EFDA;font-weight:700">${trabalhandoNoDia(d, t)}</td>`).join('')}<td colspan="2" style="background:#E2EFDA"></td></tr>`)
       .join('');
     const html = `<html><head><meta charset="utf-8"><style>
       body{font-family:Arial,Helvetica,sans-serif;margin:14px} h1{font-size:15px;margin:0 0 4px} p{font-size:10px;margin:0 0 8px;color:#444}
@@ -403,6 +403,32 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
 
   const LARG_NOME = 150;
   const LARG_DIA = 30;
+  // linha com os dias do mês (repetida no topo e em cada grupo)
+  const linhaDias = (rotulo: string) => (
+    <View style={styles.linhaGrade}>
+      <Text style={[styles.celCab, { width: LARG_NOME, textAlign: 'left' }]}>{rotulo}</Text>
+      {dias.map((d) => {
+        const w = diaSemana(d);
+        return (
+          <View key={d} style={[styles.celDia, { width: LARG_DIA, backgroundColor: fechados.has(d) ? '#BFBFBF' : w === 0 ? '#FFD54F' : '#FFFF99' }]}>
+            <Text style={styles.celDiaNum}>{Number(d.slice(8))}</Text>
+            <Text style={styles.celDiaLetra}>{fechados.has(d) ? 'FER' : LETRA_DIA[w]}</Text>
+          </View>
+        );
+      })}
+    </View>
+  );
+  // quantas pessoas estão disponíveis em cada dia (sem folga, falta, atestado ou férias), de manhã e à tarde
+  const linhasDisponiveis = (['M', 'T'] as Turno[]).map((tu) => (
+    <View key={tu} style={styles.linhaGrade}>
+      <Text style={[styles.celCab, { width: LARG_NOME, textAlign: 'left', backgroundColor: '#E2EFDA' }]}>Disponíveis {tu === 'M' ? 'manhã' : 'tarde'}</Text>
+      {dias.map((d) => (
+        <View key={d} style={[styles.cel, { width: LARG_DIA, backgroundColor: '#E2EFDA' }]}>
+          <Text style={[styles.celTexto, { fontWeight: '800' }]}>{fechados.has(d) ? '' : trabalhandoNoDia(d, tu)}</Text>
+        </View>
+      ))}
+    </View>
+  ));
   const feriadosMes = mod.feriados.filter((f) => f.data >= inicioMes && f.data <= fimMes);
 
   return (
@@ -441,18 +467,8 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
         {/* Grade do mês */}
         <ScrollView horizontal showsHorizontalScrollIndicator>
           <View>
-            <View style={styles.linhaGrade}>
-              <Text style={[styles.celCab, { width: LARG_NOME, textAlign: 'left' }]}>Vaga · nome</Text>
-              {dias.map((d) => {
-                const w = diaSemana(d);
-                return (
-                  <View key={d} style={[styles.celDia, { width: LARG_DIA, backgroundColor: fechados.has(d) ? '#BFBFBF' : w === 0 ? '#FFD54F' : '#FFFF99' }]}>
-                    <Text style={styles.celDiaNum}>{Number(d.slice(8))}</Text>
-                    <Text style={styles.celDiaLetra}>{fechados.has(d) ? 'FER' : LETRA_DIA[w]}</Text>
-                  </View>
-                );
-              })}
-            </View>
+            {linhaDias('Vaga · nome')}
+            {linhasDisponiveis}
             {mod.grupos.map((g) => {
               const vagas = mod.vagas.filter((v) => v.grupoId === g.id);
               const ideal = g.idealTarde + g.idealManha;
@@ -468,6 +484,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
                       {n < ideal ? ` (${n - ideal})` : ' OK'}
                     </Text>
                   </View>
+                  {linhaDias(`Dias · grupo ${g.letra}`)}
                   {vagas.map((v) => {
                     const id = v.colaboradorLojaId;
                     return (
@@ -484,9 +501,9 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
                           return (
                             <View
                               key={d}
-                              style={[styles.cel, { width: LARG_DIA, backgroundColor: fer ? '#D9D9D9' : t === 'folga' ? g.corForte : t ? '#F4CCCC' : g.cor }]}
+                              style={[styles.cel, { width: LARG_DIA, backgroundColor: fer ? '#D9D9D9' : t === 'folga' ? g.corForte : t === 'folga_feriado' ? '#ECE7FB' : t ? '#F4CCCC' : g.cor }]}
                             >
-                              <Text style={[styles.celTexto, t && t !== 'folga' && !fer && { color: PERIGO }]}>{fer ? '' : t ? SIGLA[t] : ''}</Text>
+                              <Text style={[styles.celTexto, t === 'folga_feriado' && !fer && { color: '#5B3FC4' }, t && t !== 'folga' && t !== 'folga_feriado' && !fer && { color: PERIGO }]}>{fer ? '' : t ? SIGLA[t] : ''}</Text>
                             </View>
                           );
                         })}
@@ -496,19 +513,10 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
                 </View>
               );
             })}
-            {(['M', 'T'] as Turno[]).map((t) => (
-              <View key={t} style={styles.linhaGrade}>
-                <Text style={[styles.celCab, { width: LARG_NOME, textAlign: 'left', backgroundColor: '#E2EFDA' }]}>Trabalhando {t === 'M' ? 'manhã' : 'tarde'}</Text>
-                {dias.map((d) => (
-                  <View key={d} style={[styles.cel, { width: LARG_DIA, backgroundColor: '#E2EFDA' }]}>
-                    <Text style={styles.celTexto}>{fechados.has(d) ? '' : trabalhandoNoDia(d, t)}</Text>
-                  </View>
-                ))}
-              </View>
-            ))}
+            {linhasDisponiveis}
           </View>
         </ScrollView>
-        <Text style={styles.nota}>X = folga · FER = feriado (loja fechada) · FA = falta · AT = atestado · FÉR = férias. Toque numa linha para trocar a pessoa da vaga.</Text>
+        <Text style={styles.nota}>X = folga · F = folga de feriado · FER = feriado (loja fechada) · FA = falta · AT = atestado · FÉR = férias. Toque numa linha para trocar a pessoa da vaga.</Text>
 
         {/* Conferência */}
         <View style={styles.card}>
