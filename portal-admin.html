@@ -12043,6 +12043,11 @@ function e5Escuro(hex) { const n = parseInt(String(hex).slice(1), 16); const f =
 function e5Curto(n) { const w = String(n || '').trim().split(/\s+/).filter((x) => !['DE', 'DA', 'DO', 'DOS', 'DAS'].includes(x.toUpperCase())); return (w.slice(0, 2).join(' ')).toLowerCase().replace(/(^|\s)\S/g, (m) => m.toUpperCase()); }
 
 // ---------- regra das folgas do grupo (semana de SEGUNDA a DOMINGO) ----------
+// texto da regra do grupo: os 3 dias fixos
+function e5RegraGrupo(g) {
+  if (g.folga_todo_domingo) return 'folga todo domingo + ' + E5_DIAS[g.dia_2];
+  return E5_DIAS[g.dia_1] + ' + ' + E5_DIAS[g.dia_2] + ' (semana que trabalha domingo) | ' + E5_DIAS[g.dia_3 || g.dia_2] + ' + Dom (semana que folga domingo)';
+}
 function e5FolgaDomingo(g, cfg, domingo) {
   if (g.folga_todo_domingo) return true;
   const s = Math.round(e5Diff(domingo, cfg.domingo_ref) / 7);
@@ -12060,8 +12065,10 @@ function e5BaseSemana(g, cfg, seg) {
   const x = e5Em5x2(cfg, seg);
   if (g.folga_todo_domingo) return x ? [dia(g.dia_2), dom] : [dom];
   const fd = e5FolgaDomingo(g, cfg, dom);
-  if (x) return fd ? [dia(g.dia_2), dom] : [dia(g.dia_1), dia(g.dia_2)];
-  return fd ? [dia(g.dia_2), dom] : [dia(g.dia_2)];
+  // dia_3 = folga da semana em que o grupo folga no domingo (sem dia_3, vale o dia_2)
+  const d3 = g.dia_3 || g.dia_2;
+  if (x) return fd ? [dia(d3), dom] : [dia(g.dia_1), dia(g.dia_2)];
+  return fd ? [dia(d3), dom] : [dia(g.dia_2)];
 }
 function e5MaiorSeq(ultimo, descansos, proximo) {
   const set = new Set(descansos);
@@ -12281,8 +12288,7 @@ function e5Render() {
     const ideal = (g.ideal_tarde || 0) + (g.ideal_manha || 0);
     const n = vs.filter((v) => v.colaborador_loja_id).length;
     const doms = dias.filter((d) => e5Dow(d) === 0 && e5FolgaDomingo(g, e.cfg, d)).map(e5Ddmm).join(', ');
-    const regra = g.folga_todo_domingo ? 'folga todo domingo + ' + nomeDia(g.dia_2)
-      : nomeDia(g.dia_1) + ' + ' + nomeDia(g.dia_2) + ' (semana que trabalha domingo) | Dom + ' + nomeDia(g.dia_2) + ' (semana que folga domingo)';
+    const regra = e5RegraGrupo(g);
     const cabG = '<tr><td colspan="' + (dias.length + 1) + '" class="e5-grupo" style="background:' + e5Escuro(g.cor_forte) + '">' +
       '<b>Grupo ' + rupEsc(g.letra) + '</b> · ' + regra + (doms ? ' · domingos de folga: ' + doms : '') +
       ' <button class="e5-mini" onclick="e5EditarGrupo(\'' + g.id + '\')">editar grupo</button>' +
@@ -12558,7 +12564,7 @@ function e5AbrirVaga(vagaId) {
   abrirModal('Vaga ' + rupEsc(v.codigo) + ' · grupo ' + rupEsc(g.letra),
     '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">Trocar a pessoa grava as folgas do grupo para quem entra a partir da data escolhida e apaga as de quem sai. Deixar "(vaga aberta)" libera a vaga: o grupo passa a mostrar "-1".</p>' +
     '<label class="campo-label">Grupo (as folgas do grupo novo começam na segunda-feira a partir da data "A partir de")</label><select class="campo-input" id="e5-grupo">' +
-      e.grupos.map((x) => '<option value="' + x.id + '"' + (x.id === g.id ? ' selected' : '') + '>Grupo ' + rupEsc(x.letra) + ' · ' + (x.folga_todo_domingo ? 'folga todo domingo + ' + E5_DIAS[x.dia_2] : E5_DIAS[x.dia_1] + ' + ' + E5_DIAS[x.dia_2] + ' | Dom + ' + E5_DIAS[x.dia_2]) +
+      e.grupos.map((x) => '<option value="' + x.id + '"' + (x.id === g.id ? ' selected' : '') + '>Grupo ' + rupEsc(x.letra) + ' · ' + e5RegraGrupo(x) +
         ' · ' + e.vagas.filter((y) => y.grupo_id === x.id && y.colaborador_loja_id).length + ' pessoa(s)</option>').join('') + '</select>' +
     e5CamposVaga(v),
     'Salvar', async () => {
@@ -12642,7 +12648,7 @@ function e5NovoColaborador() {
     const g = s.g;
     box.style.background = g.cor; box.style.borderColor = g.cor_forte;
     box.innerHTML = '<b>Sugestão: grupo ' + rupEsc(g.letra) + ', vaga ' + rupEsc(s.codigo) + '</b><div style="font-size:13px;">' +
-      (g.folga_todo_domingo ? 'Folga todo domingo + ' + E5_DIAS[g.dia_2] : 'Folgas ' + E5_DIAS[g.dia_1] + ' + ' + E5_DIAS[g.dia_2] + ' | Dom + ' + E5_DIAS[g.dia_2]) + '</div><div style="font-size:12.5px;color:var(--text-muted);">' + rupEsc(s.motivo) + '</div>';
+      e5RegraGrupo(g) + '</div><div style="font-size:12.5px;color:var(--text-muted);">' + rupEsc(s.motivo) + '</div>';
   };
   document.getElementById('e5-turno').value = estado.e5.vagas.some((v) => v.turno !== 'U') ? 'T' : 'U';
   document.getElementById('e5-turno').addEventListener('change', mostrar);
@@ -12659,9 +12665,10 @@ function e5EditarGrupo(grupoId) {
   const domA = [0, 2].map((k) => e5Ddmm(e5Soma(prox, 7 * k))).join(', ');
   const domB = [1, 3].map((k) => e5Ddmm(e5Soma(prox, 7 * k))).join(', ');
   abrirModal(g ? 'Editar grupo ' + rupEsc(g.letra) : 'Novo grupo ' + letra,
-    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">A 2ª folga deve vir depois da 1ª na semana, para ninguém passar de 6 dias seguidos. Mudanças valem quando você gerar o mês (de novo).</p>' +
-    '<label class="campo-label">1ª folga (semana em que trabalha domingo)</label><select class="campo-input" id="e5-d1">' + opDia(g ? g.dia_1 : 1) + '</select>' +
-    '<label class="campo-label">2ª folga (toda semana)</label><select class="campo-input" id="e5-d2">' + opDia(g ? g.dia_2 : 2) + '</select>' +
+    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">Para não ter folga colada em folga: na semana em que trabalha domingo, as 2 folgas precisam ter 1 dia de intervalo e não podem cair na segunda (ela encosta no domingo de folga anterior). Mudanças valem quando você gerar o mês (de novo).</p>' +
+    '<label class="campo-label">Semana em que TRABALHA domingo · 1ª folga</label><select class="campo-input" id="e5-d1">' + opDia(g ? g.dia_1 : 2) + '</select>' +
+    '<label class="campo-label">Semana em que TRABALHA domingo · 2ª folga</label><select class="campo-input" id="e5-d2">' + opDia(g ? g.dia_2 : 4) + '</select>' +
+    '<label class="campo-label">Semana em que FOLGA domingo · folga do meio da semana</label><select class="campo-input" id="e5-d3">' + opDia(g ? (g.dia_3 || g.dia_2) : 1) + '</select>' +
     '<label class="campo-label">Domingos de folga</label><select class="campo-input" id="e5-fase">' +
       '<option value="0"' + (g && g.fase === 0 ? ' selected' : '') + '>Folga nos domingos ' + domA + '… (de 2 em 2)</option>' +
       '<option value="1"' + (!g || g.fase === 1 ? ' selected' : '') + '>Folga nos domingos ' + domB + '… (de 2 em 2)</option></select>' +
@@ -12671,9 +12678,14 @@ function e5EditarGrupo(grupoId) {
     g ? 'Salvar' : 'Criar grupo', async () => {
       const d1 = Number(document.getElementById('e5-d1').value), d2 = Number(document.getElementById('e5-d2').value);
       const todo = document.getElementById('e5-tododom').checked;
-      if (!todo && d1 >= d2) { mostrarToast('A 2ª folga precisa vir depois da 1ª na semana.', 'erro'); return; }
+      const d3 = Number(document.getElementById('e5-d3').value);
+      if (!todo && d2 - d1 < 2) { mostrarToast('As 2 folgas da semana que trabalha domingo precisam ter pelo menos 1 dia de intervalo (sem folga colada).', 'erro'); return; }
+      if (!todo && d1 === 1) { mostrarToast('Segunda não pode na semana que trabalha domingo: encosta no domingo de folga da semana anterior.', 'erro'); return; }
+      if (todo && (d2 === 1 || d2 === 6)) { mostrarToast('Quem folga todo domingo não pode folgar na segunda nem no sábado (fica colado no domingo).', 'erro'); return; }
+      if (!todo && d3 === 6) { mostrarToast('Na semana que folga domingo, o sábado fica colado no domingo. Escolha outro dia.', 'erro'); return; }
+      if (!todo && d3 > d2) { mostrarToast('A folga da semana que folga domingo precisa ser no máximo no mesmo dia da 2ª folga, para ninguém passar de 6 dias seguidos.', 'erro'); return; }
       const PAL = [['#DCE9F7', '#9DC3E6'], ['#E2F0D9', '#A9D18E'], ['#FFF2CC', '#FFD966'], ['#FCE4D6', '#F4B183'], ['#E8E0F0', '#C9B3E0'], ['#F8DDE8', '#EBA3C1'], ['#DDF2F4', '#9ED8DE'], ['#EDEDED', '#C9C9C9']];
-      const dados = { dia_1: todo ? d2 : d1, dia_2: d2, fase: Number(document.getElementById('e5-fase').value), folga_todo_domingo: todo,
+      const dados = { dia_1: todo ? d2 : d1, dia_2: d2, dia_3: todo ? null : d3, fase: Number(document.getElementById('e5-fase').value), folga_todo_domingo: todo,
         ideal_tarde: Number(document.getElementById('e5-it').value) || 0, ideal_manha: Number(document.getElementById('e5-im').value) || 0 };
       try {
         const r = g ? await sb.from('escala_grupos').update(dados).eq('id', g.id)
@@ -12722,7 +12734,7 @@ function e5Imprimir() {
   const corpo = e.grupos.map((g) => {
     const vs = e.vagas.filter((v) => v.grupo_id === g.id);
     const doms = dias.filter((d) => e5Dow(d) === 0 && e5FolgaDomingo(g, e.cfg, d)).map(e5Ddmm).join(', ');
-    const regra = g.folga_todo_domingo ? 'folga todo domingo + ' + E5_DIAS[g.dia_2] : E5_DIAS[g.dia_1] + ' + ' + E5_DIAS[g.dia_2] + ' | Dom + ' + E5_DIAS[g.dia_2];
+    const regra = e5RegraGrupo(g);
     return '<tr><td colspan="' + (dias.length + 3) + '" style="background:' + e5Escuro(g.cor_forte) + ';color:#fff;text-align:left;font-weight:700">GRUPO ' + rupEsc(g.letra) + ' · ' + regra + (doms ? ' · domingos de folga: ' + doms : '') + '</td></tr>' +
       '<tr><td colspan="3" style="background:#fff"></td>' + cab + '</tr>' +
       vs.map((v) => {
@@ -12771,8 +12783,10 @@ const EO_SETORES = [
 const EO_COM_TURNO = ['frente-caixa', 'acougue', 'fiscais', 'flv', 'padaria', 'frios', 'faxina'];
 const EO_PAL = [['#DCE9F7', '#9DC3E6'], ['#E2F0D9', '#A9D18E'], ['#FFF2CC', '#FFD966'], ['#FCE4D6', '#F4B183'], ['#E8E0F0', '#C9B3E0'], ['#F8DDE8', '#EBA3C1'], ['#DDF2F4', '#9ED8DE'], ['#EDEDED', '#C9C9C9']];
 // [fase, dia_1, dia_2] — 1 = segunda … 6 = sábado
-const EO_PADROES = [[0, 1, 3], [1, 1, 2], [0, 2, 4], [1, 1, 3], [0, 1, 2], [1, 2, 4], [0, 3, 5], [1, 1, 5]];
-const EO_PADROES_FLV = [[0, 1, 3], [1, 1, 3], [0, 3, 5], [1, 1, 5], [0, 1, 5], [1, 3, 5], [0, 1, 3], [1, 1, 3]];
+// [fase, dia_1, dia_2, dia_3] — 1 = segunda … 6 = sábado. Semana que trabalha domingo: dia_1 + dia_2
+// (com 1 dia de intervalo, nunca segunda); semana que folga domingo: dia_3 + domingo.
+const EO_PADROES = [[0, 2, 4, 1], [1, 2, 4, 1], [0, 3, 5, 3], [1, 2, 5, 1], [0, 2, 5, 1], [1, 3, 5, 3], [0, 2, 4, 4], [1, 2, 4, 2]];
+const EO_PADROES_FLV = [[0, 3, 5, 1], [1, 3, 5, 1], [0, 3, 5, 3], [1, 3, 5, 5], [0, 3, 5, 5], [1, 3, 5, 3], [0, 3, 5, 1], [1, 3, 5, 1]];
 
 function eoNomeSetor(k) { const s = EO_SETORES.find((x) => x[0] === k); return s ? s[1] : k; }
 function eoNorm(s) { return String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toUpperCase(); }
@@ -12827,7 +12841,7 @@ function eoMontarSetor(loja, setor) {
   const ps = loja.pessoas.filter((p) => p.setor === setor && !p.fora);
   const k = eoQtdGrupos(ps.length);
   const pool = setor === 'flv' ? EO_PADROES_FLV : EO_PADROES;
-  loja.grupos[setor] = Array.from({ length: k }, (_, i) => ({ letra: String.fromCharCode(65 + i), fase: pool[i][0], d1: pool[i][1], d2: pool[i][2], todoDom: false }));
+  loja.grupos[setor] = Array.from({ length: k }, (_, i) => ({ letra: String.fromCharCode(65 + i), fase: pool[i][0], d1: pool[i][1], d2: pool[i][2], d3: pool[i][3], todoDom: false }));
   // reparte cada turno entre os grupos, alternando a fase (metade trabalha cada domingo)
   const ordemGrupos = loja.grupos[setor].map((g, i) => i).sort((a, b) => loja.grupos[setor][a].fase - loja.grupos[setor][b].fase || a - b);
   const intercalado = [];
@@ -12851,7 +12865,7 @@ function eoGrupoSugerido(loja, setor, turno) {
 
 // ---------- folgas ----------
 function eoCfg(loja) { return { domingo_ref: loja.ref || '2026-11-29' }; }
-function eoGrupoE5(g) { return { id: g.letra, letra: g.letra, fase: g.fase, dia_1: g.d1, dia_2: g.d2, folga_todo_domingo: !!g.todoDom }; }
+function eoGrupoE5(g) { return { id: g.letra, letra: g.letra, fase: g.fase, dia_1: g.d1, dia_2: g.d2, dia_3: g.d3 || null, folga_todo_domingo: !!g.todoDom }; }
 function eoMarcas(loja, p, ini, fim) {
   // devolve { data: 'folga' | 'folga_feriado' } já com os ajustes feitos à mão
   const out = {};
@@ -13031,7 +13045,7 @@ function eoGrade(loja) {
     const cor = EO_PAL[gi % 8];
     const ps = pessoas.filter((p) => p.grupo === g.letra).sort((a, b) => (a.turno || '').localeCompare(b.turno || '') || a.nome.localeCompare(b.nome, 'pt-BR'));
     const doms = dias.filter((d) => e5Dow(d) === 0 && e5FolgaDomingo(eoGrupoE5(g), eoCfg(loja), d)).map(e5Ddmm).join(', ');
-    const regra = g.todoDom ? 'folga todo domingo + ' + E5_DIAS[g.d2] : E5_DIAS[g.d1] + ' + ' + E5_DIAS[g.d2] + ' | Dom + ' + E5_DIAS[g.d2];
+    const regra = e5RegraGrupo(eoGrupoE5(g));
     return '<tr><td colspan="' + (dias.length + 1) + '" class="e5-grupo" style="background:' + e5Escuro(cor[1]) + '"><b>Grupo ' + g.letra + '</b> · ' + regra + (doms ? ' · domingos de folga: ' + doms : '') +
       ' <button class="e5-mini" onclick="eoEditarGrupo(' + gi + ')">editar grupo</button><span class="e5-quadro">' + ps.length + ' pessoa(s)</span></td></tr>' +
       '<tr><td class="e5-nome" style="cursor:default;background:#F6F7F9;font-size:10.5px;color:#5b6878;font-weight:700">Dias · grupo ' + g.letra + '</td>' + cab + '</tr>' +
@@ -13107,16 +13121,18 @@ function eoEditarGrupo(i) {
   const opDia = (sel) => [1, 2, 3, 4, 5, 6].map((n) => '<option value="' + n + '"' + (n === sel ? ' selected' : '') + '>' + E5_DIAS[n] + '</option>').join('');
   const ref = loja.ref || '2026-11-29';
   abrirModal('Grupo ' + g.letra + ' · ' + eoNomeSetor(estado.eo.setor),
-    '<label class="campo-label">1ª folga (semana em que trabalha domingo)</label><select class="campo-input" id="eo-d1">' + opDia(g.d1) + '</select>' +
-    '<label class="campo-label">2ª folga (toda semana)</label><select class="campo-input" id="eo-d2">' + opDia(g.d2) + '</select>' +
+    '<label class="campo-label">Semana em que TRABALHA domingo · 1ª folga</label><select class="campo-input" id="eo-d1">' + opDia(g.d1) + '</select>' +
+    '<label class="campo-label">Semana em que TRABALHA domingo · 2ª folga</label><select class="campo-input" id="eo-d2">' + opDia(g.d2) + '</select>' +
+    '<label class="campo-label">Semana em que FOLGA domingo · folga do meio da semana</label><select class="campo-input" id="eo-d3">' + opDia(g.d3 || g.d2) + '</select>' +
     '<label class="campo-label">Domingos de folga</label><select class="campo-input" id="eo-fase">' +
       '<option value="0"' + (g.fase === 0 ? ' selected' : '') + '>' + [0, 2].map((k) => e5Ddmm(e5Soma(ref, 7 * k))).join(', ') + '… (de 2 em 2)</option>' +
       '<option value="1"' + (g.fase === 1 ? ' selected' : '') + '>' + [1, 3].map((k) => e5Ddmm(e5Soma(ref, 7 * k))).join(', ') + '… (de 2 em 2)</option></select>' +
     '<label style="display:flex;gap:8px;align-items:center;margin-top:10px;font-size:13.5px;"><input type="checkbox" id="eo-todo"' + (g.todoDom ? ' checked' : '') + '> Folga todo domingo</label>',
     'Salvar', () => {
       const d1 = Number(document.getElementById('eo-d1').value), d2 = Number(document.getElementById('eo-d2').value), todo = document.getElementById('eo-todo').checked;
-      if (!todo && d1 >= d2) { mostrarToast('A 2ª folga precisa vir depois da 1ª na semana.', 'erro'); return; }
-      Object.assign(g, { d1: todo ? d2 : d1, d2, fase: Number(document.getElementById('eo-fase').value), todoDom: todo });
+      const d3 = Number(document.getElementById('eo-d3').value);
+      if (!todo && (d2 - d1 < 2 || d1 === 1 || d3 === 6 || d3 > d2)) { mostrarToast('Sem folga colada: na semana que trabalha domingo, 2 folgas com 1 dia de intervalo e nenhuma na segunda; na semana que folga domingo, o dia não pode ser sábado nem depois da 2ª folga.', 'erro'); return; }
+      Object.assign(g, { d1: todo ? d2 : d1, d2, d3: todo ? null : d3, fase: Number(document.getElementById('eo-fase').value), todoDom: todo });
       fecharModal(); eoRender();
     });
 }
@@ -13179,7 +13195,7 @@ function eoImprimir() {
       const cor = EO_PAL[gi % 8];
       const ls = linhas.filter((l) => l.g === g);
       if (!ls.length) return '';
-      const regra = g.todoDom ? 'folga todo domingo + ' + E5_DIAS[g.d2] : E5_DIAS[g.d1] + ' + ' + E5_DIAS[g.d2] + ' | Dom + ' + E5_DIAS[g.d2];
+      const regra = e5RegraGrupo(eoGrupoE5(g));
       return '<tr><td colspan="' + (dias.length + 2) + '" style="background:' + e5Escuro(cor[1]) + ';color:#fff;text-align:left;font-weight:700">GRUPO ' + g.letra + ' · ' + regra + '</td></tr>' +
         '<tr><td colspan="2" style="background:#fff"></td>' + cab + '</tr>' +
         ls.map(({ p, cels }) => '<tr><td style="background:' + cor[0] + '">' + (p.turno === 'U' ? '' : p.turno) + '</td><td style="background:' + cor[0] + ';text-align:left;font-weight:700">' + rupEsc(p.nome) + '</td>' +

@@ -36,6 +36,7 @@ import {
   grupoFolgaDomingo,
   hoje,
   ddmm,
+  regraDoGrupo,
 } from '../data/escala5x2Api';
 import { nomeCurto } from '../lib/pdvDistribuicao';
 import { compartilharPdf } from '../lib/compartilharPdf';
@@ -326,7 +327,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
         const domFolga = dias.filter((d) => diaSemana(d) === 0 && grupoFolgaDomingo(g, mod.config, d)).map(ddmm).join(', ');
         const ideal = g.idealTarde + g.idealManha;
         const n = vagas.filter((v) => v.colaboradorLojaId).length;
-        const titulo = `GRUPO ${g.letra} · domingos de folga: ${domFolga || '—'} · 5x2: ${DIAS_NOME[g.dia1]} + ${DIAS_NOME[g.dia2]} (semana que trabalha domingo) | Dom + ${DIAS_NOME[g.dia2]} (semana que folga domingo) · quadro ${n}/${ideal}${n < ideal ? ` (${n - ideal})` : ''}`;
+        const titulo = `GRUPO ${g.letra} · domingos de folga: ${domFolga || '—'} · ${regraDoGrupo(g)} · quadro ${n}/${ideal}${n < ideal ? ` (${n - ideal})` : ''}`;
         const linhas = vagas
           .map((v) => {
             const id = v.colaboradorLojaId;
@@ -477,7 +478,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
                 <View key={g.id}>
                   <View style={[styles.grupoCab, { backgroundColor: corEscura(g.corForte), width: LARG_NOME + LARG_DIA * dias.length }]}>
                     <Text style={styles.grupoCabTexto}>
-                      Grupo {g.letra} · {DIAS_NOME[g.dia1]} + {DIAS_NOME[g.dia2]} | Dom + {DIAS_NOME[g.dia2]}
+                      Grupo {g.letra} · {regraDoGrupo(g)}
                     </Text>
                     <Text style={[styles.quadro, n < ideal && styles.quadroRuim]}>
                       Quadro {n}/{ideal}
@@ -664,7 +665,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
                       Grupo {sugestao.grupo.letra}, vaga {sugestao.codigo}
                     </Text>
                     <Text style={styles.cardTexto}>
-                      Folgas {DIAS_NOME[sugestao.grupo.dia1]} + {DIAS_NOME[sugestao.grupo.dia2]} | Dom + {DIAS_NOME[sugestao.grupo.dia2]}
+                      Folgas {regraDoGrupo(sugestao.grupo)}
                     </Text>
                     <Text style={styles.nota}>{sugestao.motivo}</Text>
                   </View>
