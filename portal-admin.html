@@ -12556,9 +12556,14 @@ function e5AbrirVaga(vagaId) {
   if (!v) return;
   const g = e.grupos.find((x) => x.id === v.grupo_id);
   abrirModal('Vaga ' + rupEsc(v.codigo) + ' · grupo ' + rupEsc(g.letra),
-    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">Trocar a pessoa grava as folgas do grupo para quem entra a partir da data escolhida e apaga as de quem sai. Deixar "(vaga aberta)" libera a vaga: o grupo passa a mostrar "-1".</p>' + e5CamposVaga(v),
+    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">Trocar a pessoa grava as folgas do grupo para quem entra a partir da data escolhida e apaga as de quem sai. Deixar "(vaga aberta)" libera a vaga: o grupo passa a mostrar "-1".</p>' +
+    '<label class="campo-label">Grupo (as folgas do grupo novo começam na segunda-feira a partir da data "A partir de")</label><select class="campo-input" id="e5-grupo">' +
+      e.grupos.map((x) => '<option value="' + x.id + '"' + (x.id === g.id ? ' selected' : '') + '>Grupo ' + rupEsc(x.letra) + ' · ' + (x.folga_todo_domingo ? 'folga todo domingo + ' + E5_DIAS[x.dia_2] : E5_DIAS[x.dia_1] + ' + ' + E5_DIAS[x.dia_2] + ' | Dom + ' + E5_DIAS[x.dia_2]) +
+        ' · ' + e.vagas.filter((y) => y.grupo_id === x.id && y.colaborador_loja_id).length + ' pessoa(s)</option>').join('') + '</select>' +
+    e5CamposVaga(v),
     'Salvar', async () => {
       const c = e5LerCampos();
+      const novoGrupo = e.grupos.find((x) => x.id === document.getElementById('e5-grupo').value) || g;
       try {
         if (!c.colab && v.colaborador_loja_id) await e5Liberar(v, c.desde);
         else if (c.colab && String(c.colab) !== String(v.colaborador_loja_id)) {
@@ -12567,9 +12572,41 @@ function e5AbrirVaga(vagaId) {
         }
         const r = await sb.from('escala_vagas').update({ turno: c.turno, funcao: c.funcao, secao: c.secao }).eq('id', v.id);
         if (r.error) throw r.error;
-        fecharModal(); mostrarToast('Vaga salva.'); await e5Atualizar();
+        let msg = 'Vaga salva.';
+        if (novoGrupo.id !== g.id) msg = await e5MoverGrupo(v, novoGrupo, c.desde, c.colab || null);
+        fecharModal(); mostrarToast(msg); await e5Atualizar();
       } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
     });
+}
+// Muda a vaga (e quem está nela) de grupo: ganha código novo no grupo de destino e,
+// a partir de `desde`, as folgas da pessoa passam a ser as do grupo novo.
+async function e5MoverGrupo(v, gNovo, desde, colabId) {
+  const e = estado.e5;
+  const nums = e.vagas.filter((x) => x.grupo_id === gNovo.id).map((x) => Number(String(x.codigo).replace(/\D/g, '')) || 0);
+  const codigo = gNovo.letra + (Math.max(0, ...nums) + 1);
+  const ordem = e.vagas.filter((x) => x.grupo_id === gNovo.id).length + 1;
+  let r = await sb.from('escala_vagas').update({ grupo_id: gNovo.id, codigo, ordem }).eq('id', v.id);
+  if (r.error) throw r.error;
+  if (!colabId) return 'Vaga ' + v.codigo + ' agora é ' + codigo + ' no grupo ' + gNovo.letra + '.';
+  // folgas do grupo novo nos meses já gerados (ou, se não houver, pela regra do grupo)
+  const gerados = e.meses.slice().sort();
+  const ultimo = gerados.length ? gerados[gerados.length - 1] : desde.slice(0, 8) + '01';
+  const fim = e5DiasMes(Number(ultimo.slice(0, 4)), Number(ultimo.slice(5, 7))).slice(-1)[0];
+  // a troca começa numa segunda-feira (a semana em andamento fica como está) e nunca antes
+  // do primeiro dia em que o grupo novo tem folgas gravadas
+  const primeira = await sb.from('escala_grupo_folgas').select('data').eq('grupo_id', gNovo.id).order('data').limit(1);
+  if (primeira.error) throw primeira.error;
+  let inicio = e5Dow(desde) === 1 ? desde : e5Soma(e5Segunda(desde), 7);
+  const pri = (primeira.data || [])[0];
+  if (pri && e5Segunda(pri.data) > inicio) inicio = e5Segunda(pri.data);
+  desde = inicio;
+  if (desde > fim) return 'Mudou para o grupo ' + gNovo.letra + ' (vaga ' + codigo + '). As folgas entram quando o próximo mês for gerado.';
+  const gf = await sb.from('escala_grupo_folgas').select('data').eq('grupo_id', gNovo.id).gte('data', desde).lte('data', fim);
+  if (gf.error) throw gf.error;
+  let folgas = (gf.data || []).map((x) => x.data);
+  if (!folgas.length) folgas = e5FolgasSetorPeriodo(e.grupos, e.cfg, desde, fim, e.feriados, e5Pesos(e.vagas)).get(gNovo.id) || [];
+  await e5GravarFolgas(String(colabId), folgas, e.feriados.filter((f) => f.tipo === 'fechada'), desde, fim);
+  return 'Mudou para o grupo ' + gNovo.letra + ' (vaga ' + codigo + '): folgas do grupo novo a partir de ' + e5Ddmm(desde) + '.';
 }
 function e5Sugestao(turno) {
   const e = estado.e5;
