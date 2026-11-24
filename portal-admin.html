@@ -12038,6 +12038,14 @@ function e5Dow(s) { return e5Data(s).getDay(); }
 function e5Diff(a, b) { return Math.round((e5Data(a) - e5Data(b)) / 86400000); }
 function e5Ddmm(s) { return s.slice(8) + '/' + s.slice(5, 7); }
 function e5DiasMes(a, m) { const n = new Date(a, m, 0).getDate(); return Array.from({ length: n }, (_, i) => a + '-' + String(m).padStart(2, '0') + '-' + String(i + 1).padStart(2, '0')); }
+// dias mostrados na tela de um mês: do dia 1 até o domingo que fecha a última semana
+// (ex.: dezembro/2026 vai até domingo 03/01/2027), para ver a semana da virada inteira
+function e5DiasTela(a, m) {
+  const d = e5DiasMes(a, m);
+  let fim = d[d.length - 1];
+  while (e5Dow(fim) !== 0) { fim = e5Soma(fim, 1); d.push(fim); }
+  return d;
+}
 function e5Hoje() { return e5Iso(new Date()); }
 function e5Autor() { return (estado.usuario && estado.usuario.nome) || 'Portal'; }
 function e5Escuro(hex) { const n = parseInt(String(hex).slice(1), 16); const f = (c) => Math.round(c * 0.45); return 'rgb(' + f((n >> 16) & 255) + ',' + f((n >> 8) & 255) + ',' + f(n & 255) + ')'; }
@@ -12199,7 +12207,7 @@ async function e5Carregar() {
 }
 async function e5CarregarRegistros() {
   const e = estado.e5;
-  const dias = e5DiasMes(e.ano, e.mes);
+  const dias = e5DiasTela(e.ano, e.mes);
   const ids = e.vagas.map((v) => v.colaborador_loja_id).filter(Boolean);
   e.regs = [];
   for (let i = 0; i < ids.length; i += 150) {
@@ -12219,7 +12227,7 @@ function e5Nome(id) { const c = (estado.colaboradoresLoja || []).find((x) => Str
 // ---------- conferência ----------
 function e5Conferir() {
   const e = estado.e5;
-  const dias = e5DiasMes(e.ano, e.mes);
+  const dias = e5DiasTela(e.ano, e.mes);
   const ini = dias[0], fim = dias[dias.length - 1];
   const reg = e5Reg();
   const fechado = new Set(e.feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
@@ -12273,7 +12281,7 @@ function e5Conferir() {
 function e5Render() {
   const e = estado.e5;
   const el = document.getElementById('conteudo-principal');
-  const dias = e5DiasMes(e.ano, e.mes);
+  const dias = e5DiasTela(e.ano, e.mes);
   const reg = e5Reg();
   const fechado = new Set(e.feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
   const gerado = e.meses.includes(dias[0]);
@@ -12341,7 +12349,7 @@ function e5Render() {
     cabecalho('Escala 5x2', 'Grupos de folga por setor. Clique num dia: vazio → X (folga) → F (folga de feriado) → vazio; clique no nome para trocar a pessoa da vaga.') +
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' + setores + '</div>' +
     '<div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center;">' +
-      '<button class="chip" onclick="e5Mes(-1)">‹</button><b style="min-width:150px;text-align:center;">' + E5_MESES[e.mes - 1] + ' de ' + e.ano + '</b><button class="chip" onclick="e5Mes(1)">›</button>' +
+      '<button class="chip" onclick="e5Mes(-1)">‹</button><b style="min-width:150px;text-align:center;">' + E5_MESES[e.mes - 1] + ' de ' + e.ano + (dias[dias.length - 1].slice(5, 7) !== String(e.mes).padStart(2, '0') ? '<span style="font-weight:500;font-size:12px;color:var(--text-muted)"> · até ' + e5Ddmm(dias[dias.length - 1]) + '</span>' : '') + '</b><button class="chip" onclick="e5Mes(1)">›</button>' +
       '<span style="flex:1"></span>' +
       '<button class="btn-acao" onclick="e5Gerar()">' + (gerado ? 'Gerar de novo' : 'Gerar escala do mês') + '</button>' +
       '<button class="btn-acao secundario" onclick="e5Imprimir()">Imprimir</button>' +
@@ -12382,7 +12390,7 @@ function e5Mes(delta) {
 async function e5AbrirLoja() {
   const e = estado.e5;
   try {
-    const dias = e5DiasMes(e.ano, e.mes);
+    const dias = e5DiasTela(e.ano, e.mes);
     const [g, v] = await Promise.all([sb.from('escala_grupos').select('id,setor'), sb.from('escala_vagas').select('grupo_id,turno,colaborador_loja_id')]);
     if (g.error) throw g.error;
     if (v.error) throw v.error;
@@ -12430,7 +12438,7 @@ function e5RenderLoja() {
   el.innerHTML = '<style>.e5-tab{border-collapse:collapse;font-size:11px}.e5-tab td,.e5-tab th{border:1px solid #c9ced6;padding:0;text-align:center}.e5-dia{width:28px;font-size:11px;font-weight:800;line-height:1.15;padding:2px 0!important}.e5-dia span{color:#C00000;font-size:9px}.e5-nome{min-width:210px;text-align:left!important;padding:3px 6px!important;font-size:11.5px}.e5-grupo{color:#fff;text-align:left!important;padding:6px 8px!important;font-size:12px;font-weight:700}.e5-tot{background:#E2EFDA;font-weight:800;font-size:11px;height:24px}</style>' +
     cabecalho('Escala 5x2', 'Quantas pessoas estão disponíveis em cada dia, de manhã e à tarde (já descontando folga, folga de feriado, falta, atestado e férias)') +
     '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' + setores + '</div>' +
-    '<div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center;"><button class="chip" onclick="e5Mes(-1)">‹</button><b style="min-width:150px;text-align:center;">' + E5_MESES[e.mes - 1] + ' de ' + e.ano + '</b><button class="chip" onclick="e5Mes(1)">›</button></div>' +
+    '<div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center;"><button class="chip" onclick="e5Mes(-1)">‹</button><b style="min-width:150px;text-align:center;">' + E5_MESES[e.mes - 1] + ' de ' + e.ano + (L.dias[L.dias.length - 1].slice(5, 7) !== String(e.mes).padStart(2, '0') ? '<span style="font-weight:500;font-size:12px;color:var(--text-muted)"> · até ' + e5Ddmm(L.dias[L.dias.length - 1]) + '</span>' : '') + '</b><button class="chip" onclick="e5Mes(1)">›</button></div>' +
     '<div class="tabela-wrap" style="margin-top:12px;"><table class="e5-tab"><thead><tr><th class="e5-nome">Turno</th>' + cab + '</tr></thead><tbody>' + corpo + '</tbody></table></div>' +
     '<p style="font-size:12.5px;color:var(--text-muted);margin-top:8px;">Entre parênteses, quantas pessoas o setor tem naquele turno. Setores sem turno definido (ex.: repositores, frios) aparecem como "sem turno".</p>';
 }
@@ -12731,7 +12739,7 @@ async function e5RemoverFeriado(data) {
 // ---------- imprimir ----------
 function e5Imprimir() {
   const e = estado.e5;
-  const dias = e5DiasMes(e.ano, e.mes);
+  const dias = e5DiasTela(e.ano, e.mes);
   const reg = e5Reg();
   const fechado = new Set(e.feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
   const cab = dias.map((d) => { const w = e5Dow(d), fer = fechado.has(d); return '<th style="background:' + (fer ? '#BFBFBF' : w === 0 ? '#FFD54F' : '#FFFF99') + '">' + Number(d.slice(8)) + '<br><span style="color:#C00000">' + (fer ? 'FER' : E5_LETRA[w]) + '</span></th>'; }).join('');
@@ -12755,7 +12763,7 @@ function e5Imprimir() {
   if (!w) { mostrarToast('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.', 'erro'); return; }
   w.document.write('<html><head><meta charset="utf-8"><title>Escala ' + rupEsc(e.cfg.nome || e.setor) + '</title><style>@page{size:A4 landscape;margin:8mm}body{font-family:Arial,sans-serif;margin:0}h1{font-size:14px;margin:0 0 4px}p{font-size:9.5px;margin:0 0 6px;color:#444}' +
     'table{border-collapse:collapse;width:100%;font-size:7.5px}td,th{border:1px solid #999;padding:1px;text-align:center}.ass{margin-top:16px;font-size:10px}.rod{font-size:8px;color:#888;text-align:right;margin-top:6px}</style></head><body>' +
-    '<h1>SUPERMERCADOS BH · LOJA 327 · ESCALA ' + rupEsc((e.cfg.nome || e.setor).toUpperCase()) + ' · ' + E5_MESES[e.mes - 1].toUpperCase() + ' ' + e.ano + '</h1>' +
+    '<h1>SUPERMERCADOS BH · LOJA 327 · ESCALA ' + rupEsc((e.cfg.nome || e.setor).toUpperCase()) + ' · ' + E5_MESES[e.mes - 1].toUpperCase() + ' ' + e.ano + (dias[dias.length - 1].slice(5, 7) !== String(e.mes).padStart(2, '0') ? ' (ATÉ ' + e5Ddmm(dias[dias.length - 1]) + ')' : '') + '</h1>' +
     '<p>X = folga · F = folga de feriado · FER = feriado, loja fechada · FA = falta · AT = atestado · FÉR = férias · cada cor é um grupo e o grupo folga junto.' + (E5_HOR[e.setor] ? ' ' + E5_HOR[e.setor] + '.' : '') + '</p>' +
     '<table><tr><th>VAGA</th><th>T</th><th style="width:160px">NOME</th>' + cab + '</tr>' + dispImp + corpo + dispImp + '</table>' +
     '<div class="ass">Gerente: _______________________________</div><div class="rod">ULVA · by Lucas Alberto</div></body></html>');
