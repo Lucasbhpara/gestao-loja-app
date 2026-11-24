@@ -176,7 +176,8 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
   }, [mod, dias, reg, fechados]);
 
   const trabalhandoNoDia = (d: string, t: Turno) =>
-    (mod?.vagas ?? []).filter((v) => v.colaboradorLojaId && v.turno === t && !reg.get(v.colaboradorLojaId)?.has(d) && !fechados.has(d)).length;
+    // só operadoras (embaladora fica fora da conta)
+    (mod?.vagas ?? []).filter((v) => v.colaboradorLojaId && v.funcao === 'operadora' && v.turno === t && !reg.get(v.colaboradorLojaId)?.has(d) && !fechados.has(d)).length;
 
   const livres = useMemo(() => {
     const ocupados = new Set((mod?.vagas ?? []).map((v) => v.colaboradorLojaId).filter(Boolean) as string[]);
@@ -347,7 +348,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
       })
       .join('');
     const totais = (['M', 'T'] as Turno[])
-      .map((t) => `<tr><td colspan="3" style="text-align:left;font-weight:700;background:#E2EFDA">Disponíveis ${t === 'M' ? 'MANHÃ' : 'TARDE'}</td>${dias.map((d) => `<td style="background:#E2EFDA;font-weight:700">${trabalhandoNoDia(d, t)}</td>`).join('')}<td colspan="2" style="background:#E2EFDA"></td></tr>`)
+      .map((t) => `<tr><td colspan="3" style="text-align:left;font-weight:700;background:#E2EFDA">OPERADORAS ${t === 'M' ? 'MANHÃ' : 'TARDE'}</td>${dias.map((d) => `<td style="background:#E2EFDA;font-weight:700">${trabalhandoNoDia(d, t)}</td>`).join('')}<td colspan="2" style="background:#E2EFDA"></td></tr>`)
       .join('');
     const html = `<html><head><meta charset="utf-8"><style>
       body{font-family:Arial,Helvetica,sans-serif;margin:14px} h1{font-size:15px;margin:0 0 4px} p{font-size:10px;margin:0 0 8px;color:#444}
@@ -422,7 +423,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
   // quantas pessoas estão disponíveis em cada dia (sem folga, falta, atestado ou férias), de manhã e à tarde
   const linhasDisponiveis = (['M', 'T'] as Turno[]).map((tu) => (
     <View key={tu} style={styles.linhaGrade}>
-      <Text style={[styles.celCab, { width: LARG_NOME, textAlign: 'left', backgroundColor: '#E2EFDA' }]}>Disponíveis {tu === 'M' ? 'manhã' : 'tarde'}</Text>
+      <Text style={[styles.celCab, { width: LARG_NOME, textAlign: 'left', backgroundColor: '#E2EFDA' }]}>Operadoras {tu === 'M' ? 'manhã' : 'tarde'}</Text>
       {dias.map((d) => (
         <View key={d} style={[styles.cel, { width: LARG_DIA, backgroundColor: '#E2EFDA' }]}>
           <Text style={[styles.celTexto, { fontWeight: '800' }]}>{fechados.has(d) ? '' : trabalhandoNoDia(d, tu)}</Text>
