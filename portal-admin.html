@@ -12272,7 +12272,9 @@ function e5Render() {
       return '<tr><td class="e5-nome" style="background:' + g.cor + '" onclick="e5AbrirVaga(\'' + v.id + '\')" title="Trocar a pessoa da vaga"><b>' + rupEsc(v.codigo) + '</b> ' + nome +
         (extra ? '<div class="e5-sub">' + extra + '</div>' : '') + '</td>' + celulas + '</tr>';
     }).join('');
-    return cabG + linhas;
+    // repete a linha dos dias em cada grupo, para enxergar melhor
+    const diasG = '<tr><td class="e5-nome" style="cursor:default;background:#F6F7F9;font-size:10.5px;color:#5b6878;font-weight:700">Dias · grupo ' + rupEsc(g.letra) + '</td>' + cab + '</tr>';
+    return cabG + diasG + linhas;
   }).join('');
   const trab = (t) => dias.map((d) => fechado.has(d) ? '<td class="e5-tot"></td>' :
     '<td class="e5-tot">' + e.vagas.filter((v) => v.colaborador_loja_id && (!t || v.turno === t) && !(reg[String(v.colaborador_loja_id)] || {})[d]).length + '</td>').join('');
@@ -12587,6 +12589,7 @@ function e5Imprimir() {
     const doms = dias.filter((d) => e5Dow(d) === 0 && e5FolgaDomingo(g, e.cfg, d)).map(e5Ddmm).join(', ');
     const regra = g.folga_todo_domingo ? 'folga todo domingo + ' + E5_DIAS[g.dia_2] : E5_DIAS[g.dia_1] + ' + ' + E5_DIAS[g.dia_2] + ' | Dom + ' + E5_DIAS[g.dia_2];
     return '<tr><td colspan="' + (dias.length + 3) + '" style="background:' + e5Escuro(g.cor_forte) + ';color:#fff;text-align:left;font-weight:700">GRUPO ' + rupEsc(g.letra) + ' · ' + regra + (doms ? ' · domingos de folga: ' + doms : '') + '</td></tr>' +
+      '<tr><td colspan="3" style="background:#fff"></td>' + cab + '</tr>' +
       vs.map((v) => {
         const id = v.colaborador_loja_id ? String(v.colaborador_loja_id) : null;
         const r = id ? (reg[id] || {}) : {};
@@ -12876,10 +12879,11 @@ function eoGrade(loja) {
     for (let d = e5Soma(dias[0], -7); d <= dias[dias.length - 1]; d = e5Soma(d, 1)) { if (m[d] || fechado.has(d)) seq = 0; else { seq++; if (d >= dias[0]) maior = Math.max(maior, seq); } }
     const msgs = [];
     if (maior > 6) msgs.push(maior + ' dias seguidos');
-    for (let dom = e5Soma(dias[0], -e5Dow(dias[0])); dom <= dias[dias.length - 1]; dom = e5Soma(dom, 7)) {
-      if (dom < dias[0] || e5Soma(dom, 6) > dias[dias.length - 1]) continue;
-      const n = Array.from({ length: 7 }, (_, i) => e5Soma(dom, i)).filter((d) => m[d] === 'folga').length;
-      if (n !== 2) msgs.push('semana de ' + e5Ddmm(dom) + ' com ' + n + ' folga(s)');
+    // semana de segunda a domingo, igual à regra das folgas
+    for (let seg = e5Segunda(dias[0]); seg <= dias[dias.length - 1]; seg = e5Soma(seg, 7)) {
+      if (seg < dias[0] || e5Soma(seg, 6) > dias[dias.length - 1]) continue;
+      const n = Array.from({ length: 7 }, (_, i) => e5Soma(seg, i)).filter((d) => m[d] === 'folga').length;
+      if (n !== 2) msgs.push('semana de ' + e5Ddmm(seg) + ' com ' + n + ' folga(s)');
     }
     if (!p.grupo) msgs.push('sem grupo');
     if (msgs.length) problemas.push('<b>' + rupEsc(e5Curto(p.nome)) + '</b>: ' + msgs.join('; '));
@@ -12892,6 +12896,7 @@ function eoGrade(loja) {
     const regra = g.todoDom ? 'folga todo domingo + ' + E5_DIAS[g.d2] : E5_DIAS[g.d1] + ' + ' + E5_DIAS[g.d2] + ' | Dom + ' + E5_DIAS[g.d2];
     return '<tr><td colspan="' + (dias.length + 1) + '" class="e5-grupo" style="background:' + e5Escuro(cor[1]) + '"><b>Grupo ' + g.letra + '</b> · ' + regra + (doms ? ' · domingos de folga: ' + doms : '') +
       ' <button class="e5-mini" onclick="eoEditarGrupo(' + gi + ')">editar grupo</button><span class="e5-quadro">' + ps.length + ' pessoa(s)</span></td></tr>' +
+      '<tr><td class="e5-nome" style="cursor:default;background:#F6F7F9;font-size:10.5px;color:#5b6878;font-weight:700">Dias · grupo ' + g.letra + '</td>' + cab + '</tr>' +
       ps.map((p) => {
         const m = marcas[p.mat];
         const cel = dias.map((d) => {
@@ -13038,6 +13043,7 @@ function eoImprimir() {
       if (!ls.length) return '';
       const regra = g.todoDom ? 'folga todo domingo + ' + E5_DIAS[g.d2] : E5_DIAS[g.d1] + ' + ' + E5_DIAS[g.d2] + ' | Dom + ' + E5_DIAS[g.d2];
       return '<tr><td colspan="' + (dias.length + 2) + '" style="background:' + e5Escuro(cor[1]) + ';color:#fff;text-align:left;font-weight:700">GRUPO ' + g.letra + ' · ' + regra + '</td></tr>' +
+        '<tr><td colspan="2" style="background:#fff"></td>' + cab + '</tr>' +
         ls.map(({ p, cels }) => '<tr><td style="background:' + cor[0] + '">' + (p.turno === 'U' ? '' : p.turno) + '</td><td style="background:' + cor[0] + ';text-align:left;font-weight:700">' + rupEsc(p.nome) + '</td>' +
           cels.map((c) => '<td style="background:' + (c === 'FER' ? '#D9D9D9' : c === 'X' ? cor[1] : c === 'F' ? '#ECE7FB' : cor[0]) + ';font-weight:700">' + c + '</td>').join('') + '</tr>').join('');
     }).join('');
