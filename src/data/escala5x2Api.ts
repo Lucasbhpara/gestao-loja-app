@@ -255,8 +255,10 @@ function maiorSequencia(ultimo: string, descansos: string[], proximo: string): n
 }
 
 // Folgas de todos os grupos do setor numa semana. A folga que cai em feriado com a loja
-// fechada ou em dia de pico vai para o dia da semana com menos gente de folga (dia de pico
-// pesa 30% a mais), sem ninguém passar de 6 dias seguidos. `pesos` = pessoas por grupo.
+// fechada, em dia de pico ou encostada em outra folga (X seguido de X — a folga de feriado
+// não conta) vai para o dia da semana com menos gente de folga (pico pesa 30% a mais),
+// sem folga encostada em folga e sem ninguém passar de 6 dias seguidos.
+// `pesos` = pessoas por grupo. Mesma regra do Portal (e5SemanaSetor).
 export function folgasDoSetorNaSemana(
   grupos: GrupoEscala[],
   cfg: ConfigEscala,
@@ -269,45 +271,73 @@ export function folgasDoSetorNaSemana(
   const pico = new Set(feriados.filter((f) => f.tipo === 'pico').map((f) => f.data));
   const peso = (g: GrupoEscala) => pesos.get(g.id) || 1;
   const out = new Map<string, string[]>();
-  const deslocar: { g: GrupoEscala; d: string }[] = [];
-  for (const g of grupos) {
-    const base = folgasBaseDaSemana(g, cfg, segunda);
-    out.set(g.id, base.filter((d) => !fechado.has(d) && !pico.has(d)));
-    base.filter((d) => fechado.has(d) || pico.has(d)).forEach((d) => deslocar.push({ g, d }));
-  }
-  if (!deslocar.length) return out;
+  const deslocar = new Map<GrupoEscala, string[]>();
   const fim = somarDias(segunda, 6);
-  const dias = [1, 2, 3, 4, 5, 6].map((n) => somarDias(segunda, n - 1)).filter((d) => !fechado.has(d));
   const antes = prof < 4 ? folgasDoSetorNaSemana(grupos, cfg, somarDias(segunda, -7), feriados, pesos, prof + 1) : null;
+  const ultimoX = (g: GrupoEscala): string | null =>
+    (antes ? antes.get(g.id)! : folgasBaseDaSemana(g, cfg, somarDias(segunda, -7)).filter((x) => !fechado.has(x))).slice().sort().pop() || null;
+  for (const g of grupos) {
+    const base = folgasBaseDaSemana(g, cfg, segunda).slice().sort();
+    const ruim = new Set(base.filter((d) => fechado.has(d) || pico.has(d)));
+    const bons = base.filter((d) => !ruim.has(d));
+    const ult = ultimoX(g);
+    for (const d of bons) {
+      if (diaSemana(d) === 0) continue; // o domingo 1x1 não sai do lugar
+      const colada =
+        (ult !== null && somarDias(ult, 1) === d) ||
+        bons.some((x) => x !== d && Math.abs(diffDias(x, d)) === 1 && (diaSemana(x) === 0 || x > d));
+      if (colada) ruim.add(d);
+    }
+    out.set(g.id, base.filter((d) => !ruim.has(d)));
+    if (ruim.size) deslocar.set(g, [...ruim].sort());
+  }
+  if (!deslocar.size) return out;
+  const dias = [1, 2, 3, 4, 5, 6].map((n) => somarDias(segunda, n - 1)).filter((d) => !fechado.has(d));
   const carga: Record<string, number> = {};
   dias.forEach((d) => {
     carga[d] = 0;
   });
   for (const g of grupos) out.get(g.id)!.forEach((d) => { if (d in carga) carga[d] += peso(g); });
   const fechSem = [...fechado].filter((d) => d >= segunda && d <= fim);
-  deslocar.sort((a, b) => peso(b.g) - peso(a.g) || a.g.letra.localeCompare(b.g.letra) || a.d.localeCompare(b.d));
-  for (const { g, d } of deslocar) {
+  const combos = (lista: string[], k: number): string[][] => {
+    if (k === 0) return [[]];
+    const r: string[][] = [];
+    lista.forEach((x, i) => combos(lista.slice(i + 1), k - 1).forEach((c) => r.push([x, ...c])));
+    return r;
+  };
+  const ordem = [...deslocar.keys()].sort((a, b) => peso(b) - peso(a) || a.letra.localeCompare(b.letra));
+  for (const g of ordem) {
     const tem = out.get(g.id)!;
+    const origem = deslocar.get(g)!;
     const ant = antes ? antes.get(g.id)! : folgasBaseDaSemana(g, cfg, somarDias(segunda, -7));
     const ultimo = [...ant, ...[...fechado].filter((x) => x < segunda && x >= somarDias(segunda, -7))].sort().pop() || somarDias(segunda, -1);
+    const ult = ultimoX(g);
+    const baseProx = folgasBaseDaSemana(g, cfg, somarDias(segunda, 7));
+    const proxX = baseProx.filter((x) => !fechado.has(x) && !pico.has(x)).sort()[0] || null;
     const prox =
-      [...folgasBaseDaSemana(g, cfg, somarDias(segunda, 7)), ...[...fechado].filter((x) => x > fim && x <= somarDias(segunda, 13))].sort()[0] ||
+      [...baseProx.filter((x) => !fechado.has(x)), ...[...fechado].filter((x) => x > fim && x <= somarDias(segunda, 13))].sort()[0] ||
       somarDias(segunda, 13);
-    const jaPostas = tem.length - folgasBaseDaSemana(g, cfg, segunda).filter((x) => !fechado.has(x) && !pico.has(x)).length;
-    const faltam = deslocar.filter((x) => x.g === g).length - jaPostas;
-    const cand = dias
-      .filter((c) => !tem.includes(c))
-      .map((c) => {
-        const seq = maiorSequencia(ultimo, [...tem, c, ...fechSem], prox);
-        const ok = seq <= 6 || (faltam > 1 && seq <= 12);
-        return { c, ok, nota: carga[c] * (pico.has(c) ? 1.3 : 1) + Math.abs(diffDias(c, d)) * 0.01 };
-      })
-      .sort((a, b) => (a.ok === b.ok ? 0 : a.ok ? -1 : 1) || a.nota - b.nota);
-    if (!cand.length) continue;
-    const c = cand[0].c;
-    tem.push(c);
+    const sabado = origem.some((d) => diaSemana(d) === 6);
+    const livres = dias.filter((c) => !tem.includes(c) && (diaSemana(c) !== 6 || sabado));
+    const k = Math.min(origem.length, livres.length);
+    let melhor: { combo: string[]; nivel: number; nota: number } | null = null;
+    for (const combo of combos(livres, k)) {
+      const todos = [...tem, ...combo].sort();
+      const seq = maiorSequencia(ultimo, [...todos, ...fechSem], prox);
+      const encosta =
+        todos.some((x, i) => i > 0 && diffDias(x, todos[i - 1]) === 1) ||
+        (ult !== null && todos.includes(somarDias(ult, 1))) ||
+        (proxX !== null && todos.includes(somarDias(proxX, -1)));
+      const nivel = seq > 6 ? 2 : encosta ? 1 : 0;
+      const nota = combo.reduce((s, c, i) => s + carga[c] * (pico.has(c) ? 1.3 : 1) + Math.abs(diffDias(c, origem[i] || origem[0])) * 0.01, 0);
+      if (!melhor || nivel < melhor.nivel || (nivel === melhor.nivel && nota < melhor.nota)) melhor = { combo, nivel, nota };
+    }
+    if (!melhor) continue;
+    for (const c of melhor.combo) {
+      tem.push(c);
+      carga[c] += peso(g);
+    }
     tem.sort();
-    carga[c] += peso(g);
   }
   return out;
 }

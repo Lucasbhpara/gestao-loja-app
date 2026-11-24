@@ -12069,9 +12069,10 @@ function e5MaiorSeq(ultimo, descansos, proximo) {
   for (let d = e5Soma(ultimo, 1); d < proximo; d = e5Soma(d, 1)) { if (set.has(d)) seq = 0; else { seq++; if (seq > maior) maior = seq; } }
   return maior;
 }
-// Folgas de todos os grupos do setor numa semana. Folga em feriado com a loja fechada ou
-// em dia de pico vai para o dia da semana com menos gente de folga (pico pesa 30% a mais),
-// sem ninguém passar de 6 dias seguidos. pesos = { grupoId: pessoas }.
+// Folgas de todos os grupos do setor numa semana. Folga em feriado com a loja fechada,
+// em dia de pico ou encostada em outra folga (X seguido de X — a folga de feriado não
+// conta) vai para o dia da semana com menos gente de folga (pico pesa 30% a mais), sem
+// folga encostada em folga e sem ninguém passar de 6 dias seguidos. pesos = { grupoId: pessoas }.
 function e5SemanaSetor(grupos, cfg, seg, feriados, pesos, prof) {
   pesos = pesos || {}; prof = prof || 0;
   const fechado = new Set(feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
@@ -12079,32 +12080,64 @@ function e5SemanaSetor(grupos, cfg, seg, feriados, pesos, prof) {
   const peso = (g) => pesos[g.id] || 1;
   const out = new Map();
   const deslocar = [];
+  const fim = e5Soma(seg, 6);
+  const antes = prof < 4 ? e5SemanaSetor(grupos, cfg, e5Soma(seg, -7), feriados, pesos, prof + 1) : null;
+  const ultimoX = (g) => (antes ? antes.get(g.id) : e5BaseSemana(g, cfg, e5Soma(seg, -7)).filter((x) => !fechado.has(x))).slice().sort().pop() || null;
   grupos.forEach((g) => {
-    const base = e5BaseSemana(g, cfg, seg);
-    out.set(g.id, base.filter((d) => !fechado.has(d) && !pico.has(d)));
-    base.filter((d) => fechado.has(d) || pico.has(d)).forEach((d) => deslocar.push({ g, d }));
+    const base = e5BaseSemana(g, cfg, seg).slice().sort();
+    const ruim = new Set(base.filter((d) => fechado.has(d) || pico.has(d)));
+    // X encostado em X: a semana anterior termina em folga, ou duas folgas seguidas na semana
+    const bons = base.filter((d) => !ruim.has(d));
+    const ult = ultimoX(g);
+    bons.forEach((d, i) => {
+      if (e5Dow(d) === 0) return; // o domingo 1x1 não sai do lugar
+      const colada = (ult && e5Soma(ult, 1) === d) || bons.some((x) => x !== d && Math.abs(e5Diff(x, d)) === 1 && (e5Dow(x) === 0 || x > d));
+      if (colada) ruim.add(d);
+    });
+    out.set(g.id, base.filter((d) => !ruim.has(d)));
+    [...ruim].forEach((d) => deslocar.push({ g, d }));
   });
   if (!deslocar.length) return out;
-  const fim = e5Soma(seg, 6);
   const dias = [1, 2, 3, 4, 5, 6].map((n) => e5Soma(seg, n - 1)).filter((d) => !fechado.has(d));
-  const antes = prof < 4 ? e5SemanaSetor(grupos, cfg, e5Soma(seg, -7), feriados, pesos, prof + 1) : null;
   const carga = {}; dias.forEach((d) => { carga[d] = 0; });
   grupos.forEach((g) => out.get(g.id).forEach((d) => { if (d in carga) carga[d] += peso(g); }));
   const fechSem = [...fechado].filter((d) => d >= seg && d <= fim);
-  deslocar.sort((a, b) => peso(b.g) - peso(a.g) || String(a.g.letra).localeCompare(String(b.g.letra)) || a.d.localeCompare(b.d));
-  deslocar.forEach(({ g, d }) => {
+  // por grupo, escolhe juntos os dias das folgas que precisam mudar (todas de uma vez,
+  // para duas folgas novas não ficarem encostadas uma na outra)
+  const porGrupo = new Map();
+  deslocar.forEach((x) => { if (!porGrupo.has(x.g)) porGrupo.set(x.g, []); porGrupo.get(x.g).push(x.d); });
+  const ordem = [...porGrupo.keys()].sort((a, b) => peso(b) - peso(a) || String(a.letra).localeCompare(String(b.letra)));
+  const combos = (lista, k) => {
+    if (k === 0) return [[]];
+    const r = [];
+    lista.forEach((x, i) => combos(lista.slice(i + 1), k - 1).forEach((c) => r.push([x, ...c])));
+    return r;
+  };
+  ordem.forEach((g) => {
     const tem = out.get(g.id);
+    const origem = porGrupo.get(g).sort();
     const ant = antes ? antes.get(g.id) : e5BaseSemana(g, cfg, e5Soma(seg, -7));
     const ultimo = [...ant, ...[...fechado].filter((x) => x < seg && x >= e5Soma(seg, -7))].sort().pop() || e5Soma(seg, -1);
-    const prox = [...e5BaseSemana(g, cfg, e5Soma(seg, 7)), ...[...fechado].filter((x) => x > fim && x <= e5Soma(seg, 13))].sort()[0] || e5Soma(seg, 13);
-    const jaPostas = tem.length - e5BaseSemana(g, cfg, seg).filter((x) => !fechado.has(x) && !pico.has(x)).length;
-    const faltam = deslocar.filter((x) => x.g === g).length - jaPostas;
-    const cand = dias.filter((c) => !tem.includes(c)).map((c) => {
-      const sq = e5MaiorSeq(ultimo, [...tem, c, ...fechSem], prox);
-      return { c, ok: sq <= 6 || (faltam > 1 && sq <= 12), nota: carga[c] * (pico.has(c) ? 1.3 : 1) + Math.abs(e5Diff(c, d)) * 0.01 };
-    }).sort((a, b) => (a.ok === b.ok ? 0 : a.ok ? -1 : 1) || a.nota - b.nota);
-    if (!cand.length) return;
-    tem.push(cand[0].c); tem.sort(); carga[cand[0].c] += peso(g);
+    const ult = ultimoX(g);
+    const proxBase = e5BaseSemana(g, cfg, e5Soma(seg, 7)).filter((x) => !fechado.has(x) && !pico.has(x)).sort();
+    const proxX = proxBase[0] || null;
+    // para os 6 dias seguidos, a folga de pico da semana seguinte conta (ela só muda de dia dentro daquela semana)
+    const prox = [...e5BaseSemana(g, cfg, e5Soma(seg, 7)).filter((x) => !fechado.has(x)), ...[...fechado].filter((x) => x > fim && x <= e5Soma(seg, 13))].sort()[0] || e5Soma(seg, 13);
+    const sabado = origem.some((d) => e5Dow(d) === 6);
+    const livres = dias.filter((c) => !tem.includes(c) && (e5Dow(c) !== 6 || sabado));
+    const k = Math.min(origem.length, livres.length);
+    let melhor = null;
+    combos(livres, k).forEach((combo) => {
+      const todos = [...tem, ...combo].sort();
+      const sq = e5MaiorSeq(ultimo, [...todos, ...fechSem], prox);
+      const encosta = todos.some((x, i) => i > 0 && e5Diff(x, todos[i - 1]) === 1) || (ult && todos.includes(e5Soma(ult, 1))) || (proxX && todos.includes(e5Soma(proxX, -1)));
+      const nivel = sq > 6 ? 2 : encosta ? 1 : 0;
+      const nota = combo.reduce((s, c, i) => s + carga[c] * (pico.has(c) ? 1.3 : 1) + Math.abs(e5Diff(c, origem[i] || origem[0])) * 0.01, 0);
+      if (!melhor || nivel < melhor.nivel || (nivel === melhor.nivel && nota < melhor.nota)) melhor = { combo, nivel, nota };
+    });
+    if (!melhor) return;
+    melhor.combo.forEach((c) => { tem.push(c); carga[c] += peso(g); });
+    tem.sort();
   });
   return out;
 }
@@ -12276,11 +12309,14 @@ function e5Render() {
     const diasG = '<tr><td class="e5-nome" style="cursor:default;background:#F6F7F9;font-size:10.5px;color:#5b6878;font-weight:700">Dias · grupo ' + rupEsc(g.letra) + '</td>' + cab + '</tr>';
     return cabG + diasG + linhas;
   }).join('');
+  // quantas pessoas estão disponíveis (sem folga, falta, atestado ou férias) em cada dia, por turno
   const trab = (t) => dias.map((d) => fechado.has(d) ? '<td class="e5-tot"></td>' :
     '<td class="e5-tot">' + e.vagas.filter((v) => v.colaborador_loja_id && (!t || v.turno === t) && !(reg[String(v.colaborador_loja_id)] || {})[d]).length + '</td>').join('');
-  const totais = (temTurno ? [['M', 'Trabalhando manhã'], ['T', 'Trabalhando tarde']] : [[null, 'Trabalhando']])
-    .map(([t, rot]) => '<tr><td class="e5-nome e5-tot" style="text-align:left">' + rot + '</td>' + trab(t) + '</tr>').join('');
-  const setores = e.configs.map((c) => '<button class="chip' + (c.setor === e.setor ? ' ativo' : '') + '" onclick="e5TrocarSetor(\'' + c.setor + '\')">' + rupEsc(c.nome || c.setor) + '</button>').join('');
+  const temU = e.vagas.some((v) => v.colaborador_loja_id && v.turno === 'U');
+  const linhasDisp = temTurno ? [['M', 'Disponíveis manhã'], ['T', 'Disponíveis tarde']].concat(temU ? [['U', 'Disponíveis sem turno']] : []) : [[null, 'Disponíveis no dia']];
+  const totais = linhasDisp.map(([t, rot]) => '<tr><td class="e5-nome e5-tot" style="text-align:left;cursor:default">' + rot + '</td>' + trab(t) + '</tr>').join('');
+  const setores = e.configs.map((c) => '<button class="chip' + (c.setor === e.setor ? ' ativo' : '') + '" onclick="e5TrocarSetor(\'' + c.setor + '\')">' + rupEsc(c.nome || c.setor) + '</button>').join('') +
+    '<button class="chip" onclick="e5TrocarSetor(\'__loja\')">📊 Disponíveis por dia (loja toda)</button>';
   const ferMes = e.feriados.filter((f) => f.data >= dias[0] && f.data <= dias[dias.length - 1]);
   const okConf = !conf.problemas.length && !conf.conflitos.length && !conf.semEnc.length;
   el.innerHTML =
@@ -12311,7 +12347,7 @@ function e5Render() {
       '<div style="margin-top:6px;font-size:12.5px;color:var(--text-muted);">Regras: 6x1 → pelo menos 1 folga por semana; 5x2 (a partir de ' + (e.cfg.inicio_5x2 ? e5Ddmm(e.cfg.inicio_5x2) : '—') + ') → 2 folgas; feriado com loja fechada não conta; no máximo 6 dias seguidos.' +
       (E5_HOR[e.setor] ? ' Horários: ' + E5_HOR[e.setor] + '.' : '') + '</div>' +
     '</div>' +
-    (e.grupos.length ? '<div class="tabela-wrap"><table class="e5-tab"><thead><tr><th class="e5-nome" style="cursor:default">Vaga · nome</th>' + cab + '</tr></thead><tbody>' + linhasGrupos + totais + '</tbody></table></div>'
+    (e.grupos.length ? '<div class="tabela-wrap"><table class="e5-tab"><thead><tr><th class="e5-nome" style="cursor:default">Vaga · nome</th>' + cab + '</tr>' + totais + '</thead><tbody>' + linhasGrupos + totais + '</tbody></table></div>'
       : '<div class="pq-card">Este setor ainda não tem grupos. Use "+ Novo grupo".</div>') +
     '<p style="font-size:12.5px;color:var(--text-muted);margin-top:8px;">X = folga · F = folga de feriado (roxo) · FER = feriado com loja fechada (cinza) · FA = falta · AT = atestado · FÉR = férias/licença/INSS. Faltas e atestados se lançam em Colaboradores → Faltas e Atestados.' +
     (ferMes.length ? ' Feriados/picos do mês: ' + ferMes.map((f) => e5Ddmm(f.data) + ' (' + (f.tipo === 'fechada' ? 'loja fechada' : f.tipo === 'aberta' ? 'loja aberta' : 'pico') + ')').join(', ') + '.' : '') + '</p>';
@@ -12319,14 +12355,76 @@ function e5Render() {
 async function e5Atualizar() {
   try { await e5Carregar(); e5Render(); } catch (err) { mostrarToast('Não consegui carregar: ' + err.message, 'erro'); }
 }
-function e5TrocarSetor(s) { estado.e5.setor = s; e5Atualizar(); }
+function e5TrocarSetor(s) {
+  if (s === '__loja') { estado.e5.verLoja = true; e5AbrirLoja(); return; }
+  estado.e5.verLoja = false; estado.e5.setor = s; e5Atualizar();
+}
 function e5Mes(delta) {
   const e = estado.e5;
   let m = e.mes + delta, a = e.ano;
   if (m < 1) { m = 12; a--; } if (m > 12) { m = 1; a++; }
   e.mes = m; e.ano = a;
+  if (e.verLoja) { e5AbrirLoja(); return; }
   e5CarregarRegistros().then(e5Render).catch((err) => mostrarToast('Não consegui carregar: ' + err.message, 'erro'));
 }
+
+// ---------- disponíveis por dia, loja toda (todos os setores) ----------
+async function e5AbrirLoja() {
+  const e = estado.e5;
+  try {
+    const dias = e5DiasMes(e.ano, e.mes);
+    const [g, v] = await Promise.all([sb.from('escala_grupos').select('id,setor'), sb.from('escala_vagas').select('grupo_id,turno,colaborador_loja_id')]);
+    if (g.error) throw g.error;
+    if (v.error) throw v.error;
+    const setorDo = {};
+    (g.data || []).forEach((x) => { setorDo[x.id] = x.setor; });
+    const vagas = (v.data || []).filter((x) => x.colaborador_loja_id);
+    const ids = vagas.map((x) => x.colaborador_loja_id);
+    const regs = {};
+    for (let i = 0; i < ids.length; i += 150) {
+      const r = await sb.from('escala_folgas').select('colaborador_loja_id,data').in('colaborador_loja_id', ids.slice(i, i + 150)).gte('data', dias[0]).lte('data', dias[dias.length - 1]);
+      if (r.error) throw r.error;
+      (r.data || []).forEach((x) => { regs[x.colaborador_loja_id + '|' + x.data] = true; });
+    }
+    e.lojaDisp = { dias, vagas, setorDo, regs };
+    e5RenderLoja();
+  } catch (err) { mostrarToast('Não consegui carregar: ' + err.message, 'erro'); }
+}
+function e5RenderLoja() {
+  const e = estado.e5, L = e.lojaDisp;
+  const el = document.getElementById('conteudo-principal');
+  const fechado = new Set((e.feriados || []).filter((f) => f.tipo === 'fechada').map((f) => f.data));
+  const cab = L.dias.map((d) => { const w = e5Dow(d), fer = fechado.has(d); return '<th class="e5-dia" style="background:' + (fer ? '#BFBFBF' : w === 0 ? '#FFD54F' : '#FFFF99') + '">' + Number(d.slice(8)) + '<br><span>' + (fer ? 'FER' : E5_LETRA[w]) + '</span></th>'; }).join('');
+  const conta = (filtro) => L.dias.map((d) => fechado.has(d) ? null : L.vagas.filter((v) => filtro(v) && !L.regs[v.colaborador_loja_id + '|' + d]).length);
+  const linha = (rot, nums, forte) => '<tr><td class="e5-nome" style="cursor:default;text-align:left;' + (forte ? 'background:#E2EFDA;font-weight:800' : '') + '">' + rot + '</td>' +
+    nums.map((n) => '<td class="e5-tot" style="' + (forte ? '' : 'background:#fff;font-weight:600') + '">' + (n == null ? '' : n) + '</td>').join('') + '</tr>';
+  const nomeT = { M: 'manhã', T: 'tarde', U: 'sem turno' };
+  let corpo = '';
+  ['M', 'T', 'U'].forEach((t) => {
+    if (!L.vagas.some((v) => v.turno === t)) return;
+    corpo += linha('Loja toda · ' + nomeT[t], conta((v) => v.turno === t), true);
+  });
+  corpo += linha('Loja toda · total', conta(() => true), true);
+  e.configs.forEach((c) => {
+    const doSetor = (v) => L.setorDo[v.grupo_id] === c.setor;
+    if (!L.vagas.some(doSetor)) return;
+    corpo += '<tr><td colspan="' + (L.dias.length + 1) + '" class="e5-grupo" style="background:#4A5568">' + rupEsc(c.nome || c.setor) + '</td></tr>';
+    ['M', 'T', 'U'].forEach((t) => {
+      const n = L.vagas.filter((v) => doSetor(v) && v.turno === t).length;
+      if (!n) return;
+      corpo += linha(nomeT[t].charAt(0).toUpperCase() + nomeT[t].slice(1) + ' (' + n + ' pessoas)', conta((v) => doSetor(v) && v.turno === t), false);
+    });
+  });
+  const setores = e.configs.map((c) => '<button class="chip" onclick="e5TrocarSetor(\'' + c.setor + '\')">' + rupEsc(c.nome || c.setor) + '</button>').join('') +
+    '<button class="chip ativo">📊 Disponíveis por dia (loja toda)</button>';
+  el.innerHTML = '<style>.e5-tab{border-collapse:collapse;font-size:11px}.e5-tab td,.e5-tab th{border:1px solid #c9ced6;padding:0;text-align:center}.e5-dia{width:28px;font-size:11px;font-weight:800;line-height:1.15;padding:2px 0!important}.e5-dia span{color:#C00000;font-size:9px}.e5-nome{min-width:210px;text-align:left!important;padding:3px 6px!important;font-size:11.5px}.e5-grupo{color:#fff;text-align:left!important;padding:6px 8px!important;font-size:12px;font-weight:700}.e5-tot{background:#E2EFDA;font-weight:800;font-size:11px;height:24px}</style>' +
+    cabecalho('Escala 5x2', 'Quantas pessoas estão disponíveis em cada dia, de manhã e à tarde (já descontando folga, folga de feriado, falta, atestado e férias)') +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' + setores + '</div>' +
+    '<div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center;"><button class="chip" onclick="e5Mes(-1)">‹</button><b style="min-width:150px;text-align:center;">' + E5_MESES[e.mes - 1] + ' de ' + e.ano + '</b><button class="chip" onclick="e5Mes(1)">›</button></div>' +
+    '<div class="tabela-wrap" style="margin-top:12px;"><table class="e5-tab"><thead><tr><th class="e5-nome">Turno</th>' + cab + '</tr></thead><tbody>' + corpo + '</tbody></table></div>' +
+    '<p style="font-size:12.5px;color:var(--text-muted);margin-top:8px;">Entre parênteses, quantas pessoas o setor tem naquele turno. Setores sem turno definido (ex.: repositores, frios) aparecem como "sem turno".</p>';
+}
+
 
 // ---------- pôr / tirar folga à mão ----------
 async function e5AlternarFolga(colabId, data) {
@@ -12597,13 +12695,16 @@ function e5Imprimir() {
           dias.map((d) => { const fer = fechado.has(d); const t = r[d] ? r[d].tipo : null; return '<td style="background:' + (fer ? '#D9D9D9' : t === 'folga' ? g.cor_forte : t === 'folga_feriado' ? '#ECE7FB' : t ? '#F4CCCC' : g.cor) + ';font-weight:700">' + (fer ? 'FER' : t ? E5_SIGLA[t] : '') + '</td>'; }).join('') + '</tr>';
       }).join('');
   }).join('');
+  const temTurnoImp = e.vagas.some((v) => v.colaborador_loja_id && v.turno === 'M') && e.vagas.some((v) => v.colaborador_loja_id && v.turno === 'T');
+  const dispImp = (temTurnoImp ? [['M', 'DISPONÍVEIS MANHÃ'], ['T', 'DISPONÍVEIS TARDE']] : [[null, 'DISPONÍVEIS NO DIA']]).map(([t, rot]) => '<tr><td colspan="3" style="background:#E2EFDA;text-align:left;font-weight:700">' + rot + '</td>' +
+    dias.map((d) => '<td style="background:#E2EFDA;font-weight:700">' + (fechado.has(d) ? '' : e.vagas.filter((v) => v.colaborador_loja_id && (!t || v.turno === t) && !(reg[String(v.colaborador_loja_id)] || {})[d]).length) + '</td>').join('') + '</tr>').join('');
   const w = window.open('', '_blank');
   if (!w) { mostrarToast('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.', 'erro'); return; }
   w.document.write('<html><head><meta charset="utf-8"><title>Escala ' + rupEsc(e.cfg.nome || e.setor) + '</title><style>@page{size:A4 landscape;margin:8mm}body{font-family:Arial,sans-serif;margin:0}h1{font-size:14px;margin:0 0 4px}p{font-size:9.5px;margin:0 0 6px;color:#444}' +
     'table{border-collapse:collapse;width:100%;font-size:7.5px}td,th{border:1px solid #999;padding:1px;text-align:center}.ass{margin-top:16px;font-size:10px}.rod{font-size:8px;color:#888;text-align:right;margin-top:6px}</style></head><body>' +
     '<h1>SUPERMERCADOS BH · LOJA 327 · ESCALA ' + rupEsc((e.cfg.nome || e.setor).toUpperCase()) + ' · ' + E5_MESES[e.mes - 1].toUpperCase() + ' ' + e.ano + '</h1>' +
     '<p>X = folga · F = folga de feriado · FER = feriado, loja fechada · FA = falta · AT = atestado · FÉR = férias · cada cor é um grupo e o grupo folga junto.' + (E5_HOR[e.setor] ? ' ' + E5_HOR[e.setor] + '.' : '') + '</p>' +
-    '<table><tr><th>VAGA</th><th>T</th><th style="width:160px">NOME</th>' + cab + '</tr>' + corpo + '</table>' +
+    '<table><tr><th>VAGA</th><th>T</th><th style="width:160px">NOME</th>' + cab + '</tr>' + dispImp + corpo + dispImp + '</table>' +
     '<div class="ass">Gerente: _______________________________</div><div class="rod">ULVA · by Lucas Alberto</div></body></html>');
   w.document.close();
   w.focus();
@@ -12911,14 +13012,14 @@ function eoGrade(loja) {
   }).join('');
   const semGrupo = pessoas.filter((p) => !gs.some((g) => g.letra === p.grupo));
   const trab = (t) => dias.map((d) => fechado.has(d) ? '<td class="e5-tot"></td>' : '<td class="e5-tot">' + pessoas.filter((p) => (!t || p.turno === t) && !marcas[p.mat][d]).length + '</td>').join('');
-  const totais = (temTurno ? [['M', 'Trabalhando manhã'], ['T', 'Trabalhando tarde']] : [[null, 'Trabalhando']]).map(([t, r]) => '<tr><td class="e5-nome e5-tot" style="text-align:left;cursor:default">' + r + '</td>' + trab(t) + '</tr>').join('');
+  const totais = (temTurno ? [['M', 'Disponíveis manhã'], ['T', 'Disponíveis tarde']] : [[null, 'Disponíveis no dia']]).map(([t, r]) => '<tr><td class="e5-nome e5-tot" style="text-align:left;cursor:default">' + r + '</td>' + trab(t) + '</tr>').join('');
   return '<style>.e5-tab{border-collapse:collapse;font-size:11px}.e5-tab td,.e5-tab th{border:1px solid #c9ced6;padding:0;text-align:center}.e5-dia{width:28px;font-size:11px;font-weight:800;line-height:1.15;padding:2px 0!important}.e5-dia span{color:#C00000;font-size:9px}.e5-cel{width:28px;height:26px;font-size:10px}.e5-cel.clic{cursor:pointer}.e5-cel.clic:hover{outline:2px solid #2F7BFF;outline-offset:-2px}.e5-nome{min-width:230px;max-width:260px;text-align:left!important;padding:3px 6px!important;cursor:pointer;font-size:11.5px}.e5-sub{font-size:10px;color:#5b6878}.e5-grupo{color:#fff;text-align:left!important;padding:6px 8px!important;font-size:12px}.e5-quadro{float:right;font-weight:800}.e5-mini{margin-left:8px;font-size:11px;border:1px solid rgba(255,255,255,.6);background:transparent;color:#fff;border-radius:6px;padding:1px 8px;cursor:pointer}.e5-tot{background:#E2EFDA;font-weight:800;font-size:11px;height:24px}</style>' +
     '<div class="pq-card" style="margin:12px 0;' + (problemas.length ? 'border-color:#E9C88F;background:#FFF7EA;' : 'border-color:#B9DFC9;background:#E8F4EE;') + '"><b>' + (problemas.length ? 'Conferência com pontos para revisar' : 'Conferência OK') + '</b>' +
       (problemas.length ? '<ul style="margin:6px 0 0;">' + problemas.map((x) => '<li>' + x + '</li>').join('') + '</ul>' : '') +
       '<div style="margin-top:6px;font-size:12.5px;color:var(--text-muted);">Clique no dia: X (folga) → F (folga de feriado) → sem folga. Clique no nome para mudar setor, turno ou grupo. Os turnos vieram por padrão: confira. Lembre de clicar em <b>Salvar</b>.' +
       (fora.length ? ' Fora da escala neste setor: ' + fora.map((p) => '<a href="#" onclick="eoEditarPessoa(\'' + p.mat + '\');return false;">' + rupEsc(e5Curto(p.nome)) + '</a>').join(', ') + '.' : '') + '</div></div>' +
     (semGrupo.length ? '<div class="pq-card" style="margin-bottom:12px;">Sem grupo: ' + semGrupo.map((p) => '<a href="#" onclick="eoEditarPessoa(\'' + p.mat + '\');return false;">' + rupEsc(e5Curto(p.nome)) + '</a>').join(', ') + '</div>' : '') +
-    '<div class="tabela-wrap"><table class="e5-tab"><thead><tr><th class="e5-nome" style="cursor:default">Nome</th>' + cab + '</tr></thead><tbody>' + linhas + totais + '</tbody></table></div>';
+    '<div class="tabela-wrap"><table class="e5-tab"><thead><tr><th class="e5-nome" style="cursor:default">Nome</th>' + cab + '</tr>' + totais + '</thead><tbody>' + linhas + totais + '</tbody></table></div>';
 }
 function eoTrocarLoja(l) { estado.eo.lojaAtual = l; estado.eo.resumoImport = ''; eoRender(); }
 function eoTrocarSetor(s) { estado.eo.setor = s; eoRender(); }
