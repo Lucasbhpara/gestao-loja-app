@@ -41,6 +41,7 @@ export interface GrupoEscala {
   fase: 0 | 1;
   dia1: number; // 1 = segunda … 6 = sábado
   dia2: number;
+  dia3: number | null; // folga da semana em que o grupo folga no domingo (sem valor, vale o dia2)
   folgaTodoDomingo: boolean; // ex.: faxina da manhã, que nunca trabalha no domingo
   idealTarde: number;
   idealManha: number;
@@ -152,6 +153,7 @@ export async function carregarModulo(setor = SETOR_CAIXA): Promise<ModuloEscala>
     fase: g.fase,
     dia1: g.dia_1,
     dia2: g.dia_2,
+    dia3: g.dia_3 ?? null,
     folgaTodoDomingo: !!g.folga_todo_domingo,
     idealTarde: g.ideal_tarde,
     idealManha: g.ideal_manha,
@@ -222,6 +224,12 @@ export function segundaDaSemana(s: string): string {
 }
 
 // Antes de inicio_5x2 a escala é 6x1; sem inicio_5x2, é sempre 5x2.
+// Texto da regra do grupo com os 3 dias fixos.
+export function regraDoGrupo(g: GrupoEscala): string {
+  if (g.folgaTodoDomingo) return `folga todo domingo + ${NOMES_DIA[g.dia2]}`;
+  return `${NOMES_DIA[g.dia1]} + ${NOMES_DIA[g.dia2]} (semana que trabalha dom.) | ${NOMES_DIA[g.dia3 || g.dia2]} + Dom (semana que folga dom.)`;
+}
+
 export function semanaEm5x2(cfg: ConfigEscala, segunda: string): boolean {
   return !cfg.inicio5x2 || segunda >= segundaDaSemana(cfg.inicio5x2);
 }
@@ -236,8 +244,9 @@ export function folgasBaseDaSemana(g: GrupoEscala, cfg: ConfigEscala, segunda: s
   const x = semanaEm5x2(cfg, segunda);
   if (g.folgaTodoDomingo) return x ? [dia(g.dia2), dom] : [dom];
   const fd = grupoFolgaDomingo(g, cfg, dom);
-  if (x) return fd ? [dia(g.dia2), dom] : [dia(g.dia1), dia(g.dia2)];
-  return fd ? [dia(g.dia2), dom] : [dia(g.dia2)];
+  const d3 = g.dia3 || g.dia2;
+  if (x) return fd ? [dia(d3), dom] : [dia(g.dia1), dia(g.dia2)];
+  return fd ? [dia(d3), dom] : [dia(g.dia2)];
 }
 
 function maiorSequencia(ultimo: string, descansos: string[], proximo: string): number {
