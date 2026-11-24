@@ -1684,6 +1684,8 @@ async function excluirColaboradorLoja(id, deVez) {
       ? await sb.from('colaboradores_loja').delete().eq('id', id)
       : await sb.from('colaboradores_loja').update({ ativo: false }).eq('id', id);
     if (r.error) throw r.error;
+    // libera a vaga dela na Escala 5x2 (o grupo passa a mostrar -1)
+    try { await sb.from('escala_vagas').update({ colaborador_loja_id: null, desde: null }).eq('colaborador_loja_id', String(id)); } catch (e) { /* sem escala 5x2 */ }
     if (!deVez) {
       // tira as folgas futuras da escala (o histórico de faltas fica)
       const hoje = new Date().toISOString().slice(0, 10);
