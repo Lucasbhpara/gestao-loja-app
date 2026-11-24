@@ -12028,6 +12028,7 @@ const E5_SIGLA = { folga: 'X', folga_feriado: 'F', ferias_licenca_inss: 'FÉR', 
 const E5_FUNCOES = { colaborador: 'Colaborador', operadora: 'Operadora', encarregada: 'Encarregada', embaladora: 'Embaladora' };
 const E5_HOR = {
   'frente-caixa': 'Manhã 07:20–17:20 · Tarde 11:30–21:30 · Domingo: manhã 07:20–13:35, tarde 08:30–14:45',
+  'encarregadas-caixa': 'Manhã 07:20–17:20 · Tarde 11:30–21:30 · Domingo: manhã 07:20–13:35, tarde 08:30–14:45',
 };
 
 function e5Iso(d) { return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'); }
@@ -12316,10 +12317,13 @@ function e5Render() {
     return cabG + diasG + linhas;
   }).join('');
   // quantas pessoas estão disponíveis (sem folga, falta, atestado ou férias) em cada dia, por turno
+  // no caixa conta só as operadoras (embaladora fica de fora); a conta é refeita a cada mudança na tela
+  const entraNaConta = (v) => e.setor !== 'frente-caixa' || v.funcao === 'operadora';
   const trab = (t) => dias.map((d) => fechado.has(d) ? '<td class="e5-tot"></td>' :
-    '<td class="e5-tot">' + e.vagas.filter((v) => v.colaborador_loja_id && (!t || v.turno === t) && !(reg[String(v.colaborador_loja_id)] || {})[d]).length + '</td>').join('');
+    '<td class="e5-tot">' + e.vagas.filter((v) => v.colaborador_loja_id && entraNaConta(v) && (!t || v.turno === t) && !(reg[String(v.colaborador_loja_id)] || {})[d]).length + '</td>').join('');
   const temU = e.vagas.some((v) => v.colaborador_loja_id && v.turno === 'U');
-  const linhasDisp = temTurno ? [['M', 'Disponíveis manhã'], ['T', 'Disponíveis tarde']].concat(temU ? [['U', 'Disponíveis sem turno']] : []) : [[null, 'Disponíveis no dia']];
+  const quem = e.setor === 'frente-caixa' ? 'Operadoras' : 'Disponíveis';
+  const linhasDisp = temTurno ? [['M', quem + ' manhã'], ['T', quem + ' tarde']].concat(temU ? [['U', quem + ' sem turno']] : []) : [[null, quem + ' no dia']];
   const totais = linhasDisp.map(([t, rot]) => '<tr><td class="e5-nome e5-tot" style="text-align:left;cursor:default">' + rot + '</td>' + trab(t) + '</tr>').join('');
   const setores = e.configs.map((c) => '<button class="chip' + (c.setor === e.setor ? ' ativo' : '') + '" onclick="e5TrocarSetor(\'' + c.setor + '\')">' + rupEsc(c.nome || c.setor) + '</button>').join('') +
     '<button class="chip" onclick="e5TrocarSetor(\'__loja\')">📊 Disponíveis por dia (loja toda)</button>';
@@ -12745,8 +12749,8 @@ function e5Imprimir() {
       }).join('');
   }).join('');
   const temTurnoImp = e.vagas.some((v) => v.colaborador_loja_id && v.turno === 'M') && e.vagas.some((v) => v.colaborador_loja_id && v.turno === 'T');
-  const dispImp = (temTurnoImp ? [['M', 'DISPONÍVEIS MANHÃ'], ['T', 'DISPONÍVEIS TARDE']] : [[null, 'DISPONÍVEIS NO DIA']]).map(([t, rot]) => '<tr><td colspan="3" style="background:#E2EFDA;text-align:left;font-weight:700">' + rot + '</td>' +
-    dias.map((d) => '<td style="background:#E2EFDA;font-weight:700">' + (fechado.has(d) ? '' : e.vagas.filter((v) => v.colaborador_loja_id && (!t || v.turno === t) && !(reg[String(v.colaborador_loja_id)] || {})[d]).length) + '</td>').join('') + '</tr>').join('');
+  const dispImp = (temTurnoImp ? [['M', (e.setor === 'frente-caixa' ? 'OPERADORAS' : 'DISPONÍVEIS') + ' MANHÃ'], ['T', (e.setor === 'frente-caixa' ? 'OPERADORAS' : 'DISPONÍVEIS') + ' TARDE']] : [[null, 'DISPONÍVEIS NO DIA']]).map(([t, rot]) => '<tr><td colspan="3" style="background:#E2EFDA;text-align:left;font-weight:700">' + rot + '</td>' +
+    dias.map((d) => '<td style="background:#E2EFDA;font-weight:700">' + (fechado.has(d) ? '' : e.vagas.filter((v) => v.colaborador_loja_id && (e.setor !== 'frente-caixa' || v.funcao === 'operadora') && (!t || v.turno === t) && !(reg[String(v.colaborador_loja_id)] || {})[d]).length) + '</td>').join('') + '</tr>').join('');
   const w = window.open('', '_blank');
   if (!w) { mostrarToast('O navegador bloqueou a janela de impressão. Libere pop-ups para este site.', 'erro'); return; }
   w.document.write('<html><head><meta charset="utf-8"><title>Escala ' + rupEsc(e.cfg.nome || e.setor) + '</title><style>@page{size:A4 landscape;margin:8mm}body{font-family:Arial,sans-serif;margin:0}h1{font-size:14px;margin:0 0 4px}p{font-size:9.5px;margin:0 0 6px;color:#444}' +

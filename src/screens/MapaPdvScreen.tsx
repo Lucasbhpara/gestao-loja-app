@@ -28,7 +28,7 @@ import {
   DistribuicaoPdv,
   Turno,
   HORARIOS,
-  carregarModulo,
+  carregarModuloCaixaComEncarregadas,
   buscarRegistros,
   carregarPdvs,
   chamadoAbertoNoDia,
@@ -113,7 +113,7 @@ export default function MapaPdvScreen({ onVoltar }: { onVoltar: () => void }) {
   const [dadosImagem, setDadosImagem] = useState<DadosImagemPdv | null>(null);
 
   const carregarBase = useCallback(async () => {
-    const [m, cols, p] = await Promise.all([carregarModulo(), buscarColaboradoresLoja(), carregarPdvs()]);
+    const [m, cols, p] = await Promise.all([carregarModuloCaixaComEncarregadas(), buscarColaboradoresLoja(), carregarPdvs()]);
     setMod(m);
     setNomes(new Map(cols.map((c) => [String(c.id), c.nome])));
     setPdvs(p.pdvs);

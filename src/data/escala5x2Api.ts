@@ -82,6 +82,8 @@ export interface RegistroDia {
 }
 
 export const SETOR_CAIXA = 'frente-caixa';
+// As encarregadas (frentes de caixa) têm escala própria, fora da escala das operadoras.
+export const SETOR_ENCARREGADAS = 'encarregadas-caixa';
 export const NOMES_DIA = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
 export const LETRA_DIA = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 export const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
@@ -189,6 +191,13 @@ export async function carregarModulo(setor = SETOR_CAIXA): Promise<ModuloEscala>
 
 // Todos os registros de escala_folgas (folga, feriado, férias, falta,
 // atestado) de uma lista de colaboradores entre duas datas.
+// Módulo do caixa com as encarregadas juntas (o Mapa dos PDVs mostra a encarregada de cada turno).
+export async function carregarModuloCaixaComEncarregadas(): Promise<ModuloEscala> {
+  const [m, enc] = await Promise.all([carregarModulo(SETOR_CAIXA), carregarModulo(SETOR_ENCARREGADAS).catch(() => null)]);
+  if (!enc) return m;
+  return { ...m, grupos: [...m.grupos, ...enc.grupos], vagas: [...m.vagas, ...enc.vagas] };
+}
+
 export async function buscarRegistros(ids: string[], inicio: string, fim: string): Promise<RegistroDia[]> {
   if (!ids.length) return [];
   const { data, error } = await supabase
