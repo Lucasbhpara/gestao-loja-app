@@ -12069,9 +12069,10 @@ function e5MaiorSeq(ultimo, descansos, proximo) {
   for (let d = e5Soma(ultimo, 1); d < proximo; d = e5Soma(d, 1)) { if (set.has(d)) seq = 0; else { seq++; if (seq > maior) maior = seq; } }
   return maior;
 }
-// Folgas de todos os grupos do setor numa semana. Folga em feriado com a loja fechada ou
-// em dia de pico vai para o dia da semana com menos gente de folga (pico pesa 30% a mais),
-// sem ninguém passar de 6 dias seguidos. pesos = { grupoId: pessoas }.
+// Folgas de todos os grupos do setor numa semana. Folga em feriado com a loja fechada,
+// em dia de pico ou encostada em outra folga (X seguido de X — a folga de feriado não
+// conta) vai para o dia da semana com menos gente de folga (pico pesa 30% a mais), sem
+// folga encostada em folga e sem ninguém passar de 6 dias seguidos. pesos = { grupoId: pessoas }.
 function e5SemanaSetor(grupos, cfg, seg, feriados, pesos, prof) {
   pesos = pesos || {}; prof = prof || 0;
   const fechado = new Set(feriados.filter((f) => f.tipo === 'fechada').map((f) => f.data));
@@ -12079,32 +12080,64 @@ function e5SemanaSetor(grupos, cfg, seg, feriados, pesos, prof) {
   const peso = (g) => pesos[g.id] || 1;
   const out = new Map();
   const deslocar = [];
+  const fim = e5Soma(seg, 6);
+  const antes = prof < 4 ? e5SemanaSetor(grupos, cfg, e5Soma(seg, -7), feriados, pesos, prof + 1) : null;
+  const ultimoX = (g) => (antes ? antes.get(g.id) : e5BaseSemana(g, cfg, e5Soma(seg, -7)).filter((x) => !fechado.has(x))).slice().sort().pop() || null;
   grupos.forEach((g) => {
-    const base = e5BaseSemana(g, cfg, seg);
-    out.set(g.id, base.filter((d) => !fechado.has(d) && !pico.has(d)));
-    base.filter((d) => fechado.has(d) || pico.has(d)).forEach((d) => deslocar.push({ g, d }));
+    const base = e5BaseSemana(g, cfg, seg).slice().sort();
+    const ruim = new Set(base.filter((d) => fechado.has(d) || pico.has(d)));
+    // X encostado em X: a semana anterior termina em folga, ou duas folgas seguidas na semana
+    const bons = base.filter((d) => !ruim.has(d));
+    const ult = ultimoX(g);
+    bons.forEach((d, i) => {
+      if (e5Dow(d) === 0) return; // o domingo 1x1 não sai do lugar
+      const colada = (ult && e5Soma(ult, 1) === d) || bons.some((x) => x !== d && Math.abs(e5Diff(x, d)) === 1 && (e5Dow(x) === 0 || x > d));
+      if (colada) ruim.add(d);
+    });
+    out.set(g.id, base.filter((d) => !ruim.has(d)));
+    [...ruim].forEach((d) => deslocar.push({ g, d }));
   });
   if (!deslocar.length) return out;
-  const fim = e5Soma(seg, 6);
   const dias = [1, 2, 3, 4, 5, 6].map((n) => e5Soma(seg, n - 1)).filter((d) => !fechado.has(d));
-  const antes = prof < 4 ? e5SemanaSetor(grupos, cfg, e5Soma(seg, -7), feriados, pesos, prof + 1) : null;
   const carga = {}; dias.forEach((d) => { carga[d] = 0; });
   grupos.forEach((g) => out.get(g.id).forEach((d) => { if (d in carga) carga[d] += peso(g); }));
   const fechSem = [...fechado].filter((d) => d >= seg && d <= fim);
-  deslocar.sort((a, b) => peso(b.g) - peso(a.g) || String(a.g.letra).localeCompare(String(b.g.letra)) || a.d.localeCompare(b.d));
-  deslocar.forEach(({ g, d }) => {
+  // por grupo, escolhe juntos os dias das folgas que precisam mudar (todas de uma vez,
+  // para duas folgas novas não ficarem encostadas uma na outra)
+  const porGrupo = new Map();
+  deslocar.forEach((x) => { if (!porGrupo.has(x.g)) porGrupo.set(x.g, []); porGrupo.get(x.g).push(x.d); });
+  const ordem = [...porGrupo.keys()].sort((a, b) => peso(b) - peso(a) || String(a.letra).localeCompare(String(b.letra)));
+  const combos = (lista, k) => {
+    if (k === 0) return [[]];
+    const r = [];
+    lista.forEach((x, i) => combos(lista.slice(i + 1), k - 1).forEach((c) => r.push([x, ...c])));
+    return r;
+  };
+  ordem.forEach((g) => {
     const tem = out.get(g.id);
+    const origem = porGrupo.get(g).sort();
     const ant = antes ? antes.get(g.id) : e5BaseSemana(g, cfg, e5Soma(seg, -7));
     const ultimo = [...ant, ...[...fechado].filter((x) => x < seg && x >= e5Soma(seg, -7))].sort().pop() || e5Soma(seg, -1);
-    const prox = [...e5BaseSemana(g, cfg, e5Soma(seg, 7)), ...[...fechado].filter((x) => x > fim && x <= e5Soma(seg, 13))].sort()[0] || e5Soma(seg, 13);
-    const jaPostas = tem.length - e5BaseSemana(g, cfg, seg).filter((x) => !fechado.has(x) && !pico.has(x)).length;
-    const faltam = deslocar.filter((x) => x.g === g).length - jaPostas;
-    const cand = dias.filter((c) => !tem.includes(c)).map((c) => {
-      const sq = e5MaiorSeq(ultimo, [...tem, c, ...fechSem], prox);
-      return { c, ok: sq <= 6 || (faltam > 1 && sq <= 12), nota: carga[c] * (pico.has(c) ? 1.3 : 1) + Math.abs(e5Diff(c, d)) * 0.01 };
-    }).sort((a, b) => (a.ok === b.ok ? 0 : a.ok ? -1 : 1) || a.nota - b.nota);
-    if (!cand.length) return;
-    tem.push(cand[0].c); tem.sort(); carga[cand[0].c] += peso(g);
+    const ult = ultimoX(g);
+    const proxBase = e5BaseSemana(g, cfg, e5Soma(seg, 7)).filter((x) => !fechado.has(x) && !pico.has(x)).sort();
+    const proxX = proxBase[0] || null;
+    // para os 6 dias seguidos, a folga de pico da semana seguinte conta (ela só muda de dia dentro daquela semana)
+    const prox = [...e5BaseSemana(g, cfg, e5Soma(seg, 7)).filter((x) => !fechado.has(x)), ...[...fechado].filter((x) => x > fim && x <= e5Soma(seg, 13))].sort()[0] || e5Soma(seg, 13);
+    const sabado = origem.some((d) => e5Dow(d) === 6);
+    const livres = dias.filter((c) => !tem.includes(c) && (e5Dow(c) !== 6 || sabado));
+    const k = Math.min(origem.length, livres.length);
+    let melhor = null;
+    combos(livres, k).forEach((combo) => {
+      const todos = [...tem, ...combo].sort();
+      const sq = e5MaiorSeq(ultimo, [...todos, ...fechSem], prox);
+      const encosta = todos.some((x, i) => i > 0 && e5Diff(x, todos[i - 1]) === 1) || (ult && todos.includes(e5Soma(ult, 1))) || (proxX && todos.includes(e5Soma(proxX, -1)));
+      const nivel = sq > 6 ? 2 : encosta ? 1 : 0;
+      const nota = combo.reduce((s, c, i) => s + carga[c] * (pico.has(c) ? 1.3 : 1) + Math.abs(e5Diff(c, origem[i] || origem[0])) * 0.01, 0);
+      if (!melhor || nivel < melhor.nivel || (nivel === melhor.nivel && nota < melhor.nota)) melhor = { combo, nivel, nota };
+    });
+    if (!melhor) return;
+    melhor.combo.forEach((c) => { tem.push(c); carga[c] += peso(g); });
+    tem.sort();
   });
   return out;
 }
