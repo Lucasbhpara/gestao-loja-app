@@ -17,6 +17,7 @@ import {
   FeriadoEscala,
   SugestaoVaga,
   HORARIOS,
+  NOME_TURNO,
   MESES,
   LETRA_DIA,
   carregarModulo,
@@ -175,6 +176,8 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
     );
   }, [mod, dias, reg, fechados]);
 
+  // turnos que aparecem nas linhas de totais (o intermediário só se alguém estiver nele)
+  const turnosUsados = (['M', 'I', 'T'] as Turno[]).filter((t) => t !== 'I' || (mod?.vagas ?? []).some((v) => v.colaboradorLojaId && v.turno === 'I'));
   const trabalhandoNoDia = (d: string, t: Turno) =>
     // só operadoras (embaladora fica fora da conta)
     (mod?.vagas ?? []).filter((v) => v.colaboradorLojaId && v.funcao === 'operadora' && v.turno === t && !reg.get(v.colaboradorLojaId)?.has(d) && !fechados.has(d)).length;
@@ -341,14 +344,14 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
                 return `<td style="background:${bg};font-weight:700">${s}</td>`;
               })
               .join('');
-            return `<tr><td style="background:${g.cor};font-weight:700">${v.codigo}</td><td style="background:${g.cor}">${v.turno}</td><td style="background:${g.cor};text-align:left;font-weight:700">${id ? nomeDe.get(id) ?? v.nomePlanilha ?? '' : '(vaga aberta)'}</td>${celulas}<td style="background:${g.cor}">${v.turno === 'M' ? HORARIOS.manha : HORARIOS.tarde}</td><td style="background:${g.cor}">${v.funcao === 'operadora' ? '' : v.funcao}</td></tr>`;
+            return `<tr><td style="background:${g.cor};font-weight:700">${v.codigo}</td><td style="background:${g.cor}">${v.turno}</td><td style="background:${g.cor};text-align:left;font-weight:700">${id ? nomeDe.get(id) ?? v.nomePlanilha ?? '' : '(vaga aberta)'}</td>${celulas}<td style="background:${g.cor}">${v.turno === 'M' ? HORARIOS.manha : v.turno === 'I' ? HORARIOS.intermediario : HORARIOS.tarde}</td><td style="background:${g.cor}">${v.funcao === 'operadora' ? '' : v.funcao}</td></tr>`;
           })
           .join('');
         return `<tr><td colspan="${dias.length + 5}" style="background:${corEscura(g.corForte)};color:#fff;text-align:left;font-weight:700">${titulo}</td></tr>${linhas}`;
       })
       .join('');
-    const totais = (['M', 'T'] as Turno[])
-      .map((t) => `<tr><td colspan="3" style="text-align:left;font-weight:700;background:#E2EFDA">OPERADORAS ${t === 'M' ? 'MANHÃ' : 'TARDE'}</td>${dias.map((d) => `<td style="background:#E2EFDA;font-weight:700">${trabalhandoNoDia(d, t)}</td>`).join('')}<td colspan="2" style="background:#E2EFDA"></td></tr>`)
+    const totais = turnosUsados
+      .map((t) => `<tr><td colspan="3" style="text-align:left;font-weight:700;background:#E2EFDA">OPERADORAS ${NOME_TURNO[t].toUpperCase()}</td>${dias.map((d) => `<td style="background:#E2EFDA;font-weight:700">${trabalhandoNoDia(d, t)}</td>`).join('')}<td colspan="2" style="background:#E2EFDA"></td></tr>`)
       .join('');
     const html = `<html><head><meta charset="utf-8"><style>
       body{font-family:Arial,Helvetica,sans-serif;margin:14px} h1{font-size:15px;margin:0 0 4px} p{font-size:10px;margin:0 0 8px;color:#444}
@@ -357,7 +360,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
     </style></head><body>
       <h1>SUPERMERCADOS BH · LOJA 327 · ESCALA FRENTE DE CAIXA · ${MESES[mes - 1].toUpperCase()} ${ano}</h1>
       <p>X = folga · FER = feriado, loja fechada · FA = falta · AT = atestado · FÉR = férias/licença/INSS · cada cor é um grupo e o grupo folga junto.
-      Seg–sáb: manhã ${HORARIOS.manha}, tarde ${HORARIOS.tarde} (1h20 de almoço). Domingo: manhã ${HORARIOS.domingoManha}, tarde ${HORARIOS.domingoTarde}.</p>
+      Seg–sáb: manhã ${HORARIOS.manha}, intermediário ${HORARIOS.intermediario}, tarde ${HORARIOS.tarde} (1h20 de almoço). Domingo: manhã ${HORARIOS.domingoManha}, tarde ${HORARIOS.domingoTarde}.</p>
       <table><tr><th>VAGA</th><th>T</th><th style="width:150px">NOME</th>${cab}<th>HORÁRIO</th><th>FUNÇÃO</th></tr>${blocos}${totais}</table>
       <div class="ass">Gerente: _______________________________</div>
     </body></html>`;
@@ -421,9 +424,9 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
     </View>
   );
   // quantas pessoas estão disponíveis em cada dia (sem folga, falta, atestado ou férias), de manhã e à tarde
-  const linhasDisponiveis = (['M', 'T'] as Turno[]).map((tu) => (
+  const linhasDisponiveis = turnosUsados.map((tu) => (
     <View key={tu} style={styles.linhaGrade}>
-      <Text style={[styles.celCab, { width: LARG_NOME, textAlign: 'left', backgroundColor: '#E2EFDA' }]}>Operadoras {tu === 'M' ? 'manhã' : 'tarde'}</Text>
+      <Text style={[styles.celCab, { width: LARG_NOME, textAlign: 'left', backgroundColor: '#E2EFDA' }]}>Operadoras {NOME_TURNO[tu].toLowerCase()}</Text>
       {dias.map((d) => (
         <View key={d} style={[styles.cel, { width: LARG_DIA, backgroundColor: '#E2EFDA' }]}>
           <Text style={[styles.celTexto, { fontWeight: '800' }]}>{fechados.has(d) ? '' : trabalhandoNoDia(d, tu)}</Text>
@@ -574,7 +577,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
 
         <View style={styles.card}>
           <Text style={styles.secao}>Horários</Text>
-          <Text style={styles.cardTexto}>Seg–sáb: manhã {HORARIOS.manha} · tarde {HORARIOS.tarde} (8h40 + 1h20 de almoço)</Text>
+          <Text style={styles.cardTexto}>Seg–sáb (8h40 + 1h20 de almoço): manhã {HORARIOS.manha} · intermediário {HORARIOS.intermediario} · tarde {HORARIOS.tarde}</Text>
           <Text style={styles.cardTexto}>Domingo: manhã {HORARIOS.domingoManha} · tarde {HORARIOS.domingoTarde} (6h + 15 min)</Text>
           <Text style={styles.nota}>A tarde entra 08:30 no domingo para ter 11h de descanso depois de sair 21:30 no sábado.</Text>
         </View>
@@ -592,9 +595,9 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
                 </Text>
                 <Text style={styles.secao}>Turno</Text>
                 <View style={styles.opcoes}>
-                  {(['M', 'T'] as Turno[]).map((t) => (
+                  {(['M', 'I', 'T'] as Turno[]).map((t) => (
                     <TouchableOpacity key={t} style={[styles.opcao, vTurno === t && styles.opcaoAtiva]} onPress={() => setVTurno(t)}>
-                      <Text style={[styles.opcaoTexto, vTurno === t && { color: colors.white }]}>{t === 'M' ? 'Manhã' : 'Tarde'}</Text>
+                      <Text style={[styles.opcaoTexto, vTurno === t && { color: colors.white }]}>{NOME_TURNO[t]}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>
@@ -653,9 +656,9 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
                 <Text style={styles.modalTitulo}>Colaborador novo</Text>
                 <Text style={styles.secao}>Turno</Text>
                 <View style={styles.opcoes}>
-                  {(['M', 'T'] as Turno[]).map((t) => (
+                  {(['M', 'I', 'T'] as Turno[]).map((t) => (
                     <TouchableOpacity key={t} style={[styles.opcao, nTurno === t && styles.opcaoAtiva]} onPress={() => setNTurno(t)}>
-                      <Text style={[styles.opcaoTexto, nTurno === t && { color: colors.white }]}>{t === 'M' ? 'Manhã' : 'Tarde'}</Text>
+                      <Text style={[styles.opcaoTexto, nTurno === t && { color: colors.white }]}>{NOME_TURNO[t]}</Text>
                     </TouchableOpacity>
                   ))}
                 </View>

@@ -12029,7 +12029,7 @@ const E5_MESES = ['Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho', 'J
 const E5_SIGLA = { folga: 'X', folga_feriado: 'F', ferias_licenca_inss: 'FÉR', falta: 'FA', atestado: 'AT' };
 const E5_FUNCOES = { colaborador: 'Colaborador', operadora: 'Operadora', encarregada: 'Encarregada', embaladora: 'Embaladora' };
 const E5_HOR = {
-  'frente-caixa': 'Manhã 07:20–17:20 · Tarde 11:30–21:30 · Domingo: manhã 07:20–13:35, tarde 08:30–14:45',
+  'frente-caixa': 'Manhã 07:00–17:00 (almoço 12:00) · Intermediário 10:00–20:00 (almoço 13:00) · Tarde 11:20–21:20 (almoço 14:30) · veja ⏰ Horários do dia',
   'encarregadas-caixa': 'Manhã 07:20–17:20 · Tarde 11:30–21:30 · Domingo: manhã 07:20–13:35, tarde 08:30–14:45',
 };
 
@@ -12273,7 +12273,7 @@ function e5Conferir() {
     const turnos = [...new Set(encs.map((v) => v.turno))];
     dias.forEach((d) => {
       if (fechado.has(d)) return;
-      turnos.forEach((t) => { if (!encs.some((v) => v.turno === t && !(reg[String(v.colaborador_loja_id)] || {})[d])) semEnc.push(e5Ddmm(d) + (t === 'U' ? '' : ' (' + (t === 'M' ? 'manhã' : 'tarde') + ')')); });
+      turnos.forEach((t) => { if (!encs.some((v) => v.turno === t && !(reg[String(v.colaborador_loja_id)] || {})[d])) semEnc.push(e5Ddmm(d) + (t === 'U' ? '' : ' (' + (t === 'M' ? 'manhã' : t === 'I' ? 'intermediário' : 'tarde') + ')')); });
     });
   }
   return { problemas, conflitos, semEnc };
@@ -12332,8 +12332,9 @@ function e5Render() {
   const trab = (t) => dias.map((d) => fechado.has(d) ? '<td class="e5-tot"></td>' :
     '<td class="e5-tot">' + e.vagas.filter((v) => v.colaborador_loja_id && entraNaConta(v) && (!t || v.turno === t) && !(reg[String(v.colaborador_loja_id)] || {})[d]).length + '</td>').join('');
   const temU = e.vagas.some((v) => v.colaborador_loja_id && v.turno === 'U');
+  const temI = e.vagas.some((v) => v.colaborador_loja_id && v.turno === 'I');
   const quem = e.setor === 'frente-caixa' ? 'Operadoras' : 'Disponíveis';
-  const linhasDisp = temTurno ? [['M', quem + ' manhã'], ['T', quem + ' tarde']].concat(temU ? [['U', quem + ' sem turno']] : []) : [[null, quem + ' no dia']];
+  const linhasDisp = temTurno ? [['M', quem + ' manhã']].concat(temI ? [['I', quem + ' intermediário']] : []).concat([['T', quem + ' tarde']]).concat(temU ? [['U', quem + ' sem turno']] : []) : [[null, quem + ' no dia']];
   const totais = linhasDisp.map(([t, rot]) => '<tr><td class="e5-nome e5-tot" style="text-align:left;cursor:default">' + rot + '</td>' + trab(t) + '</tr>').join('');
   const setores = e.configs.map((c) => '<button class="chip' + (c.setor === e.setor ? ' ativo' : '') + '" onclick="e5TrocarSetor(\'' + c.setor + '\')">' + rupEsc(c.nome || c.setor) + '</button>').join('') +
     '<button class="chip" onclick="e5TrocarSetor(\'__loja\')">📊 Disponíveis por dia (loja toda)</button>';
@@ -12353,6 +12354,8 @@ function e5Render() {
     '<div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center;">' +
       '<button class="chip" onclick="e5Mes(-1)">‹</button><b style="min-width:150px;text-align:center;">' + E5_MESES[e.mes - 1] + ' de ' + e.ano + (dias[dias.length - 1].slice(5, 7) !== String(e.mes).padStart(2, '0') ? '<span style="font-weight:500;font-size:12px;color:var(--text-muted)"> · até ' + e5Ddmm(dias[dias.length - 1]) + '</span>' : '') + '</b><button class="chip" onclick="e5Mes(1)">›</button>' +
       '<span style="flex:1"></span>' +
+      '<button class="btn-acao secundario" onclick="e5AbrirHorarios()">⏰ Horários do dia</button>' +
+      '<button class="btn-acao secundario" onclick="e5AbrirOpcoes()">🗂 Opções de escala</button>' +
       '<button class="btn-acao" onclick="e5Gerar()">' + (gerado ? 'Gerar de novo' : 'Gerar escala do mês') + '</button>' +
       '<button class="btn-acao secundario" onclick="e5Imprimir()">Imprimir</button>' +
       '<button class="btn-acao secundario" onclick="e5NovoColaborador()">+ Colaborador novo</button>' +
@@ -12418,9 +12421,9 @@ function e5RenderLoja() {
   const conta = (filtro) => L.dias.map((d) => fechado.has(d) ? null : L.vagas.filter((v) => filtro(v) && !L.regs[v.colaborador_loja_id + '|' + d]).length);
   const linha = (rot, nums, forte) => '<tr><td class="e5-nome" style="cursor:default;text-align:left;' + (forte ? 'background:#E2EFDA;font-weight:800' : '') + '">' + rot + '</td>' +
     nums.map((n) => '<td class="e5-tot" style="' + (forte ? '' : 'background:#fff;font-weight:600') + '">' + (n == null ? '' : n) + '</td>').join('') + '</tr>';
-  const nomeT = { M: 'manhã', T: 'tarde', U: 'sem turno' };
+  const nomeT = { M: 'manhã', I: 'intermediário', T: 'tarde', U: 'sem turno' };
   let corpo = '';
-  ['M', 'T', 'U'].forEach((t) => {
+  ['M', 'I', 'T', 'U'].forEach((t) => {
     if (!L.vagas.some((v) => v.turno === t)) return;
     corpo += linha('Loja toda · ' + nomeT[t], conta((v) => v.turno === t), true);
   });
@@ -12429,7 +12432,7 @@ function e5RenderLoja() {
     const doSetor = (v) => L.setorDo[v.grupo_id] === c.setor;
     if (!L.vagas.some(doSetor)) return;
     corpo += '<tr><td colspan="' + (L.dias.length + 1) + '" class="e5-grupo" style="background:#4A5568">' + rupEsc(c.nome || c.setor) + '</td></tr>';
-    ['M', 'T', 'U'].forEach((t) => {
+    ['M', 'I', 'T', 'U'].forEach((t) => {
       const n = L.vagas.filter((v) => doSetor(v) && v.turno === t).length;
       if (!n) return;
       corpo += linha(nomeT[t].charAt(0).toUpperCase() + nomeT[t].slice(1) + ' (' + n + ' pessoas)', conta((v) => doSetor(v) && v.turno === t), false);
@@ -12527,7 +12530,7 @@ function e5CamposVaga(v) {
   const turno = v ? v.turno : 'T', funcao = v ? v.funcao : 'colaborador';
   return '<label class="campo-label">Colaborador</label><select class="campo-input" id="e5-colab">' + e5OpcoesColaboradores(v ? v.colaborador_loja_id : null) + '</select>' +
     '<label class="campo-label">A partir de</label><input class="campo-input" type="date" id="e5-desde" value="' + e5Hoje() + '">' +
-    '<label class="campo-label">Turno</label><select class="campo-input" id="e5-turno">' + [['M', 'Manhã'], ['T', 'Tarde'], ['U', 'Sem turno definido']].map(([k, n]) => '<option value="' + k + '"' + (k === turno ? ' selected' : '') + '>' + n + '</option>').join('') + '</select>' +
+    '<label class="campo-label">Turno</label><select class="campo-input" id="e5-turno">' + [['M', 'Manhã'], ['I', 'Intermediário'], ['T', 'Tarde'], ['U', 'Sem turno definido']].map(([k, n]) => '<option value="' + k + '"' + (k === turno ? ' selected' : '') + '>' + n + '</option>').join('') + '</select>' +
     '<label class="campo-label">Função</label><select class="campo-input" id="e5-funcao">' + Object.entries(E5_FUNCOES).map(([k, n]) => '<option value="' + k + '"' + (k === funcao ? ' selected' : '') + '>' + n + '</option>').join('') + '</select>' +
     '<label class="campo-label">Seção (repositores; deixe vazio se não tiver)</label><input class="campo-input" type="number" min="0" id="e5-secao" value="' + (v && v.secao ? v.secao : '') + '">';
 }
@@ -13224,6 +13227,521 @@ function eoImprimir() {
   w.document.write('<html><head><meta charset="utf-8"><title>Escala loja ' + rupEsc(loja.loja) + '</title><style>@page{size:A4 landscape;margin:8mm}body{font-family:Arial,sans-serif;margin:0}.pg{page-break-after:always}.pg:last-child{page-break-after:auto}h1{font-size:14px;margin:0 0 4px}p{font-size:9.5px;margin:0 0 6px;color:#444}' +
     'table{border-collapse:collapse;width:100%;font-size:7.5px}td,th{border:1px solid #999;padding:1px;text-align:center}.ass{margin-top:16px;font-size:10px}.rod{font-size:8px;color:#888;text-align:right;margin-top:6px}</style></head><body>' + paginas + '</body></html>');
   w.document.close(); w.focus(); setTimeout(() => w.print(), 400);
+}
+
+// =============================================================================
+// Escala 5x2 · Horários do dia e Opções de escala (rascunho)
+// Tabelas: escala_horarios (turnos por setor), escala_horarios_cfg (mínimo),
+// escala_almoco_dia (almoço mudado à mão num dia), escala_turno_dia (troca de
+// turno num dia), escala_cenarios (opções de folgas por período, sem mexer na
+// escala até clicar em "Aplicar"). Ver supabase/escala_horarios.sql.
+// =============================================================================
+const E5_TURNO_NOME = { M: 'Manhã', I: 'Intermediário', T: 'Tarde', U: 'Sem turno' };
+const E5_TURNO_COR = { M: ['#2F7D5B', '#DCEFE4'], I: ['#3E6FA8', '#E3ECF5'], T: ['#7A5AA6', '#ECE5F5'], U: ['#8A6A2A', '#F5EBD6'] };
+function e5Min(t) { if (!t) return null; const [a, b] = String(t).split(':').map(Number); return a * 60 + b; }
+function e5Hm(x) { return String(Math.floor(x / 60)).padStart(2, '0') + ':' + String(x % 60).padStart(2, '0'); }
+function e5Dur(x) { return Math.floor(x / 60) + 'h' + (x % 60 ? String(x % 60).padStart(2, '0') : ''); }
+function e5ContaNoSetor(v) { return v.colaborador_loja_id && (estado.e5.setor !== 'frente-caixa' || v.funcao === 'operadora'); }
+
+// ---------- carga ----------
+async function e5CarregarHorariosBase() {
+  const e = estado.e5;
+  const [h, c, s] = await Promise.all([
+    sb.from('escala_horarios').select('*').eq('setor', e.setor),
+    sb.from('escala_horarios_cfg').select('*').eq('setor', e.setor).maybeSingle(),
+    sb.from('escala_cenarios').select('*').eq('setor', e.setor).order('criado_em'),
+  ]);
+  if (h.error) throw new Error('Rode supabase/escala_horarios.sql no Supabase. (' + h.error.message + ')');
+  e.horarios = h.data || [];
+  e.hcfg = c.data || { setor: e.setor, minimo_semana: 8, minimo_domingo: 8 };
+  e.cenarios = s.data || [];
+}
+async function e5AbrirHorarios(data, ver) {
+  const e = estado.e5;
+  try {
+    if (!e.vagas) await e5Carregar();
+    await e5CarregarHorariosBase();
+    const hoje = e5Hoje();
+    const dia = data || (e.hor && e.hor.data) || hoje;
+    e.hor = { data: dia, ver: ver != null ? ver : (e.hor && e.hor.ver) || 'atual' };
+    e.verLoja = false; e.verOpcoes = false; e.verHorarios = true;
+    const ids = e.vagas.map((v) => v.colaborador_loja_id).filter(Boolean);
+    const [f, t, a] = await Promise.all([
+      ids.length ? sb.from('escala_folgas').select('colaborador_loja_id,data,tipo').in('colaborador_loja_id', ids).eq('data', dia) : { data: [] },
+      sb.from('escala_turno_dia').select('*').eq('data', dia),
+      sb.from('escala_almoco_dia').select('*').eq('data', dia),
+    ]);
+    [f, t, a].forEach((r) => { if (r.error) throw r.error; });
+    e.hor.regs = {}; (f.data || []).forEach((r) => { e.hor.regs[r.colaborador_loja_id] = r.tipo; });
+    e.hor.turnoDia = {}; (t.data || []).forEach((r) => { e.hor.turnoDia[r.colaborador_loja_id] = r.turno; });
+    e.hor.almDia = {}; (a.data || []).forEach((r) => { e.hor.almDia[r.colaborador_loja_id] = e5Min(r.inicio); });
+    e5RenderHorarios();
+  } catch (err) { mostrarToast('Não consegui carregar os horários: ' + err.message, 'erro'); }
+}
+
+// ---------- quem trabalha no dia e em que horário ----------
+function e5CenarioDoDia() {
+  const e = estado.e5, h = e.hor;
+  if (!h || h.ver === 'atual') return null;
+  const c = (e.cenarios || []).find((x) => x.id === h.ver);
+  return c && h.data >= c.inicio && h.data <= c.fim ? c : null;
+}
+function e5HorarioTurno(turno, domingo) {
+  const hs = estado.e5.horarios || [];
+  const tipo = domingo ? 'domingo' : 'semana';
+  return hs.find((x) => x.dia_tipo === tipo && x.turno === turno) || null;
+}
+function e5JanelaAlmoco(p) {
+  const lo = Math.max(p.ent + 120, p.sai - p.alm - 360), hi = Math.min(p.ent + 360, p.sai - p.alm - 120);
+  return lo <= hi ? [Math.ceil(lo / 10) * 10, Math.floor(hi / 10) * 10] : null;
+}
+function e5Cobertura(ps, a, b) {
+  const out = [];
+  for (let s = a; s < b; s += 10) {
+    let n = 0;
+    ps.forEach((p) => { if (s >= p.ent && s < p.sai && !(p.almoco != null && s >= p.almoco && s < p.almoco + p.alm)) n++; });
+    out.push([s, n]);
+  }
+  return out;
+}
+function e5PessoasDoDia() {
+  const e = estado.e5, h = e.hor, d = h.data;
+  const domingo = e5Dow(d) === 0;
+  const fechado = (e.feriados || []).some((f) => f.tipo === 'fechada' && f.data === d);
+  const cen = e5CenarioDoDia();
+  const pessoas = [], semHorario = [], folgando = [];
+  if (fechado) return { pessoas, semHorario, folgando, fechado, domingo };
+  e.vagas.filter(e5ContaNoSetor).forEach((v) => {
+    const id = String(v.colaborador_loja_id);
+    const tipo = h.regs[id];
+    const folgaCen = cen ? (cen.folgas[id] || []).includes(d) : false;
+    const off = cen ? folgaCen || (tipo && tipo !== 'folga') : !!tipo;
+    const nome = e5Curto(e5Nome(id) || v.nome_planilha || '?');
+    if (off) { folgando.push({ nome, tipo: cen && folgaCen ? 'folga' : tipo }); return; }
+    const turno = h.turnoDia[id] || v.turno;
+    const hr = e5HorarioTurno(turno, domingo) || (turno === 'U' ? null : e5HorarioTurno('U', domingo));
+    if (!hr) { semHorario.push({ nome, turno }); return; }
+    pessoas.push({ id, v, nome, turno, trocouTurno: !!h.turnoDia[id], ent: e5Min(hr.entrada), sai: e5Min(hr.saida), alm: Number(hr.almoco_min) || 0,
+      almocoTurno: e5Min(hr.almoco_inicio), almocoDia: h.almDia[id] != null ? h.almDia[id] : null });
+  });
+  const ordem = { M: 0, I: 1, T: 2, U: 3 };
+  pessoas.sort((x, y) => ordem[x.turno] - ordem[y.turno] || x.ent - y.ent || x.nome.localeCompare(y.nome, 'pt-BR'));
+  // almoço: o do dia (mudado à mão) > o do turno > escalonado automático
+  pessoas.forEach((p) => { p.almoco = p.almocoDia != null ? p.almocoDia : p.almocoTurno; });
+  const auto = pessoas.filter((p) => p.almoco == null && p.alm > 0);
+  if (auto.length) {
+    const a = Math.min(...pessoas.map((p) => p.ent)), b = Math.max(...pessoas.map((p) => p.sai));
+    auto.sort((x, y) => { const jx = e5JanelaAlmoco(x), jy = e5JanelaAlmoco(y); return (jx ? jx[1] : 0) - (jy ? jy[1] : 0); });
+    auto.forEach((p) => {
+      const j = e5JanelaAlmoco(p); if (!j) return;
+      let best = null;
+      for (let s = j[0]; s <= j[1]; s += 10) {
+        p.almoco = s;
+        const cv = e5Cobertura(pessoas, a, b).filter(([t]) => t >= s && t < s + p.alm);
+        const mn = Math.min(...cv.map((x) => x[1])), soma = cv.reduce((q, x) => q + x[1], 0);
+        if (!best || mn > best.mn || (mn === best.mn && soma > best.soma)) best = { s, mn, soma };
+      }
+      p.almoco = best.s; p.auto = true;
+    });
+  }
+  return { pessoas, semHorario, folgando, fechado, domingo };
+}
+
+// ---------- tela ----------
+function e5RenderHorarios() {
+  const e = estado.e5, h = e.hor;
+  const el = document.getElementById('conteudo-principal');
+  const { pessoas, semHorario, folgando, fechado, domingo } = e5PessoasDoDia();
+  const minimo = domingo ? e.hcfg.minimo_domingo : e.hcfg.minimo_semana;
+  const cen = e5CenarioDoDia();
+  const opcoesVer = '<option value="atual"' + (h.ver === 'atual' ? ' selected' : '') + '>Escala atual</option>' +
+    (e.cenarios || []).filter((c) => !c.aplicado_em && h.data >= c.inicio && h.data <= c.fim).map((c) => '<option value="' + c.id + '"' + (h.ver === c.id ? ' selected' : '') + '>Opção: ' + rupEsc(c.nome) + '</option>').join('');
+  const setores = e.configs.map((c) => '<button class="chip' + (c.setor === e.setor ? ' ativo' : '') + '" onclick="e5HorariosSetor(\'' + c.setor + '\')">' + rupEsc(c.nome || c.setor) + '</button>').join('');
+  const semTurnos = !(e.horarios || []).length;
+  let corpo = '';
+  if (fechado) corpo = '<div class="pq-card">Loja fechada neste dia (feriado).</div>';
+  else if (semTurnos) corpo = '<div class="pq-card">Este setor ainda não tem horários cadastrados. Clique em <b>Editar horários dos turnos</b>.</div>';
+  else if (!pessoas.length) corpo = '<div class="pq-card">Ninguém trabalhando neste dia' + (domingo ? ' (confira se o horário de domingo está cadastrado)' : '') + '.</div>';
+  else {
+    const a = Math.floor(Math.min(...pessoas.map((p) => p.ent)) / 60) * 60, b = Math.ceil(Math.max(...pessoas.map((p) => p.sai)) / 60) * 60;
+    const cv = e5Cobertura(pessoas, a, b);
+    const abre = domingo ? e5Min('07:30') : e5Min('07:30'), fecha = domingo ? e5Min('14:00') : e5Min('20:30');
+    const aberta = cv.filter(([t]) => t >= abre && t < fecha);
+    const base = aberta.length ? aberta : cv;
+    const mn = Math.min(...base.map((x) => x[1])), mx = Math.max(...base.map((x) => x[1]));
+    const tMn = base.find((x) => x[1] === mn);
+    const abaixo = base.filter((x) => x[1] < minimo).length * 10;
+    const avisos = [];
+    pessoas.forEach((p) => {
+      if (p.almoco == null) return;
+      const antes = p.almoco - p.ent, depois = p.sai - p.almoco - p.alm;
+      if (antes > 360 || depois > 360) avisos.push(p.nome + ': ' + e5Dur(Math.max(antes, depois)) + ' seguidas de trabalho (máximo 6h).');
+    });
+    const tot = (pessoas.length + folgando.length);
+    const kpi = (rot, val, alerta) => '<div class="pq-card" style="margin:0;' + (alerta ? 'border-color:#E9C88F;background:#FFF7EA;' : '') + '"><div style="font-size:12px;color:var(--text-muted)">' + rot + '</div><div style="font-size:24px;font-weight:800;' + (alerta ? 'color:var(--red)' : '') + '">' + val + '</div></div>';
+    // gráfico
+    const W = 1100, H = 240, L = 30, R = 6, T = 10, B = 28, bw = (W - L - R) / cv.length, top = Math.max(minimo + 2, mx + 1);
+    const y = (v) => T + (H - T - B) * (1 - v / top);
+    let g = '<svg viewBox="0 0 ' + W + ' ' + H + '" width="100%" role="img" aria-label="Pessoas trabalhando a cada 10 minutos">';
+    cv.forEach(([t], i) => { if (t < abre || t >= fecha) g += '<rect x="' + (L + i * bw) + '" y="' + T + '" width="' + (bw + 0.5) + '" height="' + (H - T - B) + '" fill="#F1EEE6"/>'; });
+    for (let v = 0; v <= top; v += top > 16 ? 4 : 2) g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(v) + '" y2="' + y(v) + '" stroke="#ECE6D8"/><text x="' + (L - 5) + '" y="' + (y(v) + 4) + '" text-anchor="end" font-size="11" fill="#6B756F">' + v + '</text>';
+    cv.forEach(([t, v], i) => {
+      const fora = t < abre || t >= fecha;
+      g += '<rect x="' + (L + i * bw + 1) + '" y="' + y(v) + '" width="' + Math.max(bw - 2, 1) + '" height="' + (y(0) - y(v)) + '" rx="2" fill="' + (fora ? '#9DB8A9' : v < minimo ? '#C2672A' : '#2F7D5B') + '"><title>' + e5Hm(t) + ' · ' + v + '</title></rect>';
+      if (t % 60 === 0) g += '<text x="' + (L + i * bw) + '" y="' + (H - 8) + '" font-size="12" fill="#1F2A24">' + e5Hm(t) + '</text>';
+    });
+    g += '<line x1="' + L + '" x2="' + (W - R) + '" y1="' + y(minimo) + '" y2="' + y(minimo) + '" stroke="#B3261E" stroke-width="2" stroke-dasharray="6 5"/></svg>';
+    // escala de horários (linhas com barras)
+    const pct = (t) => ((t - a) / (b - a) * 100).toFixed(3) + '%';
+    const horas = []; for (let t = a; t <= b; t += 60) horas.push(t);
+    const reguas = horas.map((t) => '<div style="position:absolute;left:' + pct(t) + ';top:0;bottom:0;border-left:1px solid #ECE6D8"></div>').join('');
+    const linhas = pessoas.map((p) => {
+      const [cf, cb] = E5_TURNO_COR[p.turno] || E5_TURNO_COR.U;
+      const alm = p.almoco != null ? '<div style="position:absolute;left:' + pct(p.almoco) + ';width:calc(' + pct(p.almoco + p.alm) + ' - ' + pct(p.almoco) + ');top:0;height:100%;background:' + cb + ';border:1.5px solid ' + cf + ';font-size:10.5px;color:' + cf + ';text-align:center;line-height:18px;font-weight:700">' + e5Hm(p.almoco) + '</div>' : '';
+      return '<div style="display:flex;align-items:center;gap:8px;margin:3px 0">' +
+        '<div style="width:220px;font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis" title="' + rupEsc(p.nome) + '"><b>' + rupEsc(p.nome) + '</b> <span style="color:var(--text-muted);font-size:11px">' + E5_TURNO_NOME[p.turno] + (p.trocouTurno ? ' (só hoje)' : '') + '</span></div>' +
+        '<div style="width:92px;display:flex;gap:2px">' +
+          '<button class="e5-mini2" title="Almoço 10 min antes" onclick="e5MoverAlmoco(\'' + p.id + '\',-10)">◀</button>' +
+          '<button class="e5-mini2" title="Almoço 10 min depois" onclick="e5MoverAlmoco(\'' + p.id + '\',10)">▶</button>' +
+          (p.almocoDia != null ? '<button class="e5-mini2" title="Voltar ao almoço do turno" onclick="e5MoverAlmoco(\'' + p.id + '\',0)">↺</button>' : '') +
+          '<button class="e5-mini2" title="Trocar o turno só neste dia" onclick="e5TrocarTurnoDia(\'' + p.id + '\')">⇄</button>' +
+        '</div>' +
+        '<div style="flex:1;position:relative;height:20px">' + reguas +
+          '<div style="position:absolute;left:' + pct(p.ent) + ';width:calc(' + pct(p.sai) + ' - ' + pct(p.ent) + ');top:0;height:100%;background:' + cf + ';border-radius:5px;overflow:hidden">' +
+          '</div>' + alm + '</div></div>';
+    }).join('');
+    const regua = '<div style="display:flex;gap:8px"><div style="width:328px"></div><div style="flex:1;position:relative;height:18px">' + horas.map((t) => '<span style="position:absolute;left:' + pct(t) + ';transform:translateX(-50%);font-size:11px;color:var(--text-muted)">' + e5Hm(t) + '</span>').join('') + '</div></div>';
+    corpo =
+      '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;margin:12px 0">' +
+        kpi('Trabalhando no dia', pessoas.length + ' <span style="font-size:13px;color:var(--text-muted);font-weight:500">de ' + tot + '</span>') +
+        kpi('Menor número ao mesmo tempo', mn + ' <span style="font-size:13px;color:var(--text-muted);font-weight:500">às ' + e5Hm(tMn[0]) + '</span>', mn < minimo) +
+        kpi('Maior número ao mesmo tempo', mx) +
+        kpi('Tempo abaixo do mínimo (' + minimo + ')', abaixo ? e5Dur(abaixo) : 'nenhum', abaixo > 0) +
+      '</div>' +
+      (avisos.length ? '<div class="pq-card" style="border-color:#E9C88F;background:#FFF7EA">' + avisos.map(rupEsc).join('<br>') + '</div>' : '') +
+      '<div class="pq-card"><b>Pessoas trabalhando a cada 10 minutos</b>' + g +
+        '<div style="font-size:12px;color:var(--text-muted)">Verde: no mínimo ou acima · laranja: abaixo do mínimo · cinza: loja fechada (antes de abrir e fechamento) · linha vermelha: mínimo desejado. Passe o mouse na barra para ver o horário.</div></div>' +
+      '<div class="pq-card"><b>Horário de cada um</b><div style="font-size:12px;color:var(--text-muted);margin:2px 0 8px">◀ ▶ adianta ou atrasa o almoço em 10 minutos só neste dia · ↺ volta ao almoço do turno · ⇄ troca o turno só neste dia.' + (pessoas.some((p) => p.auto) ? ' Turnos sem horário de almoço fixo têm o almoço escalonado automaticamente.' : '') + '</div>' +
+        regua + linhas + '</div>';
+  }
+  const listaFolga = folgando.length ? '<div style="font-size:12.5px;color:var(--text-muted);margin-top:8px"><b>De folga ou fora:</b> ' + folgando.map((x) => rupEsc(x.nome) + (x.tipo && x.tipo !== 'folga' ? ' (' + (E5_SIGLA[x.tipo] || x.tipo) + ')' : '')).join(', ') + '</div>' : '';
+  const listaSem = semHorario.length ? '<div style="font-size:12.5px;color:var(--red);margin-top:6px"><b>Sem horário cadastrado para o turno:</b> ' + semHorario.map((x) => rupEsc(x.nome) + ' (' + E5_TURNO_NOME[x.turno] + ')').join(', ') + '</div>' : '';
+  const resumoTurnos = ['M', 'I', 'T', 'U'].map((t) => { const r = e5HorarioTurno(t, domingo); return r ? '<span style="margin-right:14px"><span style="display:inline-block;width:10px;height:10px;border-radius:3px;background:' + E5_TURNO_COR[t][0] + '"></span> <b>' + E5_TURNO_NOME[t] + '</b> ' + String(r.entrada).slice(0, 5) + '–' + String(r.saida).slice(0, 5) + (r.almoco_inicio ? ' · almoço ' + String(r.almoco_inicio).slice(0, 5) : ' · almoço escalonado') + ' (' + r.almoco_min + ' min)</span>' : ''; }).join('');
+  el.innerHTML = '<style>.e5-mini2{border:1px solid var(--border,#d9dde3);background:#EEF6F1;color:#2F7D5B;border-radius:6px;width:22px;height:20px;font-size:11px;cursor:pointer;padding:0}</style>' +
+    cabecalho('Escala 5x2 · Horários do dia', 'Quem está trabalhando em cada horário, com o almoço de cada um. Usa as folgas da escala (ou de uma opção em rascunho).') +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' + setores + '</div>' +
+    '<div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:center;">' +
+      '<button class="chip" onclick="e5VoltarEscala()">‹ Voltar à escala</button>' +
+      '<button class="chip" onclick="e5AbrirHorarios(e5Soma(estado.e5.hor.data,-1))">‹</button>' +
+      '<input type="date" class="campo-input" style="width:auto;margin:0" value="' + h.data + '" onchange="e5AbrirHorarios(this.value)">' +
+      '<button class="chip" onclick="e5AbrirHorarios(e5Soma(estado.e5.hor.data,1))">›</button>' +
+      '<b>' + E5_DIAS[e5Dow(h.data)] + '</b>' +
+      '<select class="campo-input" style="width:auto;margin:0" onchange="e5AbrirHorarios(null,this.value)">' + opcoesVer + '</select>' +
+      '<span style="flex:1"></span>' +
+      '<span>Mínimo:</span><button class="chip" onclick="e5MudarMinimo(-1)">−</button><b>' + minimo + '</b><button class="chip" onclick="e5MudarMinimo(1)">+</button>' +
+      '<button class="btn-acao secundario" onclick="e5EditarHorarios()">Editar horários dos turnos</button>' +
+      '<button class="btn-acao secundario" onclick="e5AbrirOpcoes()">🗂 Opções de escala</button>' +
+    '</div>' +
+    (cen ? '<div class="pq-card" style="margin-top:10px;border-color:#9DB8E0;background:#EEF3FA">Vendo a opção <b>' + rupEsc(cen.nome) + '</b> (rascunho). A escala de verdade não muda até você aplicar a opção.</div>' : '') +
+    '<div style="font-size:12.5px;margin-top:10px">' + (resumoTurnos || '<span style="color:var(--text-muted)">Sem turnos cadastrados para ' + (domingo ? 'domingo' : 'segunda a sábado') + '.</span>') + '</div>' +
+    corpo + listaSem + listaFolga;
+}
+function e5HorariosSetor(s) { estado.e5.setor = s; e5Carregar().then(() => e5AbrirHorarios()).catch((err) => mostrarToast(err.message, 'erro')); }
+function e5VoltarEscala() { const e = estado.e5; e.verHorarios = false; e.verOpcoes = false; e5Atualizar(); }
+async function e5MudarMinimo(d) {
+  const e = estado.e5, dom = e5Dow(e.hor.data) === 0;
+  const k = dom ? 'minimo_domingo' : 'minimo_semana';
+  e.hcfg[k] = Math.max(0, (e.hcfg[k] || 0) + d);
+  const r = await sb.from('escala_horarios_cfg').upsert({ setor: e.setor, minimo_semana: e.hcfg.minimo_semana, minimo_domingo: e.hcfg.minimo_domingo });
+  if (r.error) mostrarToast('Não consegui salvar o mínimo: ' + r.error.message, 'erro');
+  e5RenderHorarios();
+}
+async function e5MoverAlmoco(id, delta) {
+  const e = estado.e5, h = e.hor;
+  const p = e5PessoasDoDia().pessoas.find((x) => x.id === id);
+  if (!p) return;
+  try {
+    if (!delta) {
+      const r = await sb.from('escala_almoco_dia').delete().eq('data', h.data).eq('colaborador_loja_id', id);
+      if (r.error) throw r.error;
+      delete h.almDia[id];
+    } else {
+      const j = e5JanelaAlmoco(p);
+      let novo = (p.almoco != null ? p.almoco : p.ent + 240) + delta;
+      if (j) novo = Math.min(j[1], Math.max(j[0], novo));
+      const r = await sb.from('escala_almoco_dia').upsert({ data: h.data, colaborador_loja_id: id, inicio: e5Hm(novo), registrado_por: e5Autor() });
+      if (r.error) throw r.error;
+      h.almDia[id] = novo;
+    }
+    e5RenderHorarios();
+  } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
+}
+function e5TrocarTurnoDia(id) {
+  const e = estado.e5, h = e.hor;
+  const v = e.vagas.find((x) => String(x.colaborador_loja_id) === id);
+  const dom = e5Dow(h.data) === 0;
+  const turnos = ['M', 'I', 'T'].filter((t) => e5HorarioTurno(t, dom));
+  const atual = h.turnoDia[id] || v.turno;
+  abrirModal('Turno só em ' + e5Ddmm(h.data),
+    '<p style="margin:0 0 10px">' + rupEsc(e5Nome(id)) + ' · turno da escala: <b>' + E5_TURNO_NOME[v.turno] + '</b></p>' +
+    '<label class="campo-label">Neste dia</label><select class="campo-input" id="e5-tdia">' + turnos.map((t) => '<option value="' + t + '"' + (t === atual ? ' selected' : '') + '>' + E5_TURNO_NOME[t] + '</option>').join('') + '</select>' +
+    '<div style="font-size:12px;color:var(--text-muted)">Para mudar o turno de vez, clique no nome na tela da escala.</div>',
+    'Salvar', async () => {
+      const t = document.getElementById('e5-tdia').value;
+      try {
+        let r;
+        if (t === v.turno) r = await sb.from('escala_turno_dia').delete().eq('data', h.data).eq('colaborador_loja_id', id);
+        else r = await sb.from('escala_turno_dia').upsert({ data: h.data, colaborador_loja_id: id, turno: t, registrado_por: e5Autor() });
+        if (r.error) throw r.error;
+        await sb.from('escala_almoco_dia').delete().eq('data', h.data).eq('colaborador_loja_id', id);
+        fecharModal(); e5AbrirHorarios(h.data);
+      } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
+    });
+}
+function e5EditarHorarios() {
+  const e = estado.e5;
+  const campo = (tipo, t) => {
+    const r = (e.horarios || []).find((x) => x.dia_tipo === tipo && x.turno === t) || {};
+    const k = tipo + '-' + t;
+    return '<tr><td style="padding:4px 6px"><b>' + E5_TURNO_NOME[t] + '</b></td>' +
+      '<td><input type="time" step="600" class="campo-input" style="margin:0" id="eh-ent-' + k + '" value="' + (r.entrada ? String(r.entrada).slice(0, 5) : '') + '"></td>' +
+      '<td><input type="time" step="600" class="campo-input" style="margin:0" id="eh-sai-' + k + '" value="' + (r.saida ? String(r.saida).slice(0, 5) : '') + '"></td>' +
+      '<td><input type="time" step="600" class="campo-input" style="margin:0" id="eh-alm-' + k + '" value="' + (r.almoco_inicio ? String(r.almoco_inicio).slice(0, 5) : '') + '"></td>' +
+      '<td><input type="number" step="10" min="0" class="campo-input" style="margin:0;width:80px" id="eh-min-' + k + '" value="' + (r.almoco_min != null ? r.almoco_min : (tipo === 'domingo' ? 60 : 80)) + '"></td></tr>';
+  };
+  const usaU = e.vagas.some((v) => v.turno === 'U');
+  const turnos = usaU ? ['U', 'M', 'I', 'T'] : ['M', 'I', 'T'];
+  const tabela = (tipo, tit) => '<div style="font-weight:700;margin:10px 0 4px">' + tit + '</div><table style="width:100%;border-collapse:collapse;font-size:13px"><tr style="color:var(--text-muted);font-size:12px"><td>Turno</td><td>Entrada</td><td>Saída</td><td>Almoço começa</td><td>Almoço (min)</td></tr>' + turnos.map((t) => campo(tipo, t)).join('') + '</table>';
+  abrirModal('Horários dos turnos · ' + rupEsc(e.cfg.nome || e.setor),
+    '<div style="font-size:12.5px;color:var(--text-muted)">Deixe entrada e saída vazias para um turno que o setor não usa. Deixe "almoço começa" vazio para o portal escalonar os almoços sozinho. O tempo de trabalho é saída − entrada − almoço.</div>' +
+    tabela('semana', 'Segunda a sábado') + tabela('domingo', 'Domingo') + '<div id="eh-total" style="font-size:12.5px;margin-top:8px"></div>',
+    'Salvar', async () => {
+      const linhas = [], apagar = [];
+      for (const tipo of ['semana', 'domingo']) for (const t of turnos) {
+        const k = tipo + '-' + t, g = (n) => document.getElementById('eh-' + n + '-' + k).value;
+        if (g('ent') && g('sai')) linhas.push({ setor: e.setor, dia_tipo: tipo, turno: t, entrada: g('ent'), saida: g('sai'), almoco_inicio: g('alm') || null, almoco_min: Number(g('min')) || 0, atualizado_em: new Date().toISOString() });
+        else apagar.push([tipo, t]);
+      }
+      try {
+        if (linhas.length) { const r = await sb.from('escala_horarios').upsert(linhas); if (r.error) throw r.error; }
+        for (const [tipo, t] of apagar) { const r = await sb.from('escala_horarios').delete().eq('setor', e.setor).eq('dia_tipo', tipo).eq('turno', t); if (r.error) throw r.error; }
+        fecharModal(); mostrarToast('Horários salvos.'); e5AbrirHorarios(e.hor && e.hor.data);
+      } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
+    });
+  const total = () => {
+    const out = [];
+    for (const tipo of ['semana', 'domingo']) for (const t of turnos) {
+      const k = tipo + '-' + t, g = (n) => document.getElementById('eh-' + n + '-' + k).value;
+      if (g('ent') && g('sai')) out.push(E5_TURNO_NOME[t] + (tipo === 'domingo' ? ' (dom)' : '') + ': ' + e5Dur(e5Min(g('sai')) - e5Min(g('ent')) - (Number(g('min')) || 0)) + ' de trabalho');
+    }
+    const box = document.getElementById('eh-total'); if (box) box.textContent = out.join(' · ');
+  };
+  document.querySelectorAll('#modal-corpo input').forEach((i) => i.addEventListener('input', total));
+  total();
+}
+
+// ---------- opções de escala (rascunho) ----------
+async function e5AbrirOpcoes() {
+  const e = estado.e5;
+  try {
+    if (!e.vagas) await e5Carregar();
+    await e5CarregarHorariosBase();
+    e.verOpcoes = true; e.verHorarios = false; e.verLoja = false; e.opcao = null;
+    // folgas reais do período coberto pelas opções, para comparar
+    const per = e.cenarios.filter((c) => !c.aplicado_em);
+    e.opRegs = {};
+    if (per.length) {
+      const ini = per.map((c) => c.inicio).sort()[0], fim = per.map((c) => c.fim).sort().slice(-1)[0];
+      const ids = e.vagas.map((v) => v.colaborador_loja_id).filter(Boolean);
+      for (let i = 0; i < ids.length; i += 150) {
+        const r = await sb.from('escala_folgas').select('colaborador_loja_id,data,tipo').in('colaborador_loja_id', ids.slice(i, i + 150)).gte('data', e5Soma(ini, -7)).lte('data', e5Soma(fim, 7));
+        if (r.error) throw r.error;
+        (r.data || []).forEach((x) => { (e.opRegs[x.colaborador_loja_id] = e.opRegs[x.colaborador_loja_id] || {})[x.data] = x.tipo; });
+      }
+    }
+    e5RenderOpcoes();
+  } catch (err) { mostrarToast('Não consegui carregar as opções: ' + err.message, 'erro'); }
+}
+function e5TrabalhandoCenario(c, d, filtro) {
+  const e = estado.e5;
+  const fechado = (e.feriados || []).some((f) => f.tipo === 'fechada' && f.data === d);
+  if (fechado) return null;
+  return e.vagas.filter((v) => e5ContaNoSetor(v) && (!filtro || filtro(v))).filter((v) => {
+    const id = String(v.colaborador_loja_id), r = (e.opRegs[id] || {})[d];
+    if (!c) return !r;
+    return !(c.folgas[id] || []).includes(d) && !(r && r !== 'folga');
+  }).length;
+}
+function e5RenderOpcoes() {
+  const e = estado.e5;
+  const el = document.getElementById('conteudo-principal');
+  const lista = e.cenarios.map((c) => '<div class="pq-card" style="display:flex;gap:10px;align-items:center;flex-wrap:wrap">' +
+    '<div style="flex:1;min-width:220px"><b>' + rupEsc(c.nome) + '</b><div style="font-size:12.5px;color:var(--text-muted)">' + e5Ddmm(c.inicio) + ' a ' + e5Ddmm(c.fim) + (c.observacao ? ' · ' + rupEsc(c.observacao) : '') +
+      (c.aplicado_em ? ' · <b style="color:#2F7D5B">aplicada em ' + new Date(c.aplicado_em).toLocaleDateString('pt-BR') + '</b>' : ' · rascunho') + '</div></div>' +
+    '<button class="btn-acao secundario" onclick="e5AbrirOpcao(\'' + c.id + '\')">Abrir</button>' +
+    '<button class="btn-acao secundario" onclick="e5AbrirHorarios(\'' + c.inicio + '\',\'' + c.id + '\')">Horários</button>' +
+    '<button class="btn-acao secundario" onclick="e5NovaOpcao(\'' + c.id + '\')">Duplicar</button>' +
+    (c.aplicado_em ? '' : '<button class="btn-acao" onclick="e5AplicarOpcao(\'' + c.id + '\')">Aplicar na escala</button>') +
+    '<button class="btn-acao secundario" style="color:var(--red)" onclick="e5ExcluirOpcao(\'' + c.id + '\')">Excluir</button></div>').join('');
+  // comparação dia a dia
+  const abertas = e.cenarios.filter((c) => !c.aplicado_em);
+  let comp = '';
+  if (abertas.length) {
+    const ini = abertas.map((c) => c.inicio).sort()[0], fim = abertas.map((c) => c.fim).sort().slice(-1)[0];
+    const dias = []; for (let d = ini; d <= fim; d = e5Soma(d, 1)) dias.push(d);
+    const fechado = new Set((e.feriados || []).filter((f) => f.tipo === 'fechada').map((f) => f.data));
+    const cab = dias.map((d) => '<th class="e5-dia" style="background:' + (fechado.has(d) ? '#BFBFBF' : e5Dow(d) === 0 ? '#FFD54F' : '#FFFF99') + '">' + Number(d.slice(8)) + '<br><span>' + (fechado.has(d) ? 'FER' : E5_LETRA[e5Dow(d)]) + '</span></th>').join('');
+    const linha = (rot, c) => '<tr><td class="e5-nome" style="cursor:default"><b>' + rot + '</b></td>' + dias.map((d) => {
+      if (c && (d < c.inicio || d > c.fim)) return '<td class="e5-tot" style="background:#fff"></td>';
+      const n = e5TrabalhandoCenario(c, d);
+      return '<td class="e5-tot">' + (n == null ? '' : n) + '</td>';
+    }).join('') + '</tr>';
+    comp = '<div class="pq-card"><b>Comparar: quantas pessoas trabalham em cada dia</b>' + (e.setor === 'frente-caixa' ? ' <span style="font-size:12px;color:var(--text-muted)">(só operadoras)</span>' : '') +
+      '<div class="tabela-wrap" style="margin-top:8px"><table class="e5-tab"><thead><tr><th class="e5-nome">Escala</th>' + cab + '</tr></thead><tbody>' +
+      linha('Escala atual', null) + abertas.map((c) => linha(rupEsc(c.nome), c)).join('') + '</tbody></table></div></div>';
+  }
+  const setores = e.configs.map((c) => '<button class="chip' + (c.setor === e.setor ? ' ativo' : '') + '" onclick="estado.e5.setor=\'' + c.setor + '\';e5Carregar().then(e5AbrirOpcoes)">' + rupEsc(c.nome || c.setor) + '</button>').join('');
+  el.innerHTML = '<style>.e5-tab{border-collapse:collapse;font-size:11px}.e5-tab td,.e5-tab th{border:1px solid #c9ced6;padding:0;text-align:center}.e5-dia{width:28px;font-size:11px;font-weight:800;line-height:1.15;padding:2px 0!important}.e5-dia span{color:#C00000;font-size:9px}.e5-nome{min-width:200px;text-align:left!important;padding:3px 6px!important;font-size:11.5px}.e5-tot{background:#E2EFDA;font-weight:800;font-size:11px;height:24px}</style>' +
+    cabecalho('Escala 5x2 · Opções de escala', 'Monte alternativas de folgas para um período, compare e, depois de decidir, aplique a escolhida. Enquanto for rascunho, a escala de verdade não muda.') +
+    '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;">' + setores + '</div>' +
+    '<div class="toolbar" style="gap:8px"><button class="chip" onclick="e5VoltarEscala()">‹ Voltar à escala</button><span style="flex:1"></span><button class="btn-acao" onclick="e5NovaOpcao()">+ Nova opção</button></div>' +
+    (lista || '<div class="pq-card">Nenhuma opção ainda para este setor. Clique em <b>+ Nova opção</b>: ela começa como cópia da escala atual no período escolhido.</div>') + comp;
+}
+function e5NovaOpcao(copiaDe) {
+  const e = estado.e5;
+  const base = copiaDe ? e.cenarios.find((c) => c.id === copiaDe) : null;
+  abrirModal(base ? 'Duplicar opção' : 'Nova opção',
+    '<label class="campo-label">Nome</label><input class="campo-input" id="eo-nome" value="' + (base ? rupEsc(base.nome) + ' (cópia)' : '') + '" placeholder="Ex.: Opção 1 · vender folga">' +
+    '<label class="campo-label">De</label><input class="campo-input" type="date" id="eo-ini" value="' + (base ? base.inicio : e5Hoje()) + '"' + (base ? ' disabled' : '') + '>' +
+    '<label class="campo-label">Até</label><input class="campo-input" type="date" id="eo-fim" value="' + (base ? base.fim : e5Soma(e5Hoje(), 13)) + '"' + (base ? ' disabled' : '') + '>' +
+    '<label class="campo-label">Observação (opcional)</label><input class="campo-input" id="eo-obs" value="' + (base && base.observacao ? rupEsc(base.observacao) : '') + '">' +
+    (base ? '' : '<div style="font-size:12.5px;color:var(--text-muted)">A opção começa igual às folgas (X) que estão na escala nesse período. Depois é só clicar nos dias para mudar.</div>'),
+    'Criar', async () => {
+      const nome = document.getElementById('eo-nome').value.trim();
+      const ini = document.getElementById('eo-ini').value, fim = document.getElementById('eo-fim').value;
+      if (!nome || !ini || !fim || fim < ini) { mostrarToast('Preencha nome e período.', 'erro'); return; }
+      try {
+        let folgas = {};
+        if (base) folgas = JSON.parse(JSON.stringify(base.folgas || {}));
+        else {
+          const ids = e.vagas.map((v) => v.colaborador_loja_id).filter(Boolean);
+          for (let i = 0; i < ids.length; i += 150) {
+            const r = await sb.from('escala_folgas').select('colaborador_loja_id,data').eq('tipo', 'folga').in('colaborador_loja_id', ids.slice(i, i + 150)).gte('data', ini).lte('data', fim);
+            if (r.error) throw r.error;
+            (r.data || []).forEach((x) => { (folgas[x.colaborador_loja_id] = folgas[x.colaborador_loja_id] || []).push(x.data); });
+          }
+        }
+        const r = await sb.from('escala_cenarios').insert({ setor: e.setor, nome, inicio: ini, fim, folgas, observacao: document.getElementById('eo-obs').value.trim() || null, criado_por: e5Autor() }).select('*').single();
+        if (r.error) throw r.error;
+        fecharModal(); await e5AbrirOpcoes(); e5AbrirOpcao(r.data.id);
+      } catch (err) { mostrarToast('Não consegui criar: ' + err.message, 'erro'); }
+    });
+}
+async function e5ExcluirOpcao(id) {
+  const c = estado.e5.cenarios.find((x) => x.id === id);
+  if (!c || !confirm('Excluir a opção "' + c.nome + '"? A escala de verdade não muda.')) return;
+  const r = await sb.from('escala_cenarios').delete().eq('id', id);
+  if (r.error) { mostrarToast('Não consegui excluir: ' + r.error.message, 'erro'); return; }
+  e5AbrirOpcoes();
+}
+function e5AbrirOpcao(id) {
+  const e = estado.e5;
+  e.opcao = id;
+  const c = e.cenarios.find((x) => x.id === id);
+  if (!c) return;
+  const el = document.getElementById('conteudo-principal');
+  const dias = []; for (let d = c.inicio; d <= c.fim; d = e5Soma(d, 1)) dias.push(d);
+  const fechado = new Set((e.feriados || []).filter((f) => f.tipo === 'fechada').map((f) => f.data));
+  const cab = dias.map((d) => '<th class="e5-dia" style="cursor:pointer;background:' + (fechado.has(d) ? '#BFBFBF' : e5Dow(d) === 0 ? '#FFD54F' : '#FFFF99') + '" title="Ver os horários deste dia nesta opção" onclick="e5AbrirHorarios(\'' + d + '\',\'' + c.id + '\')">' + Number(d.slice(8)) + '<br><span>' + (fechado.has(d) ? 'FER' : E5_LETRA[e5Dow(d)]) + '</span></th>').join('');
+  const avisos = [];
+  const linhas = e.grupos.map((g) => {
+    const vs = e.vagas.filter((v) => v.grupo_id === g.id && v.colaborador_loja_id);
+    if (!vs.length) return '';
+    return '<tr><td colspan="' + (dias.length + 1) + '" class="e5-grupo" style="background:' + e5Escuro(g.cor_forte) + ';color:#fff;text-align:left;padding:5px 8px;font-weight:700">Grupo ' + rupEsc(g.letra) + '</td></tr>' + vs.map((v) => {
+      const id = String(v.colaborador_loja_id), fs = new Set(c.folgas[id] || []), regs = e.opRegs[id] || {};
+      // conferência: dias seguidos (com a semana antes e depois da escala real) e folgas coladas
+      let seq = 0, maior = 0, colada = [];
+      for (let d = e5Soma(c.inicio, -7); d <= e5Soma(c.fim, 7); d = e5Soma(d, 1)) {
+        const dentro = d >= c.inicio && d <= c.fim;
+        const off = fechado.has(d) || (dentro ? fs.has(d) || (regs[d] && regs[d] !== 'folga') : !!regs[d]);
+        if (off) seq = 0; else { seq++; maior = Math.max(maior, seq); }
+      }
+      dias.forEach((d) => { const p = e5Soma(d, -1); if (fs.has(d) && (fs.has(p) || (p < c.inicio && regs[p] === 'folga')) && e5Dow(d) !== 1) colada.push(e5Ddmm(d)); });
+      const nome = e5Curto(e5Nome(id) || v.nome_planilha || '?');
+      if (maior > 6) avisos.push(nome + ': ' + maior + ' dias seguidos de trabalho');
+      if (colada.length) avisos.push(nome + ': folga colada em ' + colada.join(', '));
+      const n = dias.filter((d) => fs.has(d)).length;
+      const cel = dias.map((d) => {
+        if (fechado.has(d)) return '<td class="e5-cel" style="background:#D9D9D9"></td>';
+        const r = regs[d];
+        if (r && r !== 'folga') return '<td class="e5-cel" style="background:#F4CCCC"><b style="color:var(--red)">' + (E5_SIGLA[r] || '') + '</b></td>';
+        return '<td class="e5-cel clic" style="background:' + (fs.has(d) ? g.cor_forte : g.cor) + '" onclick="e5AlternarFolgaOpcao(\'' + id + '\',\'' + d + '\')">' + (fs.has(d) ? '<b>X</b>' : '') + '</td>';
+      }).join('');
+      return '<tr><td class="e5-nome" style="background:' + g.cor + '" onclick="e5CopiarFolgasOpcao(\'' + id + '\')" title="Copiar as folgas de outra pessoa"><b>' + rupEsc(v.codigo) + '</b> ' + rupEsc(nome) + '<div class="e5-sub">' + E5_TURNO_NOME[v.turno] + ' · ' + n + ' folga(s)' + (v.funcao !== 'operadora' && v.funcao !== 'colaborador' ? ' · ' + v.funcao : '') + '</div></td>' + cel + '</tr>';
+    }).join('');
+  }).join('');
+  const turnos = ['M', 'I', 'T', 'U'].filter((t) => e.vagas.some((v) => e5ContaNoSetor(v) && v.turno === t));
+  const tot = (rot, filtro) => '<tr><td class="e5-nome e5-tot" style="cursor:default">' + rot + '</td>' + dias.map((d) => { const n = e5TrabalhandoCenario(c, d, filtro); return '<td class="e5-tot">' + (n == null ? '' : n) + '</td>'; }).join('') + '</tr>';
+  const totais = (turnos.length > 1 ? turnos.map((t) => tot('Trabalhando · ' + E5_TURNO_NOME[t].toLowerCase(), (v) => v.turno === t)).join('') : '') + tot('Trabalhando · total', null);
+  el.innerHTML = '<style>.e5-tab{border-collapse:collapse;font-size:11px}.e5-tab td,.e5-tab th{border:1px solid #c9ced6;padding:0;text-align:center}.e5-dia{width:28px;font-size:11px;font-weight:800;line-height:1.15;padding:2px 0!important}.e5-dia span{color:#C00000;font-size:9px}.e5-cel{width:28px;height:26px;font-size:10px}.e5-cel.clic{cursor:pointer}.e5-cel.clic:hover{outline:2px solid #2F7BFF;outline-offset:-2px}.e5-nome{min-width:220px;text-align:left!important;padding:3px 6px!important;font-size:11.5px;cursor:pointer}.e5-sub{font-size:10px;color:#5b6878}.e5-tot{background:#E2EFDA;font-weight:800;font-size:11px;height:24px}</style>' +
+    cabecalho('Opção: ' + rupEsc(c.nome), e5Ddmm(c.inicio) + ' a ' + e5Ddmm(c.fim) + ' · ' + (c.aplicado_em ? 'já aplicada na escala' : 'rascunho: a escala de verdade não muda até você aplicar')) +
+    '<div class="toolbar" style="gap:8px;flex-wrap:wrap"><button class="chip" onclick="e5AbrirOpcoes()">‹ Voltar às opções</button><span style="flex:1"></span>' +
+      '<button class="btn-acao secundario" onclick="e5AbrirHorarios(\'' + c.inicio + '\',\'' + c.id + '\')">⏰ Horários dos dias</button>' +
+      (c.aplicado_em ? '' : '<button class="btn-acao" onclick="e5AplicarOpcao(\'' + c.id + '\')">Aplicar na escala</button>') + '</div>' +
+    '<div class="pq-card" style="margin:12px 0;' + (avisos.length ? 'border-color:#E9C88F;background:#FFF7EA;' : 'border-color:#B9DFC9;background:#E8F4EE;') + '">' +
+      (avisos.length ? '<b>Pontos para revisar</b><ul style="margin:4px 0 0 18px">' + avisos.map((x) => '<li>' + rupEsc(x) + '</li>').join('') + '</ul>' : '<b>Conferência OK</b>: ninguém com mais de 6 dias seguidos nem folga colada (domingo + segunda pode).') +
+      '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">Clique no dia para pôr ou tirar folga (X). Clique no nome para copiar as folgas de outra pessoa. Clique no número do dia no cabeçalho para ver os horários daquele dia nesta opção. Vermelho = falta, atestado ou férias que já estão na escala.</div></div>' +
+    '<div class="tabela-wrap"><table class="e5-tab"><thead><tr><th class="e5-nome" style="cursor:default">Vaga · nome</th>' + cab + '</tr>' + totais + '</thead><tbody>' + linhas + totais + '</tbody></table></div>';
+}
+async function e5SalvarOpcao(c) {
+  const r = await sb.from('escala_cenarios').update({ folgas: c.folgas }).eq('id', c.id);
+  if (r.error) throw r.error;
+}
+async function e5AlternarFolgaOpcao(id, d) {
+  const c = estado.e5.cenarios.find((x) => x.id === estado.e5.opcao);
+  if (!c || c.aplicado_em) { mostrarToast('Esta opção já foi aplicada. Duplique para mexer.', 'erro'); return; }
+  const fs = new Set(c.folgas[id] || []);
+  if (fs.has(d)) fs.delete(d); else fs.add(d);
+  c.folgas[id] = [...fs].sort();
+  try { await e5SalvarOpcao(c); e5AbrirOpcao(c.id); } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
+}
+function e5CopiarFolgasOpcao(id) {
+  const e = estado.e5, c = e.cenarios.find((x) => x.id === e.opcao);
+  if (!c || c.aplicado_em) return;
+  const outros = e.vagas.filter((v) => v.colaborador_loja_id && String(v.colaborador_loja_id) !== id)
+    .map((v) => ({ id: String(v.colaborador_loja_id), nome: e5Curto(e5Nome(v.colaborador_loja_id) || v.nome_planilha || '?'), g: (e.grupos.find((g) => g.id === v.grupo_id) || {}).letra || '' }))
+    .sort((a, b) => a.g.localeCompare(b.g) || a.nome.localeCompare(b.nome, 'pt-BR'));
+  abrirModal('Copiar folgas · ' + rupEsc(e5Curto(e5Nome(id))),
+    '<div style="font-size:12.5px;color:var(--text-muted);margin-bottom:8px">As folgas desta pessoa nesta opção ficam iguais às de quem você escolher (ex.: para ela seguir outro grupo só neste período). A vaga e o grupo dela não mudam.</div>' +
+    '<label class="campo-label">Copiar as folgas de</label><select class="campo-input" id="eo-copia">' + outros.map((o) => '<option value="' + o.id + '">Grupo ' + rupEsc(o.g) + ' · ' + rupEsc(o.nome) + '</option>').join('') + '</select>',
+    'Copiar', async () => {
+      const de = document.getElementById('eo-copia').value;
+      c.folgas[id] = (c.folgas[de] || []).slice();
+      try { await e5SalvarOpcao(c); fecharModal(); e5AbrirOpcao(c.id); } catch (err) { mostrarToast('Não consegui salvar: ' + err.message, 'erro'); }
+    });
+}
+async function e5AplicarOpcao(id) {
+  const e = estado.e5, c = e.cenarios.find((x) => x.id === id);
+  if (!c) return;
+  if (!confirm('Aplicar a opção "' + c.nome + '" na escala de ' + e5Ddmm(c.inicio) + ' a ' + e5Ddmm(c.fim) + '?\n\nAs folgas (X) do setor nesse período serão trocadas pelas da opção. Folgas de feriado (F), faltas, atestados e férias ficam como estão.')) return;
+  try {
+    const fechados = new Set((e.feriados || []).filter((f) => f.tipo === 'fechada').map((f) => f.data));
+    const ids = e.vagas.map((v) => v.colaborador_loja_id).filter(Boolean).map(String);
+    for (let i = 0; i < ids.length; i += 150) {
+      const r = await sb.from('escala_folgas').delete().eq('tipo', 'folga').in('colaborador_loja_id', ids.slice(i, i + 150)).gte('data', c.inicio).lte('data', c.fim);
+      if (r.error) throw r.error;
+    }
+    const linhas = [];
+    ids.forEach((id) => (c.folgas[id] || []).forEach((d) => { if (d >= c.inicio && d <= c.fim && !fechados.has(d)) linhas.push({ colaborador_loja_id: id, data: d, tipo: 'folga', observacao: 'Opção: ' + c.nome, registrado_por_nome: e5Autor() }); }));
+    for (let i = 0; i < linhas.length; i += 500) {
+      const r = await sb.from('escala_folgas').upsert(linhas.slice(i, i + 500), { onConflict: 'colaborador_loja_id,data', ignoreDuplicates: true });
+      if (r.error) throw r.error;
+    }
+    const r = await sb.from('escala_cenarios').update({ aplicado_em: new Date().toISOString(), aplicado_por: e5Autor() }).eq('id', id);
+    if (r.error) throw r.error;
+    mostrarToast('Opção aplicada: ' + linhas.length + ' folgas gravadas.');
+    e5AbrirOpcoes();
+  } catch (err) { mostrarToast('Não consegui aplicar: ' + err.message, 'erro'); }
 }
 
 function abrirModal(titulo, corpoHtml, textoBotao, aoSalvar) {

@@ -22,7 +22,8 @@ import { TipoEscala } from './escalaApi';
 //    tela Colaboradores · Faltas e Atestados), uma linha por colaborador e dia.
 //    Faltas, atestados e férias nunca são apagados pela geração.
 
-export type Turno = 'M' | 'T' | 'U'; // U = setor sem turno definido
+export type Turno = 'M' | 'I' | 'T' | 'U'; // I = intermediário · U = setor sem turno definido
+export const NOME_TURNO: Record<Turno, string> = { M: 'Manhã', I: 'Intermediário', T: 'Tarde', U: 'Sem turno' };
 export type FuncaoVaga = 'encarregada' | 'operadora' | 'embaladora' | 'colaborador';
 
 export interface ConfigEscala {
@@ -91,9 +92,12 @@ export const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho'
 // Horários da Frente de Caixa (loja 07:30–20:30; domingo 07:30–14:00).
 // A tarde de domingo entra 08:30 para cumprir as 11h de interjornada depois
 // de sair 21:30 no sábado.
+// Horários da frente de caixa (seg–sáb). Os horários de cada setor ficam em
+// escala_horarios e podem ser mudados no portal (Escala 5x2 → Horários do dia).
 export const HORARIOS = {
-  manha: '07:20 – 17:20',
-  tarde: '11:30 – 21:30',
+  manha: '07:00 – 17:00 (almoço 12:00)',
+  intermediario: '10:00 – 20:00 (almoço 13:00)',
+  tarde: '11:20 – 21:20 (almoço 14:30)',
   domingoManha: '07:20 – 13:35',
   domingoTarde: '08:30 – 14:45',
 };
