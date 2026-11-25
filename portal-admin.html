@@ -12107,11 +12107,8 @@ function e5SemanaSetor(grupos, cfg, seg, feriados, pesos, prof) {
     // X encostado em X: a semana anterior termina em folga, ou duas folgas seguidas na semana
     const bons = base.filter((d) => !ruim.has(d));
     const ult = ultimoX(g);
-    bons.forEach((d, i) => {
-      if (e5Dow(d) === 0) return; // o domingo 1x1 não sai do lugar
-      const colada = (ult && e5Soma(ult, 1) === d) || bons.some((x) => x !== d && Math.abs(e5Diff(x, d)) === 1 && (e5Dow(x) === 0 || x > d));
-      if (colada) ruim.add(d);
-    });
+    // folgas seguidas (X encostado em X) são permitidas: só saem do lugar as que caem em feriado fechado ou pico
+    void bons; void ult;
     out.set(g.id, base.filter((d) => !ruim.has(d)));
     [...ruim].forEach((d) => deslocar.push({ g, d }));
   });
@@ -12682,7 +12679,7 @@ function e5EditarGrupo(grupoId) {
   const domA = [0, 2].map((k) => e5Ddmm(e5Soma(prox, 7 * k))).join(', ');
   const domB = [1, 3].map((k) => e5Ddmm(e5Soma(prox, 7 * k))).join(', ');
   abrirModal(g ? 'Editar grupo ' + rupEsc(g.letra) : 'Novo grupo ' + letra,
-    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">Para não ter folga colada em folga: na semana em que trabalha domingo, as 2 folgas precisam ter 1 dia de intervalo e não podem cair na segunda (ela encosta no domingo de folga anterior). Mudanças valem quando você gerar o mês (de novo).</p>' +
+    '<p style="font-size:13px;color:var(--text-muted);margin-top:0;">Folgas seguidas são permitidas. A única trava é ninguém passar de 6 dias seguidos de trabalho. Mudanças valem quando você gerar o mês (de novo).</p>' +
     '<label class="campo-label">Semana em que TRABALHA domingo · 1ª folga</label><select class="campo-input" id="e5-d1">' + opDia(g ? g.dia_1 : 2) + '</select>' +
     '<label class="campo-label">Semana em que TRABALHA domingo · 2ª folga</label><select class="campo-input" id="e5-d2">' + opDia(g ? g.dia_2 : 4) + '</select>' +
     '<label class="campo-label">Semana em que FOLGA domingo · folga do meio da semana</label><select class="campo-input" id="e5-d3">' + opDia(g ? (g.dia_3 || g.dia_2) : 1) + '</select>' +
@@ -12696,10 +12693,7 @@ function e5EditarGrupo(grupoId) {
       const d1 = Number(document.getElementById('e5-d1').value), d2 = Number(document.getElementById('e5-d2').value);
       const todo = document.getElementById('e5-tododom').checked;
       const d3 = Number(document.getElementById('e5-d3').value);
-      if (!todo && d2 - d1 < 2) { mostrarToast('As 2 folgas da semana que trabalha domingo precisam ter pelo menos 1 dia de intervalo (sem folga colada).', 'erro'); return; }
-      if (!todo && d1 === 1) { mostrarToast('Segunda não pode na semana que trabalha domingo: encosta no domingo de folga da semana anterior.', 'erro'); return; }
-      if (todo && (d2 === 1 || d2 === 6)) { mostrarToast('Quem folga todo domingo não pode folgar na segunda nem no sábado (fica colado no domingo).', 'erro'); return; }
-      if (!todo && d3 === 6) { mostrarToast('Na semana que folga domingo, o sábado fica colado no domingo. Escolha outro dia.', 'erro'); return; }
+      if (!todo && d2 <= d1) { mostrarToast('A 2ª folga precisa ser depois da 1ª.', 'erro'); return; }
       if (!todo && d3 > d2) { mostrarToast('A folga da semana que folga domingo precisa ser no máximo no mesmo dia da 2ª folga, para ninguém passar de 6 dias seguidos.', 'erro'); return; }
       const PAL = [['#DCE9F7', '#9DC3E6'], ['#E2F0D9', '#A9D18E'], ['#FFF2CC', '#FFD966'], ['#FCE4D6', '#F4B183'], ['#E8E0F0', '#C9B3E0'], ['#F8DDE8', '#EBA3C1'], ['#DDF2F4', '#9ED8DE'], ['#EDEDED', '#C9C9C9']];
       const dados = { dia_1: todo ? d2 : d1, dia_2: d2, dia_3: todo ? null : d3, fase: Number(document.getElementById('e5-fase').value), folga_todo_domingo: todo,
@@ -13148,7 +13142,8 @@ function eoEditarGrupo(i) {
     'Salvar', () => {
       const d1 = Number(document.getElementById('eo-d1').value), d2 = Number(document.getElementById('eo-d2').value), todo = document.getElementById('eo-todo').checked;
       const d3 = Number(document.getElementById('eo-d3').value);
-      if (!todo && (d2 - d1 < 2 || d1 === 1 || d3 === 6 || d3 > d2)) { mostrarToast('Sem folga colada: na semana que trabalha domingo, 2 folgas com 1 dia de intervalo e nenhuma na segunda; na semana que folga domingo, o dia não pode ser sábado nem depois da 2ª folga.', 'erro'); return; }
+      if (!todo && d2 <= d1) { mostrarToast('A 2ª folga precisa ser depois da 1ª.', 'erro'); return; }
+      if (!todo && d3 > d2) { mostrarToast('A folga da semana que folga domingo precisa ser no máximo no mesmo dia da 2ª folga, para ninguém passar de 6 dias seguidos.', 'erro'); return; }
       Object.assign(g, { d1: todo ? d2 : d1, d2, d3: todo ? null : d3, fase: Number(document.getElementById('eo-fase').value), todoDom: todo });
       fecharModal(); eoRender();
     });
@@ -13660,16 +13655,14 @@ function e5AbrirOpcao(id) {
     return '<tr><td colspan="' + (dias.length + 1) + '" class="e5-grupo" style="background:' + e5Escuro(g.cor_forte) + ';color:#fff;text-align:left;padding:5px 8px;font-weight:700">Grupo ' + rupEsc(g.letra) + '</td></tr>' + vs.map((v) => {
       const id = String(v.colaborador_loja_id), fs = new Set(c.folgas[id] || []), regs = e.opRegs[id] || {};
       // conferência: dias seguidos (com a semana antes e depois da escala real) e folgas coladas
-      let seq = 0, maior = 0, colada = [];
+      let seq = 0, maior = 0;
       for (let d = e5Soma(c.inicio, -7); d <= e5Soma(c.fim, 7); d = e5Soma(d, 1)) {
         const dentro = d >= c.inicio && d <= c.fim;
         const off = fechado.has(d) || (dentro ? fs.has(d) || (regs[d] && regs[d] !== 'folga') : !!regs[d]);
         if (off) seq = 0; else { seq++; maior = Math.max(maior, seq); }
       }
-      dias.forEach((d) => { const p = e5Soma(d, -1); if (fs.has(d) && (fs.has(p) || (p < c.inicio && regs[p] === 'folga')) && e5Dow(d) !== 1) colada.push(e5Ddmm(d)); });
       const nome = e5Curto(e5Nome(id) || v.nome_planilha || '?');
       if (maior > 6) avisos.push(nome + ': ' + maior + ' dias seguidos de trabalho');
-      if (colada.length) avisos.push(nome + ': folga colada em ' + colada.join(', '));
       const n = dias.filter((d) => fs.has(d)).length;
       const cel = dias.map((d) => {
         if (fechado.has(d)) return '<td class="e5-cel" style="background:#D9D9D9"></td>';
@@ -13689,7 +13682,7 @@ function e5AbrirOpcao(id) {
       '<button class="btn-acao secundario" onclick="e5AbrirHorarios(\'' + c.inicio + '\',\'' + c.id + '\')">⏰ Horários dos dias</button>' +
       (c.aplicado_em ? '' : '<button class="btn-acao" onclick="e5AplicarOpcao(\'' + c.id + '\')">Aplicar na escala</button>') + '</div>' +
     '<div class="pq-card" style="margin:12px 0;' + (avisos.length ? 'border-color:#E9C88F;background:#FFF7EA;' : 'border-color:#B9DFC9;background:#E8F4EE;') + '">' +
-      (avisos.length ? '<b>Pontos para revisar</b><ul style="margin:4px 0 0 18px">' + avisos.map((x) => '<li>' + rupEsc(x) + '</li>').join('') + '</ul>' : '<b>Conferência OK</b>: ninguém com mais de 6 dias seguidos nem folga colada (domingo + segunda pode).') +
+      (avisos.length ? '<b>Pontos para revisar</b><ul style="margin:4px 0 0 18px">' + avisos.map((x) => '<li>' + rupEsc(x) + '</li>').join('') + '</ul>' : '<b>Conferência OK</b>: ninguém com mais de 6 dias seguidos.') +
       '<div style="font-size:12px;color:var(--text-muted);margin-top:4px">Clique no dia para pôr ou tirar folga (X). Clique no nome para copiar as folgas de outra pessoa. Clique no número do dia no cabeçalho para ver os horários daquele dia nesta opção. Vermelho = falta, atestado ou férias que já estão na escala.</div></div>' +
     '<div class="tabela-wrap"><table class="e5-tab"><thead><tr><th class="e5-nome" style="cursor:default">Vaga · nome</th>' + cab + '</tr>' + totais + '</thead><tbody>' + linhas + totais + '</tbody></table></div>';
 }
