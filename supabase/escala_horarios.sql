@@ -71,3 +71,7 @@ on conflict do nothing;
 insert into escala_horarios_cfg (setor, minimo_semana, minimo_domingo) values
  ('frente-caixa',8,12),('acougue',2,1),('frios',2,1)
 on conflict do nothing;
+
+-- Vaga que aparece na escala mas fica fora de todas as contas (totais, horários,
+-- opções, peso na geração e distribuição de PDV). Aplicado em 25/11/2026.
+alter table escala_vagas add column if not exists conta boolean not null default true;

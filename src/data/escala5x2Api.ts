@@ -58,6 +58,7 @@ export interface VagaEscala {
   nomePlanilha: string | null;
   desde: string | null;
   ordem: number;
+  conta: boolean; // false = aparece na escala mas fica fora de todas as contas
 }
 
 export interface FeriadoEscala {
@@ -187,6 +188,7 @@ export async function carregarModulo(setor = SETOR_CAIXA): Promise<ModuloEscala>
       nomePlanilha: v.nome_planilha,
       desde: v.desde,
       ordem: v.ordem ?? 0,
+      conta: v.conta !== false,
     })),
     feriados: (fer.data ?? []).map((f: any) => ({ data: f.data, tipo: f.tipo, descricao: f.descricao })),
     mesesGerados: (mes.data ?? []).map((m: any) => m.mes),
@@ -379,7 +381,7 @@ export function folgasDoSetorNoPeriodo(
 export function pesosDosGrupos(mod: ModuloEscala): Map<string, number> {
   const m = new Map<string, number>();
   mod.vagas.forEach((v) => {
-    if (v.colaboradorLojaId) m.set(v.grupoId, (m.get(v.grupoId) || 0) + 1);
+    if (v.colaboradorLojaId && v.conta) m.set(v.grupoId, (m.get(v.grupoId) || 0) + 1);
   });
   return m;
 }
