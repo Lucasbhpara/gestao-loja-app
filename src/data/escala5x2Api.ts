@@ -303,13 +303,8 @@ export function folgasDoSetorNaSemana(
     const ruim = new Set(base.filter((d) => fechado.has(d) || pico.has(d)));
     const bons = base.filter((d) => !ruim.has(d));
     const ult = ultimoX(g);
-    for (const d of bons) {
-      if (diaSemana(d) === 0) continue; // o domingo 1x1 não sai do lugar
-      const colada =
-        (ult !== null && somarDias(ult, 1) === d) ||
-        bons.some((x) => x !== d && Math.abs(diffDias(x, d)) === 1 && (diaSemana(x) === 0 || x > d));
-      if (colada) ruim.add(d);
-    }
+    // folgas seguidas (X encostado em X) são permitidas: só saem do lugar as que caem em feriado fechado ou pico
+    void bons; void ult;
     out.set(g.id, base.filter((d) => !ruim.has(d)));
     if (ruim.size) deslocar.set(g, [...ruim].sort());
   }
