@@ -171,7 +171,7 @@ export default function MapaPdvScreen({ onVoltar }: { onVoltar: () => void }) {
   const pessoas: PessoaDia[] = useMemo(() => {
     if (!mod) return [];
     return mod.vagas
-      .filter((v) => v.colaboradorLojaId && !ausentes.has(v.colaboradorLojaId))
+      .filter((v) => v.colaboradorLojaId && v.conta && !ausentes.has(v.colaboradorLojaId))
       .map((v) => {
         const id = v.colaboradorLojaId as string;
         return {

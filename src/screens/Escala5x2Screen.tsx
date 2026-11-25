@@ -180,7 +180,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
   const turnosUsados = (['M', 'I', 'T'] as Turno[]).filter((t) => t !== 'I' || (mod?.vagas ?? []).some((v) => v.colaboradorLojaId && v.turno === 'I'));
   const trabalhandoNoDia = (d: string, t: Turno) =>
     // só operadoras (embaladora fica fora da conta)
-    (mod?.vagas ?? []).filter((v) => v.colaboradorLojaId && v.funcao === 'operadora' && v.turno === t && !reg.get(v.colaboradorLojaId)?.has(d) && !fechados.has(d)).length;
+    (mod?.vagas ?? []).filter((v) => v.colaboradorLojaId && v.conta && v.funcao === 'operadora' && v.turno === t && !reg.get(v.colaboradorLojaId)?.has(d) && !fechados.has(d)).length;
 
   const livres = useMemo(() => {
     const ocupados = new Set((mod?.vagas ?? []).map((v) => v.colaboradorLojaId).filter(Boolean) as string[]);
@@ -330,7 +330,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
         const vagas = mod.vagas.filter((v) => v.grupoId === g.id);
         const domFolga = dias.filter((d) => diaSemana(d) === 0 && grupoFolgaDomingo(g, mod.config, d)).map(ddmm).join(', ');
         const ideal = g.idealTarde + g.idealManha;
-        const n = vagas.filter((v) => v.colaboradorLojaId).length;
+        const n = vagas.filter((v) => v.colaboradorLojaId && v.conta).length;
         const titulo = `GRUPO ${g.letra} · domingos de folga: ${domFolga || '—'} · ${regraDoGrupo(g)} · quadro ${n}/${ideal}${n < ideal ? ` (${n - ideal})` : ''}`;
         const linhas = vagas
           .map((v) => {
@@ -477,7 +477,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
             {mod.grupos.map((g) => {
               const vagas = mod.vagas.filter((v) => v.grupoId === g.id);
               const ideal = g.idealTarde + g.idealManha;
-              const n = vagas.filter((v) => v.colaboradorLojaId).length;
+              const n = vagas.filter((v) => v.colaboradorLojaId && v.conta).length;
               return (
                 <View key={g.id}>
                   <View style={[styles.grupoCab, { backgroundColor: corEscura(g.corForte), width: LARG_NOME + LARG_DIA * dias.length }]}>
@@ -496,7 +496,7 @@ export default function Escala5x2Screen({ onVoltar }: { onVoltar: () => void }) 
                       <TouchableOpacity key={v.id} style={styles.linhaGrade} onPress={() => abrirVaga(v)}>
                         <View style={[styles.celNome, { width: LARG_NOME, backgroundColor: g.cor }]}>
                           <Text style={styles.celNomeTexto} numberOfLines={1}>
-                            {v.codigo} · {v.turno} · {id ? nomeCurto(nomeDe.get(id) ?? v.nomePlanilha ?? '?') : 'vaga aberta'}
+                            {v.codigo} · {v.turno} · {id ? nomeCurto(nomeDe.get(id) ?? v.nomePlanilha ?? '?') : 'vaga aberta'}{id && !v.conta ? ' · não conta' : ''}
                           </Text>
                           {v.funcao !== 'operadora' ? <Text style={styles.celFuncao}>{v.funcao}</Text> : null}
                         </View>
