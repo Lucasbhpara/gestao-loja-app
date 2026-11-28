@@ -5,49 +5,40 @@ import InicioUlva2, { Grupo, GrupoId, TelaFerramenta } from './InicioUlva2';
 import VisitaSupervisorScreen from './VisitaSupervisorScreen';
 import ChecklistHubScreen from './ChecklistHubScreen';
 import VisitaTecnicaScreen from './VisitaTecnicaScreen';
-import PerdasAdminScreen from './PerdasAdminScreen';
 import VendasLojaScreen from './VendasLojaScreen';
 import VendaDiaScreen from './VendaDiaScreen';
-import VendasScreen from './VendasScreen';
-import GiroProdutosScreen from './GiroProdutosScreen';
-import EstoqueLojaScreen from './EstoqueLojaScreen';
 import ValidadeScreen from './ValidadeScreen';
 import SobreScreen from './SobreScreen';
+import BuscaProdutoScreen from './BuscaProdutoScreen';
+import ContagemFocoScreen from './ContagemFocoScreen';
 import { Validade, buscarTodasValidades } from '../data/validadeApi';
 import { diasRestantes } from '../lib/validadeUtils';
 
 // =============================================================================
 // Início do SUPERVISOR — colaborador (não administrador) com a função
 // "Supervisor" cadastrada no Portal (ver ehSupervisor em visitaSupervisorApi).
-// Vê: Visita Supervisor, todas as vendas, estoque, quebras, checklist,
-// visita técnica e giro de produtos.
+// Vê: Contagem nas lojas (itens foco), Visita Supervisor, checklist, visita
+// técnica, vendas da loja / venda do dia e a busca de produto (código de barras).
 // =============================================================================
 
 const GRUPOS_SUPERVISOR: Grupo[] = [
   {
-    id: 'rotina', nome: 'Rotina da Loja', desc: 'Visita do supervisor, checklists e visita técnica',
+    id: 'rotina', nome: 'Rotina da Loja', desc: 'Visita do supervisor, contagem nas lojas e checklists',
     icone: 'check-circle', cor: '#2F7BFF', fundo: '#E3EDFF',
     ferramentas: [
+      { nome: 'Contagem nas lojas', desc: 'Itens foco: manda o link, acompanha cada loja e compartilha as rupturas', icone: 'radio', tela: 'contagemFoco' },
       { nome: 'Visita Supervisor', desc: 'Orientações por setor, com fotos e PDF', icone: 'user-check', tela: 'visitaSupervisor' },
       { nome: 'Checklist', desc: 'Rotina do dia e avaliação de setor', icone: 'check-square', tela: 'checklist' },
       { nome: 'Visita Técnica', desc: 'Checklist do técnico veterinário', icone: 'shield', tela: 'visitaTecnica' },
     ],
   },
   {
-    id: 'resultados', nome: 'Resultados', desc: 'Vendas, quebras e giro de produtos',
+    id: 'resultados', nome: 'Resultados', desc: 'Venda da loja e venda do dia',
     icone: 'activity', cor: '#178553', fundo: '#DFF3E8',
     ferramentas: [
       { nome: 'Vendas da Loja', desc: 'Venda por setor e por dia', icone: 'pie-chart', tela: 'vendasLoja' },
       { nome: 'Venda do dia', desc: 'Total, setores, top 10 e PDF', icone: 'calendar', tela: 'vendaDia' },
-      { nome: 'Vendas', desc: 'Venda por categoria', icone: 'trending-up', tela: 'vendas' },
-      { nome: 'Perdas e Desperdício', desc: 'Quebra por setor e por produto', icone: 'trending-down', tela: 'perdas' },
-      { nome: 'Giro de Produtos', desc: 'Produtos parados e sem venda', icone: 'refresh-cw', tela: 'giro' },
     ],
-  },
-  {
-    id: 'estoque', nome: 'Estoque', desc: 'Saldo e preço de cada produto',
-    icone: 'package', cor: '#0B7F8E', fundo: '#DDF2F4',
-    ferramentas: [{ nome: 'Estoque Loja', desc: 'Saldo e preço de cada produto', icone: 'archive', tela: 'estoqueLoja' }],
   },
 ];
 
@@ -89,20 +80,16 @@ export default function HomeSupervisorScreen() {
       return <ChecklistHubScreen onVoltar={voltar} />;
     case 'visitaTecnica':
       return <VisitaTecnicaScreen usuarioNome={usuarioAtual.nome} usuarioMatricula={usuarioAtual.matricula ?? null} onVoltar={voltar} />;
-    case 'perdas':
-      return <PerdasAdminScreen onVoltar={voltar} />;
     case 'vendasLoja':
       return <VendasLojaScreen onVoltar={voltar} />;
     case 'vendaDia':
       return <VendaDiaScreen onVoltar={voltar} />;
-    case 'vendas':
-      return <VendasScreen onVoltar={voltar} />;
-    case 'giro':
-      return <GiroProdutosScreen onVoltar={voltar} />;
-    case 'estoqueLoja':
-      return <EstoqueLojaScreen onVoltar={voltar} />;
     case 'validade':
       return <ValidadeScreen onVoltar={voltar} />;
+    case 'buscaProduto':
+      return <BuscaProdutoScreen onVoltar={voltar} podeMapear={false} />;
+    case 'contagemFoco':
+      return <ContagemFocoScreen onVoltar={voltar} />;
     case 'sobre':
       return <SobreScreen onVoltar={voltar} />;
   }
@@ -112,6 +99,7 @@ export default function HomeSupervisorScreen() {
       nome={usuarioAtual.nome}
       usandoNuvem
       podeVerDono
+      mostrarBuscaProduto
       podeUsarIA={false}
       qtdVencendo={validades ? validades.length : null}
       qtdUrgentes={validades ? validades.filter((v) => diasRestantes(v.dataValidade) < 5).length : 0}

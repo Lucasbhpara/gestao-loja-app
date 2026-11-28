@@ -17,7 +17,7 @@ export type TelaFerramenta =
   | 'conferencias' | 'validade' | 'inventario' | 'estoqueLoja' | 'usoConsumo'
   | 'escalaFaltas' | 'chatIA' | 'sobre' | 'chegadas' | 'vendaDia' | 'relatorioMensal' | 'buscaProduto' | 'olhoValidade' | 'resultadosInventario'
   | 'pedidos' | 'pedidoFlv' | 'relatorioDiario' | 'ruptura' | 'rupturaTratativas' | 'conferenciaFolheto'
-  | 'escala5x2' | 'mapaPdv' | 'itensFoco';
+  | 'escala5x2' | 'mapaPdv' | 'itensFoco' | 'contagemFoco';
 
 export type Ferramenta = { nome: string; desc: string; icone: Icone; tela: TelaFerramenta; somenteDono?: boolean };
 export type GrupoId = 'rotina' | 'comercial' | 'resultados' | 'estoque';
