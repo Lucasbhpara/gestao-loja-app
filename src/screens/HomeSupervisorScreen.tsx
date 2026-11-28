@@ -13,6 +13,7 @@ import GiroProdutosScreen from './GiroProdutosScreen';
 import EstoqueLojaScreen from './EstoqueLojaScreen';
 import ValidadeScreen from './ValidadeScreen';
 import SobreScreen from './SobreScreen';
+import ContagemFocoScreen from './ContagemFocoScreen';
 import { Validade, buscarTodasValidades } from '../data/validadeApi';
 import { diasRestantes } from '../lib/validadeUtils';
 
@@ -29,6 +30,7 @@ const GRUPOS_SUPERVISOR: Grupo[] = [
     icone: 'check-circle', cor: '#2F7BFF', fundo: '#E3EDFF',
     ferramentas: [
       { nome: 'Visita Supervisor', desc: 'Orientações por setor, com fotos e PDF', icone: 'user-check', tela: 'visitaSupervisor' },
+      { nome: 'Contagem nas lojas', desc: 'Manda o link dos itens foco e acompanha cada loja em tempo real', icone: 'radio', tela: 'contagemFoco' },
       { nome: 'Checklist', desc: 'Rotina do dia e avaliação de setor', icone: 'check-square', tela: 'checklist' },
       { nome: 'Visita Técnica', desc: 'Checklist do técnico veterinário', icone: 'shield', tela: 'visitaTecnica' },
     ],
@@ -103,6 +105,8 @@ export default function HomeSupervisorScreen() {
       return <EstoqueLojaScreen onVoltar={voltar} />;
     case 'validade':
       return <ValidadeScreen onVoltar={voltar} />;
+    case 'contagemFoco':
+      return <ContagemFocoScreen onVoltar={voltar} />;
     case 'sobre':
       return <SobreScreen onVoltar={voltar} />;
   }

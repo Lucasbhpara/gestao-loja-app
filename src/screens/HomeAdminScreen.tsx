@@ -57,6 +57,7 @@ import {
   definirUsarVersaoAntiga,
 } from '../data/ulva2Flag';
 import { ehDonoMatricula } from '../data/donos';
+import ContagemFocoScreen from './ContagemFocoScreen';
 
 // Aba de chat com a IA visível só nesse login específico (Lucas), não pros
 // demais administradores. Identificado pela matrícula (e não pelo id),
@@ -104,6 +105,7 @@ export default function HomeAdminScreen() {
     | 'relatorioMensal'
     | 'conferenciaFolheto'
     | 'itensFoco'
+    | 'contagemFoco'
     | 'buscaProduto'
     | 'resultadosInventario'
     | 'ruptura'
@@ -385,6 +387,10 @@ export default function HomeAdminScreen() {
   if (tela === 'itensFoco' && ehDono) {
     return <ItensFocoScreen onVoltar={() => setTela('home')} />;
   }
+  // Contagem nas lojas (itens foco, link + acompanhamento): donos e supervisor.
+  if (tela === 'contagemFoco' && ehDono) {
+    return <ContagemFocoScreen onVoltar={() => setTela('home')} />;
+  }
   // Relatório mensal: só o Lucas (mesma trava do Relatório diário).
   if (tela === 'relatorioMensal' && ehDono) {
     return <RelatorioMensalScreen onVoltar={() => setTela('home')} />;
@@ -403,7 +409,7 @@ export default function HomeAdminScreen() {
                 g.id === 'resultados'
                   ? { ...g, ferramentas: [{ nome: 'Relatório diário', desc: 'Venda, meta, folgas e quebra — PDF', icone: 'file-text', tela: 'relatorioDiario' }, { nome: 'Relatório mensal', desc: 'Meta, caixas, horários, quebras, turnover e PDF', icone: 'file-text', tela: 'relatorioMensal' }, ...g.ferramentas] }
                   : g.id === 'rotina'
-                    ? { ...g, ferramentas: [{ nome: 'Conferência folheto', desc: 'OK, ruptura e sem explosivo + relatório no WhatsApp', icone: 'clipboard', tela: 'conferenciaFolheto' }, { nome: 'Itens Foco', desc: 'Lista do supervisor: conferência, rota no mapa e estoque no CD', icone: 'target', tela: 'itensFoco' }, ...g.ferramentas] }
+                    ? { ...g, ferramentas: [{ nome: 'Conferência folheto', desc: 'OK, ruptura e sem explosivo + relatório no WhatsApp', icone: 'clipboard', tela: 'conferenciaFolheto' }, { nome: 'Itens Foco', desc: 'Lista do supervisor: conferência, rota no mapa e estoque no CD', icone: 'target', tela: 'itensFoco' }, { nome: 'Contagem nas lojas', desc: 'Manda o link dos itens foco e acompanha cada loja em tempo real', icone: 'radio', tela: 'contagemFoco' }, ...g.ferramentas] }
                     : g,
               )
             : undefined
@@ -542,6 +548,7 @@ export default function HomeAdminScreen() {
             ...(ehDono ? [{ label: 'Relatório mensal', icone: 'file-text' as const, onPress: () => setTela('relatorioMensal') }] : []),
             ...(ehDono ? [{ label: 'Conferência folheto', icone: 'clipboard' as const, onPress: () => setTela('conferenciaFolheto') }] : []),
             ...(ehDono ? [{ label: 'Itens Foco', icone: 'target' as const, onPress: () => setTela('itensFoco') }] : []),
+            ...(ehDono ? [{ label: 'Contagem nas lojas', icone: 'radio' as const, onPress: () => setTela('contagemFoco') }] : []),
             { label: 'Vendas', icone: 'trending-up' as const, onPress: () => setTela('vendas') },
             // Produtos sem venda / parados, por setor → subcategoria.
             // Por enquanto só Lucas e Rodrigo (MATRICULAS_GIRO) — pra liberar
