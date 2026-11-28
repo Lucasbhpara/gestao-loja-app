@@ -60,3 +60,64 @@ export async function encerrarContagem(id: string): Promise<void> {
   const { error } = await supabase.from('contagem_campanhas').update({ ativa: false }).eq('id', id);
   if (error) throw new Error(error.message);
 }
+
+export type StatusItem = 'tem' | 'baixo' | 'ruptura' | null;
+export type ItemLoja = { cod: string; nome: string; status: StatusItem; qtd: number | null; obs: string | null; por: string | null };
+
+// Itens da contagem + todas as respostas (para o detalhe por loja e o compartilhar).
+export async function respostasContagem(id: string): Promise<{ itens: { cod: string; nome: string }[]; respostas: any[] }> {
+  const { data: c, error: e1 } = await supabase.from('contagem_campanhas').select('itens').eq('id', id).maybeSingle();
+  if (e1) throw new Error(e1.message);
+  // O Supabase devolve no máximo 1000 linhas por vez: busca em páginas.
+  const respostas: any[] = [];
+  for (let de = 0; de < 50000; de += 1000) {
+    const { data: r, error: e2 } = await supabase.from('contagem_respostas')
+      .select('loja,item_cod,status,qtd,obs,respondido_por').eq('campanha_id', id)
+      .order('loja').order('item_cod').range(de, de + 999);
+    if (e2) throw new Error(e2.message);
+    respostas.push(...((r as any[]) ?? []));
+    if (!r || r.length < 1000) break;
+  }
+  return { itens: ((c as any)?.itens ?? []) as { cod: string; nome: string }[], respostas };
+}
+
+export function itensDaLoja(dados: { itens: { cod: string; nome: string }[]; respostas: any[] }, loja: string): ItemLoja[] {
+  const mapa = new Map<string, any>();
+  dados.respostas.filter((x) => x.loja === loja).forEach((x) => mapa.set(String(x.item_cod), x));
+  return dados.itens.map((i) => {
+    const x = mapa.get(String(i.cod));
+    return { cod: String(i.cod), nome: i.nome || String(i.cod), status: (x?.status ?? null) as StatusItem, qtd: x?.qtd ?? null, obs: x?.obs ?? null, por: x?.respondido_por ?? null };
+  });
+}
+
+const rotulo = (i: ItemLoja) => `${i.cod} – ${i.nome}${i.qtd != null ? ` (${i.qtd})` : ''}`;
+
+// Texto para WhatsApp com o resultado de UMA loja.
+export function textoLoja(titulo: string, loja: string, itens: ItemLoja[]): string {
+  const rup = itens.filter((i) => i.status === 'ruptura');
+  const pouco = itens.filter((i) => i.status === 'baixo');
+  const falta = itens.filter((i) => !i.status);
+  const l = [`📋 *${titulo}*`, `🏪 *${loja}* · ${itens.length - falta.length}/${itens.length} itens conferidos`, ''];
+  l.push(`🔴 *Ruptura (${rup.length})*`); rup.forEach((i) => l.push(`• ${rotulo(i)}`));
+  if (pouco.length) { l.push('', `🟡 *Pouco (${pouco.length})*`); pouco.forEach((i) => l.push(`• ${rotulo(i)}`)); }
+  if (falta.length) { l.push('', `⚪ *Não conferidos (${falta.length})*`); falta.slice(0, 60).forEach((i) => l.push(`• ${rotulo(i)}`)); if (falta.length > 60) l.push(`… e mais ${falta.length - 60}`); }
+  return l.join('\n');
+}
+
+// Texto para WhatsApp com as rupturas de TODAS as lojas.
+export function textoRupturasGeral(titulo: string, lojas: string[], dados: { itens: { cod: string; nome: string }[]; respostas: any[] }): string {
+  const l = [`📋 *${titulo}* — rupturas por loja`, ''];
+  let total = 0;
+  lojas.forEach((loja) => {
+    const its = itensDaLoja(dados, loja);
+    const rup = its.filter((i) => i.status === 'ruptura');
+    const conf = its.filter((i) => i.status).length;
+    if (!conf) { l.push(`🏪 *${loja}* — ainda não conferiu`, ''); return; }
+    total += rup.length;
+    l.push(`🏪 *${loja}* — ${rup.length ? `🔴 ${rup.length} ruptura${rup.length > 1 ? 's' : ''}` : '✅ sem ruptura'} (${conf}/${its.length} conferidos)`);
+    rup.forEach((i) => l.push(`• ${rotulo(i)}`));
+    l.push('');
+  });
+  l.push(`Total de rupturas: *${total}*`);
+  return l.join('\n');
+}

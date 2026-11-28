@@ -7,6 +7,7 @@ import { useAuth } from '../context/AuthContext';
 import {
   ModeloContagem, ContagemAberta, ResumoContagem, listarModelos, listarLojas, listarAbertas,
   criarContagem, resumoContagem, encerrarContagem, linkLoja, linkPainel,
+  respostasContagem, itensDaLoja, textoLoja, textoRupturasGeral, ItemLoja, StatusItem,
 } from '../data/contagemFocoApi';
 
 // =============================================================================
@@ -19,7 +20,7 @@ const VERDE = '#178553';
 const VERMELHO = '#D0342C';
 const AMARELO = '#B7791F';
 
-type Modo = { tipo: 'lista' } | { tipo: 'nova' } | { tipo: 'acompanhar'; id: string };
+type Modo = { tipo: 'lista' } | { tipo: 'nova' } | { tipo: 'acompanhar'; id: string } | { tipo: 'loja'; id: string; titulo: string; loja: string };
 
 function dataCurta(iso: string | null | undefined) {
   if (!iso) return '';
@@ -38,7 +39,8 @@ async function compartilharLinks(id: string, titulo: string, qual: 'loja' | 'pai
 export default function ContagemFocoScreen({ onVoltar }: { onVoltar: () => void }) {
   const [modo, setModo] = useState<Modo>({ tipo: 'lista' });
   if (modo.tipo === 'nova') return <Nova onVoltar={() => setModo({ tipo: 'lista' })} onCriada={(id) => setModo({ tipo: 'acompanhar', id })} />;
-  if (modo.tipo === 'acompanhar') return <Acompanhar id={modo.id} onVoltar={() => setModo({ tipo: 'lista' })} />;
+  if (modo.tipo === 'loja') return <DetalheLoja id={modo.id} titulo={modo.titulo} loja={modo.loja} onVoltar={() => setModo({ tipo: 'acompanhar', id: modo.id })} />;
+  if (modo.tipo === 'acompanhar') return <Acompanhar id={modo.id} onVoltar={() => setModo({ tipo: 'lista' })} onLoja={(titulo, loja) => setModo({ tipo: 'loja', id: modo.id, titulo, loja })} />;
   return <Lista onVoltar={onVoltar} onNova={() => setModo({ tipo: 'nova' })} onAbrir={(id) => setModo({ tipo: 'acompanhar', id })} />;
 }
 
@@ -179,7 +181,24 @@ function Nova({ onVoltar, onCriada }: { onVoltar: () => void; onCriada: (id: str
 }
 
 // ---------------------------------------------------------------------------
-function Acompanhar({ id, onVoltar }: { id: string; onVoltar: () => void }) {
+async function compartilharTexto(msg: string) {
+  try { await Share.share({ message: msg }); } catch { /* cancelado */ }
+}
+
+function Acompanhar({ id, onVoltar, onLoja }: { id: string; onVoltar: () => void; onLoja: (titulo: string, loja: string) => void }) {
+  const [compartilhando, setCompartilhando] = useState(false);
+  async function compartilharRupturas() {
+    if (!r) return;
+    setCompartilhando(true);
+    try {
+      const dados = await respostasContagem(id);
+      await compartilharTexto(textoRupturasGeral(r.titulo, r.lojas.map((l) => l.loja), dados));
+    } catch (e: any) {
+      Alert.alert('Não deu certo', e?.message ?? '');
+    } finally {
+      setCompartilhando(false);
+    }
+  }
   const [r, setR] = useState<ResumoContagem | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [atualizando, setAtualizando] = useState(false);
@@ -234,23 +253,31 @@ function Acompanhar({ id, onVoltar }: { id: string; onVoltar: () => void }) {
             </View>
             <Text style={s.legenda}>{r.total_itens} itens × {r.total_lojas} lojas · atualiza sozinho a cada 15 s{quando ? ` · ${dataCurta(quando.toISOString()).slice(6)}` : ''}</Text>
 
-            <Text style={s.secao}>PROGRESSO POR LOJA</Text>
+            <TouchableOpacity style={[s.botaoSec, compartilhando && { opacity: 0.6 }]} onPress={compartilharRupturas} disabled={compartilhando}>
+              {compartilhando ? <ActivityIndicator color={colors.navy700} /> : <Feather name="send" size={16} color={colors.navy700} />}
+              <Text style={s.botaoSecTxt}>Compartilhar rupturas de todas as lojas</Text>
+            </TouchableOpacity>
+
+            <Text style={s.secao}>PROGRESSO POR LOJA · TOQUE PARA VER OS ITENS</Text>
             <View style={s.card}>
               {lojas.map((l, i) => {
                 const lp = pct(l.feitos, r.total_itens);
                 const cor = lp >= 100 ? VERDE : lp > 0 ? AMARELO : colors.gray400;
                 return (
-                  <View key={l.loja} style={[{ paddingVertical: 10, gap: 4 }, i > 0 && s.linhaBorda]}>
+                  <TouchableOpacity key={l.loja} onPress={() => onLoja(r.titulo, l.loja)} style={[{ paddingVertical: 10, gap: 4 }, i > 0 && s.linhaBorda]}>
                     <View style={s.secaoLinha}>
                       <Text style={s.linhaTitulo}>{l.loja}</Text>
-                      <Text style={[s.linhaTitulo, { color: cor }]}>{lp >= 100 ? 'Concluída' : `${l.feitos}/${r.total_itens}`}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={[s.linhaTitulo, { color: cor }]}>{lp >= 100 ? 'Concluída' : `${l.feitos}/${r.total_itens}`}</Text>
+                        <Feather name="chevron-right" size={18} color={colors.gray400} />
+                      </View>
                     </View>
                     <View style={s.barra}><View style={[s.barraCheia, { width: `${lp}%`, backgroundColor: cor }]} /></View>
                     <Text style={s.legenda}>
                       {l.feitos ? `${l.quem ?? '—'} · ${dataCurta(l.ultima)}` : 'Não começou'}
                       {l.rupturas ? `  ·  🔴 ${l.rupturas} ruptura${l.rupturas > 1 ? 's' : ''}` : ''}
                     </Text>
-                  </View>
+                  </TouchableOpacity>
                 );
               })}
             </View>
@@ -272,6 +299,87 @@ function Acompanhar({ id, onVoltar }: { id: string; onVoltar: () => void }) {
             <TouchableOpacity onPress={encerrar} style={{ alignSelf: 'center', padding: 12 }}>
               <Text style={[s.link, { color: VERMELHO }]}>Encerrar contagem</Text>
             </TouchableOpacity>
+          </>
+        )}
+      </ScrollView>
+    </View>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Itens de UMA loja: o que tem, pouco, ruptura e o que falta conferir.
+const ROTULO: Record<string, { txt: string; cor: string; fundo: string }> = {
+  ruptura: { txt: 'Ruptura', cor: VERMELHO, fundo: '#FDE8E7' },
+  baixo: { txt: 'Pouco', cor: AMARELO, fundo: '#FDF3DC' },
+  tem: { txt: 'Tem', cor: VERDE, fundo: '#DFF3E8' },
+  nada: { txt: 'Não conferido', cor: colors.gray600, fundo: colors.gray100 },
+};
+type Filtro = 'ruptura' | 'baixo' | 'nada' | 'tem' | 'todos';
+
+function DetalheLoja({ id, titulo, loja, onVoltar }: { id: string; titulo: string; loja: string; onVoltar: () => void }) {
+  const [itens, setItens] = useState<ItemLoja[] | null>(null);
+  const [erro, setErro] = useState<string | null>(null);
+  const [filtro, setFiltro] = useState<Filtro>('ruptura');
+  const [atualizando, setAtualizando] = useState(false);
+
+  const carregar = useCallback(() => {
+    respostasContagem(id).then((d) => { setItens(itensDaLoja(d, loja)); setErro(null); })
+      .catch((e) => setErro(e.message)).finally(() => setAtualizando(false));
+  }, [id, loja]);
+  useEffect(() => {
+    carregar();
+    const t = setInterval(carregar, 15000);
+    return () => clearInterval(t);
+  }, [carregar]);
+
+  const chave = (st: StatusItem) => (st ?? 'nada') as Exclude<Filtro, 'todos'>;
+  const qtd = (f: Filtro) => (itens ?? []).filter((i) => f === 'todos' || chave(i.status) === f).length;
+  const lista = (itens ?? []).filter((i) => filtro === 'todos' || chave(i.status) === filtro);
+  const quem = [...new Set((itens ?? []).map((i) => i.por).filter(Boolean))].join(', ');
+
+  return (
+    <View style={s.flex}>
+      <CabecalhoTela titulo={loja} subtitulo={titulo} icone="home" onVoltar={onVoltar} />
+      <ScrollView style={s.flex} contentContainerStyle={s.conteudo}
+        refreshControl={<RefreshControl refreshing={atualizando} onRefresh={() => { setAtualizando(true); carregar(); }} />}>
+        {erro && !itens ? <Text style={s.vazio}>{erro}</Text> : !itens ? <ActivityIndicator color={colors.navy700} style={{ marginTop: 30 }} /> : (
+          <>
+            <TouchableOpacity style={s.botao} onPress={() => compartilharTexto(textoLoja(titulo, loja, itens))}>
+              <Feather name="share-2" size={18} color={colors.white} />
+              <Text style={s.botaoTxt}>Compartilhar itens desta loja</Text>
+            </TouchableOpacity>
+            <Text style={s.legenda}>
+              {itens.length - qtd('nada')}/{itens.length} conferidos{quem ? ` · por ${quem}` : ''}
+            </Text>
+            <View style={s.chips}>
+              {(['ruptura', 'baixo', 'nada', 'tem', 'todos'] as Filtro[]).map((f) => {
+                const on = filtro === f;
+                const rot = f === 'todos' ? 'Todos' : ROTULO[f].txt;
+                return (
+                  <TouchableOpacity key={f} style={[s.chip, on && s.chipOn]} onPress={() => setFiltro(f)}>
+                    <Text style={[s.chipTxt, on && s.chipTxtOn]}>{rot} ({qtd(f)})</Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+            {lista.length === 0 ? <Text style={s.vazio}>Nenhum item aqui.</Text> : (
+              <View style={s.card}>
+                {lista.map((it, i) => {
+                  const r = ROTULO[chave(it.status)];
+                  return (
+                    <View key={it.cod} style={[s.secaoLinha, { paddingVertical: 9, alignItems: 'flex-start' }, i > 0 && s.linhaBorda]}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={[s.legenda, { color: colors.gray900, fontWeight: '600' }]}>{it.nome}</Text>
+                        <Text style={s.legenda}>{it.cod}{it.qtd != null ? ` · qtd ${it.qtd}` : ''}{it.obs ? ` · ${it.obs}` : ''}</Text>
+                      </View>
+                      <View style={{ backgroundColor: r.fundo, borderRadius: radius.full, paddingHorizontal: 10, paddingVertical: 3 }}>
+                        <Text style={{ color: r.cor, fontWeight: '700', fontSize: 12 }}>{r.txt}</Text>
+                      </View>
+                    </View>
+                  );
+                })}
+              </View>
+            )}
           </>
         )}
       </ScrollView>

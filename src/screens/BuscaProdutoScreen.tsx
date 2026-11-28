@@ -23,7 +23,7 @@ const reais = (v: number | null) => (v == null ? '—' : 'R$ ' + v.toLocaleStrin
 const numero = (v: number | null, casas = 0) => (v == null ? '—' : v.toLocaleString('pt-BR', { maximumFractionDigits: casas }));
 const dataBR = (d: string | null) => (d ? d.slice(0, 10).split('-').reverse().join('/') : '—');
 
-export default function BuscaProdutoScreen({ onVoltar, abrirLeitor = true }: { onVoltar: () => void; abrirLeitor?: boolean }) {
+export default function BuscaProdutoScreen({ onVoltar, abrirLeitor = true, podeMapear = true }: { onVoltar: () => void; abrirLeitor?: boolean; podeMapear?: boolean }) {
   const { usuarioAtual } = useAuth();
   const quem = usuarioAtual?.nome ?? '';
   const [lendo, setLendo] = useState(abrirLeitor);
@@ -269,10 +269,12 @@ export default function BuscaProdutoScreen({ onVoltar, abrirLeitor = true }: { o
             <Text style={styles.vazio}>Toque no leitor para bipar o produto, ou digite pelo menos 3 letras do nome.</Text>
           </View>
         )}
-        <TouchableOpacity style={styles.btnMapear} onPress={() => setMapear(true)}>
-          <Feather name="map" size={16} color={AZUL} />
-          <Text style={styles.btnMapearTexto}>Mapear sub-sortimentos (3 exemplos de cada)</Text>
-        </TouchableOpacity>
+        {podeMapear && (
+          <TouchableOpacity style={styles.btnMapear} onPress={() => setMapear(true)}>
+            <Feather name="map" size={16} color={AZUL} />
+            <Text style={styles.btnMapearTexto}>Mapear sub-sortimentos (3 exemplos de cada)</Text>
+          </TouchableOpacity>
+        )}
       </ScrollView>
       <LeitorCodigo visivel={lendo} modo="barras" onLido={lido} onCancelar={() => setLendo(false)} />
     </View>
